@@ -26,7 +26,12 @@ build: ## Build the moansubs binary into ./moansubs.
 
 .PHONY: test
 test: ## Run unit tests with race detector.
-	$(GO) test -race -count=1 $(PKGS)
+	# -p 1: internal/store and internal/api both TRUNCATE the same shared
+	# tables when DATABASE_URL is set, so their test binaries must not run
+	# concurrently against the same live Postgres — go test defaults to
+	# running separate packages' binaries in parallel, which would race two
+	# packages' setup TRUNCATEs against each other's in-flight assertions.
+	$(GO) test -p 1 -race -count=1 $(PKGS)
 
 .PHONY: vet
 vet: ## go vet on all packages.

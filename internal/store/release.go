@@ -29,24 +29,30 @@ type Release struct {
 
 const releaseColumns = `id, work_id, oshash, phash, md5, duration_ms, width, height, video_codec, created_at`
 
-// CreateRelease inserts r and returns its assigned id. The 5 MIH block
-// columns are computed here in Go from r.PHash — internal/hash is the
-// single source of truth for that computation, not SQL — and stored
-// alongside the raw phash so each block can carry its own index.
-func (s *Store) CreateRelease(ctx context.Context, r Release) (int64, error) {
-	var phashBig *int64
-	var b0, b1, b2, b3, b4 *int16
-	if r.PHash != nil {
-		v := r.PHash.ToBigint()
-		phashBig = &v
-
-		blocks := r.PHash.Blocks()
-		var vals [5]int16
-		for i, b := range blocks {
-			vals[i] = int16(b) // block values fit in 13 bits; always non-negative in int16 range
-		}
-		b0, b1, b2, b3, b4 = &vals[0], &vals[1], &vals[2], &vals[3], &vals[4]
+// phashColumns computes the raw signed-bigint phash plus its 5 MIH block
+// values from r.PHash, all nil when r.PHash is nil — internal/hash is the
+// single source of truth for that computation, not SQL. Shared by
+// CreateRelease and GetOrCreateRelease so both insert paths stay consistent.
+func phashColumns(r Release) (phashBig *int64, b0, b1, b2, b3, b4 *int16) {
+	if r.PHash == nil {
+		return nil, nil, nil, nil, nil, nil
 	}
+	v := r.PHash.ToBigint()
+	phashBig = &v
+
+	blocks := r.PHash.Blocks()
+	var vals [5]int16
+	for i, b := range blocks {
+		vals[i] = int16(b) // block values fit in 13 bits; always non-negative in int16 range
+	}
+	return phashBig, &vals[0], &vals[1], &vals[2], &vals[3], &vals[4]
+}
+
+// CreateRelease inserts r and returns its assigned id. The 5 MIH block
+// columns are computed here in Go from r.PHash and stored alongside the raw
+// phash so each block can carry its own index.
+func (s *Store) CreateRelease(ctx context.Context, r Release) (int64, error) {
+	phashBig, b0, b1, b2, b3, b4 := phashColumns(r)
 
 	var id int64
 	err := s.pool.QueryRow(ctx, `
@@ -63,10 +69,40 @@ func (s *Store) CreateRelease(ctx context.Context, r Release) (int64, error) {
 	return id, nil
 }
 
+// GetOrCreateRelease returns the existing release matching r.OSHash, or
+// creates one from r if none exists yet. Race-safe under concurrent uploads
+// of the same file via INSERT ... ON CONFLICT (oshash) DO NOTHING followed
+// by a fetch, rather than a check-then-insert — two uploaders racing to
+// register a byte-identical file both end up pointing at the same release
+// row instead of one failing on a unique-constraint error (PLAN.md "Data
+// model": "duplicate oshash = byte-identical file = same release").
+// Requires the migration 0002 unique index on releases(oshash).
+func (s *Store) GetOrCreateRelease(ctx context.Context, r Release) (*Release, error) {
+	phashBig, b0, b1, b2, b3, b4 := phashColumns(r)
+
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO releases (work_id, oshash, phash, phash_b0, phash_b1, phash_b2, phash_b3, phash_b4,
+		                       md5, duration_ms, width, height, video_codec)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		ON CONFLICT (oshash) DO NOTHING`,
+		r.WorkID, string(r.OSHash), phashBig, b0, b1, b2, b3, b4,
+		r.MD5, r.DurationMs, r.Width, r.Height, r.VideoCodec,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("store: GetOrCreateRelease: inserting: %w", err)
+	}
+
+	got, err := s.GetReleaseByOshash(ctx, r.OSHash)
+	if err != nil {
+		return nil, fmt.Errorf("store: GetOrCreateRelease: fetching: %w", err)
+	}
+	return got, nil
+}
+
 // GetReleaseByOshash returns the release with an exact oshash match
 // (PLAN.md "Matching" level 1: identical file), or ErrNotFound if none
-// exists. If duplicates exist (two independent uploads of a
-// byte-identical file), the lowest id wins.
+// exists. oshash is unique as of migration 0002, so at most one row can
+// ever match.
 func (s *Store) GetReleaseByOshash(ctx context.Context, h hash.OSHash) (*Release, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT `+releaseColumns+`
