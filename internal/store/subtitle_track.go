@@ -74,6 +74,57 @@ func (s *Store) GetSubtitleTrack(ctx context.Context, id int64) (*SubtitleTrack,
 	return t, nil
 }
 
+// SubtitleTrackSummary is the lightweight per-track view the lookup
+// endpoints attach to each release (PLAN.md "Lookup" response shape) — id,
+// language and provenance/license flags, without the (potentially large)
+// body text a bucket listing has no reason to carry.
+type SubtitleTrackSummary struct {
+	ID            int64
+	Lang          string
+	Generated     bool
+	License       string
+	HasProvenance bool
+	CreatedAt     time.Time
+}
+
+// TrackSummariesByReleaseIDs returns every subtitle track for the given
+// release ids, as summaries grouped by release id. A single `= ANY($1)`
+// query rather than one query per release: the lookup endpoints can return
+// dozens of releases per bucket (or up to 100 via the batch endpoint), and
+// N+1 there would multiply request count right along with the pattern the
+// batch endpoint exists to avoid.
+func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int64) (map[int64][]SubtitleTrackSummary, error) {
+	out := make(map[int64][]SubtitleTrackSummary, len(releaseIDs))
+	if len(releaseIDs) == 0 {
+		return out, nil
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, release_id, lang, generated, license, provenance IS NOT NULL, created_at
+		FROM subtitle_tracks
+		WHERE release_id = ANY($1)
+		ORDER BY release_id, id`, releaseIDs)
+	if err != nil {
+		return nil, fmt.Errorf("store: TrackSummariesByReleaseIDs: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			t         SubtitleTrackSummary
+			releaseID int64
+		)
+		if err := rows.Scan(&t.ID, &releaseID, &t.Lang, &t.Generated, &t.License, &t.HasProvenance, &t.CreatedAt); err != nil {
+			return nil, fmt.Errorf("store: TrackSummariesByReleaseIDs: scanning: %w", err)
+		}
+		out[releaseID] = append(out[releaseID], t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: TrackSummariesByReleaseIDs: %w", err)
+	}
+	return out, nil
+}
+
 func scanSubtitleTrack(row rowScanner) (*SubtitleTrack, error) {
 	var (
 		id         int64
