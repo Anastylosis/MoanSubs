@@ -24,6 +24,14 @@ help: ## Show this help.
 build: ## Build the moansubs binary into ./moansubs.
 	$(GO) build -o moansubs ./cmd/moansubs
 
+.PHONY: plugin
+plugin: ## Build the Stash plugin exec binary for linux/amd64 and linux/arm64 into ./plugin/dist/.
+	# Static binaries: the plugin runs inside whatever container the user's
+	# Stash lives in, which may lack a libc the host toolchain assumed.
+	mkdir -p plugin/dist
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -ldflags="-s -w" -o plugin/dist/moansubs-plugin-linux-amd64 ./plugin
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build -trimpath -ldflags="-s -w" -o plugin/dist/moansubs-plugin-linux-arm64 ./plugin
+
 .PHONY: test
 test: ## Run unit tests with race detector.
 	# -p 1: internal/store and internal/api both TRUNCATE the same shared
