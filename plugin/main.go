@@ -102,9 +102,9 @@ func (r *runner) Stop(_ struct{}, output *bool) error {
 func dispatch(ctx context.Context, input PluginInput) (any, error) {
 	mode, _ := input.Args["mode"].(string)
 	switch mode {
-	case "probe", "search", "download":
+	case "probe", "search", "download", "badge":
 	default:
-		return nil, fmt.Errorf("unknown mode %q (want probe, search or download)", mode)
+		return nil, fmt.Errorf("unknown mode %q (want probe, search, download or badge)", mode)
 	}
 
 	app, err := newApp(ctx, input)
@@ -117,6 +117,8 @@ func dispatch(ctx context.Context, input PluginInput) (any, error) {
 		return app.probe(ctx)
 	case "search":
 		return app.search(ctx, argString(input.Args, "scene_id"))
+	case "badge":
+		return app.badge(ctx, argStrings(input.Args, "scene_ids"))
 	default:
 		return app.download(ctx, downloadArgs{
 			SceneID:   argString(input.Args, "scene_id"),
@@ -142,4 +144,19 @@ func argString(args map[string]any, key string) string {
 func argBool(args map[string]any, key string) bool {
 	b, _ := args[key].(bool)
 	return b
+}
+
+// argStrings reads an array arg of string-or-number scene ids.
+func argStrings(args map[string]any, key string) []string {
+	arr, _ := args[key].([]any)
+	out := make([]string, 0, len(arr))
+	for _, v := range arr {
+		switch s := v.(type) {
+		case string:
+			out = append(out, s)
+		case float64:
+			out = append(out, fmt.Sprintf("%.0f", s))
+		}
+	}
+	return out
 }
