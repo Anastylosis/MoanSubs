@@ -57,7 +57,10 @@ jobs:
         # failing test would go green. The pipe itself is load-bearing: the
         # coverage-summary step below reads test-output.txt.
         shell: bash
-        run: gotestsum --junitfile junit.xml -- -race -count=1 -coverprofile=coverage.out -covermode=atomic ./... 2>&1 | tee test-output.txt
+        # -p 1: internal/store and internal/api both TRUNCATE the shared
+        # Postgres service container's tables in test setup, so their test
+        # binaries must run one at a time, not in parallel (see Makefile).
+        run: gotestsum --junitfile junit.xml -- -p 1 -race -count=1 -coverprofile=coverage.out -covermode=atomic ./... 2>&1 | tee test-output.txt
 
       # TODO: fuzz SRT/VTT parser once internal/subs lands
       - name: Upload coverage to Codecov
