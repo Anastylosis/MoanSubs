@@ -2,8 +2,11 @@ package msclient
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/Wasylq/moansubs/internal/api"
@@ -80,6 +83,54 @@ func TestLookupBuckets_FindsExactAndNearMatches(t *testing.T) {
 	}
 	if !ids[nearID] {
 		t.Errorf("bucket lookup missed the Hamming-2 release %d — the MIH pigeonhole guarantee is broken", nearID)
+	}
+}
+
+func TestUpload_IdempotentOnRepush(t *testing.T) {
+	c, s := newTestServer(t)
+	ctx := context.Background()
+
+	// The upload path needs a real account token.
+	token := "test-token-abc"
+	sum := sha256.Sum256([]byte(token))
+	if _, err := s.Pool().Exec(ctx,
+		`INSERT INTO accounts (name, token_hash) VALUES ('pusher', $1)`,
+		hex.EncodeToString(sum[:])); err != nil {
+		t.Fatal(err)
+	}
+	c.Token = token
+
+	req := UploadRequest{
+		OSHash:     "00000000deadbeef",
+		DurationMs: 125_000,
+		Lang:       "en",
+		Body:       "1\n00:00:05,000 --> 00:00:09,000\nhello\n\n2\n00:02:00,000 --> 00:02:04,000\nworld\n",
+	}
+	first, err := c.Upload(ctx, req)
+	if err != nil {
+		t.Fatalf("first upload: %v", err)
+	}
+	if first.Duplicate {
+		t.Error("first upload flagged duplicate")
+	}
+
+	second, err := c.Upload(ctx, req)
+	if err != nil {
+		t.Fatalf("second upload: %v", err)
+	}
+	if !second.Duplicate {
+		t.Error("re-push of identical subtitle must be a duplicate, not a new track")
+	}
+	if second.TrackID != first.TrackID {
+		t.Errorf("duplicate returned track %d, want original %d", second.TrackID, first.TrackID)
+	}
+}
+
+func TestUpload_RequiresToken(t *testing.T) {
+	c := New("http://localhost:1", "")
+	_, err := c.Upload(context.Background(), UploadRequest{})
+	if err == nil || !strings.Contains(err.Error(), "token") {
+		t.Fatalf("want clear no-token error, got %v", err)
 	}
 }
 

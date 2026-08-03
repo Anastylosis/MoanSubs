@@ -32,6 +32,9 @@ type uploadResponse struct {
 	TrackID   int64 `json:"track_id"`
 	ReleaseID int64 `json:"release_id"`
 	Generated bool  `json:"generated"`
+	// Duplicate is true when a byte-identical track already existed and its
+	// id was returned instead of inserting a copy (HTTP 200, not 201).
+	Duplicate bool `json:"duplicate,omitempty"`
 }
 
 var md5Pattern = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
@@ -164,6 +167,24 @@ func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("api: GetOrCreateRelease: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	// Idempotent upload: a byte-identical track for the same release and
+	// language returns the existing id (200, duplicate:true) instead of
+	// inserting again. Bulk seeding (the plugin's push task over a whole
+	// library) must be safe to re-run without doubling every track.
+	if existingID, err := s.Store.FindIdenticalTrack(ctx, release.ID, req.Lang, rendered); err != nil {
+		log.Printf("api: FindIdenticalTrack: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	} else if existingID != 0 {
+		writeJSON(w, http.StatusOK, uploadResponse{
+			TrackID:   existingID,
+			ReleaseID: release.ID,
+			Generated: generated,
+			Duplicate: true,
+		})
 		return
 	}
 

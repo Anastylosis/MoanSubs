@@ -203,6 +203,32 @@ func (c *Client) FindScene(ctx context.Context, id string) (*Scene, error) {
 	return resp.FindScene, nil
 }
 
+// FindScenesPage returns one page of all scenes, id-ascending, plus the
+// total count — the iteration backbone for library-wide tasks.
+func (c *Client) FindScenesPage(ctx context.Context, page, perPage int) ([]Scene, int, error) {
+	fields := `id title files { path duration fingerprints { type value } }`
+	if c.SupportsCaptions {
+		fields += ` captions { language_code caption_type }`
+	}
+	var resp struct {
+		FindScenes struct {
+			Count  int     `json:"count"`
+			Scenes []Scene `json:"scenes"`
+		} `json:"findScenes"`
+	}
+	err := c.Execute(ctx,
+		`query($pp: Int!, $p: Int!) {
+			findScenes(filter: {per_page: $pp, page: $p, sort: "id", direction: ASC}) {
+				count scenes { `+fields+` }
+			}
+		}`,
+		map[string]any{"pp": perPage, "p": page}, &resp)
+	if err != nil {
+		return nil, 0, err
+	}
+	return resp.FindScenes.Scenes, resp.FindScenes.Count, nil
+}
+
 // PluginSettings fetches this plugin's settings map from Stash's
 // configuration. Returns an empty map when the plugin has no settings yet.
 func (c *Client) PluginSettings(ctx context.Context, pluginID string) (map[string]any, error) {

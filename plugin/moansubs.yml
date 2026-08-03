@@ -41,3 +41,12 @@ tasks:
     description: Check connectivity to Stash and the moansubs server
     defaultArgs:
       mode: probe
+  - name: Push subtitles (dry run)
+    description: Report which sidecar subtitles would be uploaded, without uploading
+    defaultArgs:
+      mode: push_all
+      dry_run: true
+  - name: Push subtitles
+    description: Upload every sidecar subtitle in the library to the moansubs server (safe to re-run)
+    defaultArgs:
+      mode: push_all

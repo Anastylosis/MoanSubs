@@ -35,6 +35,25 @@ type SubtitleTrack struct {
 const subtitleTrackColumns = `id, release_id, lang, body, generated, provenance, license, source, uploader_id, created_at`
 
 // CreateSubtitleTrack inserts t and returns its assigned id.
+// FindIdenticalTrack returns the id of an existing track with the same
+// release, language and byte-identical body, or 0 when none exists. Backs
+// the upload endpoint's idempotency: bulk seeding must be re-runnable
+// without duplicating tracks.
+func (s *Store) FindIdenticalTrack(ctx context.Context, releaseID int64, lang, body string) (int64, error) {
+	var id int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT id FROM subtitle_tracks
+		WHERE release_id = $1 AND lang = $2 AND body = $3
+		ORDER BY id LIMIT 1`, releaseID, lang, body).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("store: FindIdenticalTrack: %w", err)
+	}
+	return id, nil
+}
+
 func (s *Store) CreateSubtitleTrack(ctx context.Context, t SubtitleTrack) (int64, error) {
 	license := t.License
 	if license == "" {
