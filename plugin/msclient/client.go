@@ -203,6 +203,48 @@ func (c *Client) LookupExact(ctx context.Context, oshash hash.OSHash, phash *has
 	return resp.Releases, nil
 }
 
+// UploadRequest is one subtitle upload (POST /api/v1/subtitles).
+type UploadRequest struct {
+	OSHash     string `json:"oshash"`
+	PHash      string `json:"phash,omitempty"`
+	MD5        string `json:"md5,omitempty"`
+	DurationMs int64  `json:"duration_ms"`
+	Lang       string `json:"lang"`
+	Body       string `json:"body"`
+}
+
+// UploadResult mirrors the server's upload response.
+type UploadResult struct {
+	TrackID   int64 `json:"track_id"`
+	ReleaseID int64 `json:"release_id"`
+	Generated bool  `json:"generated"`
+	// Duplicate means a byte-identical track already existed server-side —
+	// the normal outcome when a push task is re-run.
+	Duplicate bool `json:"duplicate"`
+}
+
+// Upload pushes one subtitle to the server. Requires the account token.
+func (c *Client) Upload(ctx context.Context, req UploadRequest) (*UploadResult, error) {
+	if c.Token == "" {
+		return nil, fmt.Errorf("msclient: no upload token configured — create an account on the server and paste its token into the plugin settings")
+	}
+	b, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("msclient: marshalling upload: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/api/v1/subtitles", bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+	var res UploadResult
+	if err := c.do(httpReq, &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
 // GetTrack downloads one full subtitle track.
 func (c *Client) GetTrack(ctx context.Context, id int64) (*Track, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet,
