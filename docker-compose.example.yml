@@ -1,0 +1,32 @@
+# Example compose file for self-hosting moansubs. Copy to docker-compose.yml
+# and adjust before running `docker compose up`.
+services:
+  server:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      MOANSUBS_LISTEN: ":8080"
+      DATABASE_URL: "postgres://moansubs:moansubs@postgres:5432/moansubs?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: moansubs
+      POSTGRES_PASSWORD: moansubs
+      POSTGRES_DB: moansubs
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moansubs -d moansubs"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

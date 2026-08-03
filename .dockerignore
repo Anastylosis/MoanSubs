@@ -1,0 +1,20 @@
+# VCS / CI / editor
+.git
+.github
+.claude
+.gitignore
+.dockerignore
+
+# Docs (not needed in build)
+*.md
+
+# Build artifacts
+dist/
+/moansubs
+/moansubs.exe
+coverage.out
+test-output.txt
+
+# Local dev config — never want these baked into an image
+.env
+docker-compose.example.yml
