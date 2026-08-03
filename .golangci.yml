@@ -1,0 +1,71 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - copyloopvar
+    - errorlint
+    - gocyclo
+    - misspell
+    - revive
+
+  settings:
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: empty-block
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: exported
+          # Stuttering renames would be breaking changes to any public
+          # package other modules import.
+          arguments:
+            - disableStutteringCheck
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+        - name: unused-parameter
+        - name: var-declaration
+        - name: var-naming
+
+  exclusions:
+    rules:
+      # godoc comments only matter for code other modules can import.
+      # internal/ is unimportable by definition, and per PLAN.md's layout
+      # (internal/api, internal/store, internal/hash, internal/subs,
+      # internal/provenance) that is almost the entire module — documenting
+      # each identically would be pure churn for no reader.
+      - path: internal/
+        linters:
+          - revive
+        text: '^(exported|package-comments):'
+
+      # Doc comments on test helpers add nothing to the public API surface.
+      - path: _test\.go$
+        linters:
+          - revive
+        text: '^(exported|package-comments|unused-parameter):'
+
+      # bodyclose false-positives on tests that assert on the response of an
+      # httptest server torn down by the test itself.
+      - path: _test\.go$
+        linters:
+          - bodyclose
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
