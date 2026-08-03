@@ -6,14 +6,17 @@ import (
 	"strings"
 )
 
-// Stash reads plugin logs from stderr, with a control-character prefix
-// selecting the level (pkg/plugin/common/log upstream): \x01 followed by a
-// level byte. Progress is a float in [0,1] on the "p" level. Stdout is the
-// RPC channel and must never be written to directly.
+// Stash reads plugin logs from stderr, with a control-character envelope
+// selecting the level (pkg/plugin/common/log upstream): \x01 (SOH), the
+// level byte, then \x02 (STX), then the message. The trailing STX is
+// load-bearing — without it Stash does not recognize the level, logs the
+// whole line at the manifest's errLog level, and the level byte leaks into
+// the message text ("iwrote ..."). Progress is a float in [0,1] on the "p"
+// level. Stdout is the RPC channel and must never be written to directly.
 const (
-	logPrefixInfo     = "\x01i"
-	logPrefixError    = "\x01e"
-	logPrefixProgress = "\x01p"
+	logPrefixInfo     = "\x01i\x02"
+	logPrefixError    = "\x01e\x02"
+	logPrefixProgress = "\x01p\x02"
 )
 
 // logLine emits one prefixed line. Newlines inside the message would make
