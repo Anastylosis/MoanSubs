@@ -1,6 +1,9 @@
 package api
 
 import (
+	"net"
+	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -36,6 +39,45 @@ func NewRateLimiter(perHour int) *RateLimiter {
 		burst:   float64(perHour),
 		now:     time.Now,
 	}
+}
+
+// NewRateLimiterPerMinute returns a limiter allowing perMinute requests per
+// minute per key, otherwise identical to NewRateLimiter. The anonymous
+// lookup endpoints (PLAN.md "Upload safety": "rate-limit ... anonymous
+// downloads/lookups per IP") need a per-minute rather than per-hour budget —
+// browsing fires lookups continuously, so the ceiling has to be generous and
+// fine-grained rather than a slow-refilling hourly pool.
+func NewRateLimiterPerMinute(perMinute int) *RateLimiter {
+	return &RateLimiter{
+		buckets: make(map[string]*bucket),
+		rate:    float64(perMinute) / 60,
+		burst:   float64(perMinute),
+		now:     time.Now,
+	}
+}
+
+// clientIP returns the key to rate-limit r by: the first entry of
+// X-Forwarded-For when present, else the host portion of RemoteAddr.
+//
+// Trust caveat: X-Forwarded-For is caller-supplied and trivially spoofable
+// unless something upstream strips or overwrites it before forwarding. The
+// canonical moansubs deployment sits behind a reverse proxy that sets this
+// header correctly; a node run bare (proxy-less, directly exposed) is
+// trusting client-supplied IPs for rate-limiting purposes, which only weakens
+// the limiter, not correctness elsewhere — worth knowing, not worth blocking
+// on for v1.
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		first, _, _ := strings.Cut(xff, ",")
+		if ip := strings.TrimSpace(first); ip != "" {
+			return ip
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 // Allow reports whether a request for key is permitted right now, consuming
