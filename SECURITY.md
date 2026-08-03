@@ -1,0 +1,40 @@
+# Security Policy
+
+## Reporting
+
+If you find a security issue, please email the maintainer
+(wasylq@protonmail.com) or open a GitHub security advisory. There is no
+bug bounty program.
+
+## Security model
+
+**Subtitle uploads are attacker-controlled text rendered in browsers.**
+The server never stores raw uploaded bytes: input is parsed (anchored on
+timestamp lines; everything unparsed is discarded), markup is stripped
+except `<i>`/`<b>`, output is re-rendered canonical SRT, and size/cue caps
+apply. Stash additionally converts captions to WebVTT before the player
+sees them.
+
+**Tokens.** Upload tokens are 256-bit random values; the server stores
+only their SHA-256 and compares in constant time. A leaked token can
+upload (rate-limited) but cannot read or delete anything it couldn't read
+anonymously. Rotate by creating a new account and disabling the old row.
+
+**Anonymous surface.** Lookups and downloads need no auth and are
+rate-limited per IP. Bucketed lookups are designed so clients don't send
+full fingerprints by default — but see API.md for an honest statement of
+what a malicious *server operator* can still learn; pick nodes you trust.
+
+**The plugin** runs inside your Stash process's container with your
+library mounted. It writes only `<stem>.<lang>.srt` sidecar files, never
+deletes, and never overwrites an existing caption without an explicit
+overwrite request. All plugin network egress goes to the one server URL
+you configured.
+
+**Dependencies** are minimal by policy (pgx, cobra, x/text). CI runs
+`govulncheck` and image scans as informational checks; findings are
+triaged deliberately rather than auto-failing builds.
+
+## Supported versions
+
+Pre-1.0: only the latest commit on `master` is supported.
