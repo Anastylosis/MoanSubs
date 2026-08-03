@@ -82,39 +82,99 @@ type phashBlock struct {
 	Val   string `json:"val"`
 }
 
+// SceneKeys is one scene file's lookup keys.
+type SceneKeys struct {
+	OSHash hash.OSHash
+	PHash  *hash.PHash
+}
+
+// bucketKeys returns the server-side result-map keys this scene's buckets
+// land under: "oshash:<prefix>" plus "phash:<block>:<val>" per MIH block.
+// The format mirrors internal/api's batch response keying.
+func (k SceneKeys) bucketKeys() []string {
+	keys := []string{"oshash:" + k.OSHash.BucketPrefix()}
+	if k.PHash != nil {
+		for i, b := range k.PHash.Blocks() {
+			keys = append(keys, fmt.Sprintf("phash:%d:%x", i, b))
+		}
+	}
+	return keys
+}
+
+// maxBatchEntries mirrors the server's cap on one batch request.
+const maxBatchEntries = 100
+
 // LookupBuckets performs the default privacy-conscious lookup for one scene
 // file: the 5-char oshash prefix bucket plus, when a phash is present, all
 // five MIH block buckets, in a single batch request. The union of returned
 // releases is deduplicated; the caller filters by true oshash equality and
-// Hamming distance locally (see Match in this package's match.go consumer —
-// the server never learns which candidate, if any, was the real match).
+// Hamming distance locally — the server never learns which candidate, if
+// any, was the real match.
 func (c *Client) LookupBuckets(ctx context.Context, oshash hash.OSHash, phash *hash.PHash) ([]Release, error) {
-	req := batchRequest{
-		OshashPrefixes: []string{oshash.BucketPrefix()},
+	perScene, err := c.LookupBucketsBatch(ctx, []SceneKeys{{OSHash: oshash, PHash: phash}})
+	if err != nil {
+		return nil, err
 	}
-	if phash != nil {
-		blocks := phash.Blocks()
-		for i, b := range blocks {
-			req.PhashBlocks = append(req.PhashBlocks, phashBlock{Block: i, Val: fmt.Sprintf("%x", b)})
+	return perScene[0], nil
+}
+
+// LookupBucketsBatch resolves many scenes' buckets in as few requests as the
+// server's batch cap allows: bucket keys are deduplicated across scenes
+// (a wall of related content often shares buckets), chunked, fetched, and
+// mapped back so out[i] holds the deduplicated releases for keys[i]. This is
+// what keeps a SceneCard wall at ~1 request instead of one per card
+// (PLAN.md step 5: batched lookups).
+func (c *Client) LookupBucketsBatch(ctx context.Context, keys []SceneKeys) ([][]Release, error) {
+	// Deduplicated union of every bucket key we need.
+	need := map[string]bool{}
+	for _, k := range keys {
+		for _, bk := range k.bucketKeys() {
+			need[bk] = true
 		}
 	}
 
-	var resp struct {
-		Results map[string][]Release `json:"results"`
+	results := map[string][]Release{}
+	var entries []string
+	for bk := range need {
+		entries = append(entries, bk)
 	}
-	if err := c.post(ctx, "/api/v1/lookup/batch", req, &resp); err != nil {
-		return nil, err
+	for start := 0; start < len(entries); start += maxBatchEntries {
+		end := start + maxBatchEntries
+		if end > len(entries) {
+			end = len(entries)
+		}
+		req := batchRequest{}
+		for _, bk := range entries[start:end] {
+			var block int
+			var val string
+			if _, err := fmt.Sscanf(bk, "phash:%d:%s", &block, &val); err == nil {
+				req.PhashBlocks = append(req.PhashBlocks, phashBlock{Block: block, Val: val})
+			} else {
+				req.OshashPrefixes = append(req.OshashPrefixes, bk[len("oshash:"):])
+			}
+		}
+		var resp struct {
+			Results map[string][]Release `json:"results"`
+		}
+		if err := c.post(ctx, "/api/v1/lookup/batch", req, &resp); err != nil {
+			return nil, err
+		}
+		for k, v := range resp.Results {
+			results[k] = v
+		}
 	}
 
-	seen := map[int64]bool{}
-	var out []Release
-	for _, releases := range resp.Results {
-		for _, r := range releases {
-			if seen[r.ID] {
-				continue
+	out := make([][]Release, len(keys))
+	for i, k := range keys {
+		seen := map[int64]bool{}
+		for _, bk := range k.bucketKeys() {
+			for _, r := range results[bk] {
+				if seen[r.ID] {
+					continue
+				}
+				seen[r.ID] = true
+				out[i] = append(out[i], r)
 			}
-			seen[r.ID] = true
-			out = append(out, r)
 		}
 	}
 	return out, nil

@@ -2,17 +2,21 @@
 # RPC plugin interface — rpc rather than raw so long tasks get a graceful
 # Stop instead of being killed with no signal.
 #
-# The UI half (javascript + csp) lands with PLAN.md step 5. The UI calls the
-# exec half via runPluginOperation, so network egress to the moansubs server
-# happens in this process, which has no CSP — the server address stays a
-# plugin setting rather than a manifest-baked connect-src.
+# The UI half (moansubs.js) calls the exec half via runPluginOperation, so
+# network egress to the moansubs server happens in the exec process, which
+# has no CSP — the server address stays a plugin setting rather than a
+# manifest-baked connect-src, and no csp block is needed here at all.
 name: moansubs
 description: Search and download subtitles for scenes from a moansubs server.
-version: 0.1.0
+version: 0.2.0
 exec:
   - moansubs-plugin
 interface: rpc
 errLog: error
+
+ui:
+  javascript:
+    - moansubs.js
 
 settings:
   server_url:
