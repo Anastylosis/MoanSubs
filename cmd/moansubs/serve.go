@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -33,6 +34,19 @@ var serveCmd = &cobra.Command{
 			listen = defaultListen
 		}
 
+		// The upload limit's safe default (30/h per token) assumes strangers
+		// on a public node; the operator seeding their own node from a large
+		// library needs to raise it, so it's env-tunable rather than
+		// hardcoded (a 1,000-file seed at 30/h would take a day and a half).
+		uploadRate := api.UploadRateLimitPerHour
+		if v := os.Getenv("MOANSUBS_UPLOAD_RATE_PER_HOUR"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_UPLOAD_RATE_PER_HOUR %q", v)
+			}
+			uploadRate = n
+		}
+
 		// Cancelled on SIGINT/SIGTERM, which also starts the graceful
 		// shutdown below.
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
@@ -48,9 +62,11 @@ var serveCmd = &cobra.Command{
 		}
 		defer s.Close()
 
+		apiSrv := api.NewServer(s)
+		apiSrv.Limiter = api.NewRateLimiter(uploadRate)
 		srv := &http.Server{
 			Addr:    listen,
-			Handler: api.NewMux(api.NewServer(s)),
+			Handler: api.NewMux(apiSrv),
 		}
 
 		errCh := make(chan error, 1)
