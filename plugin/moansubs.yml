@@ -1,0 +1,39 @@
+# moansubs Stash plugin. The exec half is a static Go binary speaking the
+# RPC plugin interface — rpc rather than raw so long tasks get a graceful
+# Stop instead of being killed with no signal.
+#
+# The UI half (javascript + csp) lands with PLAN.md step 5. The UI calls the
+# exec half via runPluginOperation, so network egress to the moansubs server
+# happens in this process, which has no CSP — the server address stays a
+# plugin setting rather than a manifest-baked connect-src.
+name: moansubs
+description: Search and download subtitles for scenes from a moansubs server.
+version: 0.1.0
+exec:
+  - moansubs-plugin
+interface: rpc
+errLog: error
+
+settings:
+  server_url:
+    displayName: moansubs server URL
+    description: Base URL of the moansubs server, e.g. https://subs.example
+    type: STRING
+  token:
+    displayName: Upload token
+    description: Account token for uploading subtitles (optional; downloads are anonymous)
+    type: STRING
+  stash_api_key:
+    displayName: Stash API key
+    description: Used instead of the session cookie, which expires mid-run on long tasks
+    type: STRING
+  exact_mode:
+    displayName: Full-hash lookup
+    description: Send full fingerprints to the server for wider fuzzy matching (reveals exact hashes to the server operator)
+    type: BOOLEAN
+
+tasks:
+  - name: Probe
+    description: Check connectivity to Stash and the moansubs server
+    defaultArgs:
+      mode: probe
