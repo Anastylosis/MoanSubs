@@ -1,0 +1,157 @@
+package api
+
+import (
+	"encoding/json"
+	"net/http"
+	"testing"
+)
+
+func TestMatch_RejectsMissingNameAndDuration(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+
+	resp := doPostJSON(t, ts, "/api/v1/match", map[string]any{"duration_ms": 1000})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("no name: status = %d, want 400", resp.StatusCode)
+	}
+	resp = doPostJSON(t, ts, "/api/v1/match", map[string]any{"stem": "x"})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("no duration: status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestMatch_UnmatchedOnEmptyDatabase(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+
+	resp := doPostJSON(t, ts, "/api/v1/match", map[string]any{
+		"stem": "totally-unknown-scene-name", "duration_ms": 60000,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var out struct {
+		Verdict    string            `json:"verdict"`
+		Candidates []json.RawMessage `json:"candidates"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if out.Verdict != "UNMATCHED" {
+		t.Errorf("verdict = %q, want UNMATCHED", out.Verdict)
+	}
+	if out.Candidates == nil || len(out.Candidates) != 0 {
+		t.Errorf("candidates = %v, want present-and-empty []", out.Candidates)
+	}
+}
+
+// The end-to-end shape: a release uploaded with name metadata and a
+// matching duration comes back as the top candidate with the scorer's
+// explanation.
+func TestMatch_FindsUploadedReleaseByName(t *testing.T) {
+	ts, _, token := newTestServer(t)
+
+	body := "1\n00:00:01,000 --> 00:00:02,000\nhello\n\n2\n00:58:00,000 --> 00:58:02,000\nbye\n"
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash":      "feed000000000001",
+		"duration_ms": int64(3540000), // 59 min; subtitle ends at 58:02
+		"lang":        "en",
+		"body":        body,
+		"title":       "The Reluctant Pet Sitter",
+		"stem":        "The-Reluctant-Pet-Sitter-Part-1",
+		"date":        "2024-03-01",
+		"studio":      "The House Next Door",
+		"performers":  []string{"Alice Ray"},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("upload status = %d, want 201", resp.StatusCode)
+	}
+
+	// Query with a differently-junked name for the same content plus the
+	// same duration — the exact level-5 situation: no phash, oshash miss.
+	resp = doPostJSON(t, ts, "/api/v1/match", map[string]any{
+		"stem":        "thehousenextdoor2024 - The Reluctant Dog Sitter - Compressed",
+		"duration_ms": int64(3541000),
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("match status = %d, want 200", resp.StatusCode)
+	}
+	var out struct {
+		Verdict    string `json:"verdict"`
+		Candidates []struct {
+			Release struct {
+				ID     int64  `json:"id"`
+				OSHash string `json:"oshash"`
+				Tracks []struct {
+					Lang string `json:"lang"`
+				} `json:"tracks"`
+			} `json:"release"`
+			Title   *string  `json:"title"`
+			Score   float64  `json:"score"`
+			NameSim float64  `json:"name_sim"`
+			DeltaMs int64    `json:"delta_ms"`
+			Reasons []string `json:"reasons"`
+		} `json:"candidates"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if len(out.Candidates) == 0 {
+		t.Fatalf("no candidates; verdict=%s", out.Verdict)
+	}
+	top := out.Candidates[0]
+	if top.Release.OSHash != "feed000000000001" {
+		t.Errorf("top candidate oshash = %s, want the uploaded release", top.Release.OSHash)
+	}
+	if top.Title == nil || *top.Title != "The Reluctant Pet Sitter" {
+		t.Errorf("top candidate title = %v", top.Title)
+	}
+	if len(top.Release.Tracks) != 1 || top.Release.Tracks[0].Lang != "en" {
+		t.Errorf("top candidate tracks = %+v, want the one en track", top.Release.Tracks)
+	}
+	if top.Score <= 0 || top.NameSim <= 0 {
+		t.Errorf("score = %v, name_sim = %v, want both > 0", top.Score, top.NameSim)
+	}
+	if len(top.Reasons) == 0 {
+		t.Error("reasons is empty; the score must be explained")
+	}
+	// "dog" folds to "pet" via the scorer's synonym table and "the
+	// house next door" is creator vocabulary from the stored studio, so
+	// this pair must score as genuinely similar, not a coincidence match.
+	if out.Verdict != "CONFIRMED" && out.Verdict != "LIKELY" {
+		t.Errorf("verdict = %s, want CONFIRMED or LIKELY", out.Verdict)
+	}
+}
+
+// A release uploaded without metadata must never surface from name match —
+// it has nothing to match on (and its uploader said nothing about names).
+func TestMatch_MetadatalessReleaseInvisible(t *testing.T) {
+	ts, _, token := newTestServer(t)
+
+	body := "1\n00:00:01,000 --> 00:00:02,000\nhi\n"
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash":      "feed000000000002",
+		"duration_ms": int64(60000),
+		"lang":        "en",
+		"body":        body,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("upload status = %d, want 201", resp.StatusCode)
+	}
+
+	resp = doPostJSON(t, ts, "/api/v1/match", map[string]any{
+		"stem": "anything at all", "duration_ms": int64(60000),
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("match status = %d, want 200", resp.StatusCode)
+	}
+	var out struct {
+		Verdict    string            `json:"verdict"`
+		Candidates []json.RawMessage `json:"candidates"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if out.Verdict != "UNMATCHED" || len(out.Candidates) != 0 {
+		t.Errorf("got verdict=%s with %d candidates, want UNMATCHED with none",
+			out.Verdict, len(out.Candidates))
+	}
+}

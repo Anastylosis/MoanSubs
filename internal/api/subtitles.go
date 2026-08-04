@@ -26,6 +26,16 @@ type uploadRequest struct {
 	DurationMs int64  `json:"duration_ms"` // required, > 0
 	Lang       string `json:"lang"`        // required, BCP-47
 	Body       string `json:"body"`        // required, the raw subtitle text
+
+	// Optional scene name metadata (migration 0003), stored on the release
+	// so the v2 token scorer can offer it as a no-phash fallback candidate
+	// (POST /api/v1/match). Backfill-only on an existing release — see
+	// store.GetOrCreateRelease.
+	Title      string   `json:"title"`
+	Stem       string   `json:"stem"`
+	Date       string   `json:"date"` // YYYY-MM-DD
+	Studio     string   `json:"studio"`
+	Performers []string `json:"performers"`
 }
 
 type uploadResponse struct {
@@ -37,7 +47,20 @@ type uploadResponse struct {
 	Duplicate bool `json:"duplicate,omitempty"`
 }
 
-var md5Pattern = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
+var (
+	md5Pattern  = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
+	datePattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+)
+
+// optString maps an absent-or-empty JSON string to nil, so "not sent"
+// stores as NULL rather than an empty string the scorer would tokenize.
+func optString(s string) *string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	return &s
+}
 
 // handleUploadSubtitle implements POST /api/v1/subtitles (PLAN.md "Upload
 // safety" + "Data model"). Flow: authenticate -> rate limit -> validate ->
@@ -158,11 +181,22 @@ func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.Date != "" && !datePattern.MatchString(req.Date) {
+		writeError(w, http.StatusBadRequest, "date: want YYYY-MM-DD")
+		return
+	}
 	release, err := s.Store.GetOrCreateRelease(ctx, store.Release{
 		OSHash:     oshash,
 		PHash:      phash,
 		MD5:        md5,
 		DurationMs: req.DurationMs,
+		Title:      optString(req.Title),
+		Stem:       optString(req.Stem),
+		// The scorer compares dates as strings (subDate's YYYY-MM-DD shape),
+		// so that's the stored form too.
+		ReleaseDate: optString(req.Date),
+		Studio:      optString(req.Studio),
+		Performers:  req.Performers,
 	})
 	if err != nil {
 		log.Printf("api: GetOrCreateRelease: %v", err)

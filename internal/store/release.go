@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/Wasylq/moansubs/internal/hash"
+	"github.com/Wasylq/moansubs/internal/subs"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -24,10 +27,20 @@ type Release struct {
 	Width      *int
 	Height     *int
 	VideoCodec *string
-	CreatedAt  time.Time
+	// Name metadata for the v2 token-scorer fallback (migration 0003), all
+	// optional: the uploader's scene title, primary-file stem, release date
+	// (YYYY-MM-DD), studio and performers. Nil/empty when the uploader sent
+	// none — such a release is simply invisible to name-based matching.
+	Title       *string
+	Stem        *string
+	ReleaseDate *string
+	Studio      *string
+	Performers  []string
+	CreatedAt   time.Time
 }
 
-const releaseColumns = `id, work_id, oshash, phash, md5, duration_ms, width, height, video_codec, created_at`
+const releaseColumns = `id, work_id, oshash, phash, md5, duration_ms, width, height, video_codec,
+	title, stem, release_date, studio, performers, created_at`
 
 // phashColumns computes the raw signed-bigint phash plus its 5 MIH block
 // values from r.PHash, all nil when r.PHash is nil — internal/hash is the
@@ -48,20 +61,69 @@ func phashColumns(r Release) (phashBig *int64, b0, b1, b2, b3, b4 *int16) {
 	return phashBig, &vals[0], &vals[1], &vals[2], &vals[3], &vals[4]
 }
 
+// nameColumns computes the precomputed retrieval keys (migration 0003)
+// from r's name metadata via subs.Tokens/subs.Codes — internal/subs is the
+// single source of truth for tokenization, same pattern as phashColumns.
+// Both return nil when r carries no name metadata at all, so metadata-less
+// releases keep NULL retrieval columns and stay outside the partial GIN
+// indexes. Sorted for deterministic storage.
+func nameColumns(r Release) (tokens, codes []string) {
+	blob := nameBlob(r)
+	if strings.TrimSpace(blob) == "" {
+		return nil, nil
+	}
+	for t := range subs.Tokens(blob) {
+		tokens = append(tokens, t)
+	}
+	for c := range subs.Codes(blob) {
+		codes = append(codes, c)
+	}
+	sort.Strings(tokens)
+	sort.Strings(codes)
+	return tokens, codes
+}
+
+// nameBlob joins r's name metadata the same way subs.NewIndex builds a
+// scene's token blob: stem, title, studio, performers. The release date is
+// deliberately absent — it isn't a name (the scorer compares it as a
+// separate signal, not via tokens).
+func nameBlob(r Release) string {
+	parts := make([]string, 0, 3+len(r.Performers))
+	for _, p := range []*string{r.Stem, r.Title, r.Studio} {
+		if p != nil {
+			parts = append(parts, *p)
+		}
+	}
+	parts = append(parts, r.Performers...)
+	return strings.Join(parts, " ")
+}
+
+// hasNameMeta reports whether r carries any migration-0003 metadata at all
+// — the gate for both the backfill UPDATE and its all-columns-NULL WHERE
+// condition, which must agree on what "has metadata" means.
+func hasNameMeta(r Release) bool {
+	return r.Title != nil || r.Stem != nil || r.ReleaseDate != nil ||
+		r.Studio != nil || r.Performers != nil
+}
+
 // CreateRelease inserts r and returns its assigned id. The 5 MIH block
 // columns are computed here in Go from r.PHash and stored alongside the raw
-// phash so each block can carry its own index.
+// phash so each block can carry its own index; the name token/code columns
+// are computed the same way from the name metadata.
 func (s *Store) CreateRelease(ctx context.Context, r Release) (int64, error) {
 	phashBig, b0, b1, b2, b3, b4 := phashColumns(r)
+	tokens, codes := nameColumns(r)
 
 	var id int64
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO releases (work_id, oshash, phash, phash_b0, phash_b1, phash_b2, phash_b3, phash_b4,
-		                       md5, duration_ms, width, height, video_codec)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		                       md5, duration_ms, width, height, video_codec,
+		                       title, stem, release_date, studio, performers, name_tokens, name_codes)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 		RETURNING id`,
 		r.WorkID, string(r.OSHash), phashBig, b0, b1, b2, b3, b4,
 		r.MD5, r.DurationMs, r.Width, r.Height, r.VideoCodec,
+		r.Title, r.Stem, r.ReleaseDate, r.Studio, r.Performers, tokens, codes,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("store: CreateRelease: %w", err)
@@ -71,25 +133,53 @@ func (s *Store) CreateRelease(ctx context.Context, r Release) (int64, error) {
 
 // GetOrCreateRelease returns the existing release matching r.OSHash, or
 // creates one from r if none exists yet. Race-safe under concurrent uploads
-// of the same file via INSERT ... ON CONFLICT (oshash) DO NOTHING followed
-// by a fetch, rather than a check-then-insert — two uploaders racing to
-// register a byte-identical file both end up pointing at the same release
-// row instead of one failing on a unique-constraint error (PLAN.md "Data
-// model": "duplicate oshash = byte-identical file = same release").
-// Requires the migration 0002 unique index on releases(oshash).
+// of the same file via INSERT ... ON CONFLICT (oshash), rather than a
+// check-then-insert — two uploaders racing to register a byte-identical
+// file both end up pointing at the same release row instead of one failing
+// on a unique-constraint error (PLAN.md "Data model": "duplicate oshash =
+// byte-identical file = same release"). Requires the migration 0002 unique
+// index on releases(oshash).
+//
+// Name metadata (migration 0003) is BACKFILLED, never overwritten, and
+// all-or-nothing: when the release already exists, r's metadata is taken
+// only if the existing row has none at all. Per-column merging is
+// deliberately avoided — it could blend two uploaders' descriptions of the
+// same file (title from one, stem from another) and desync the precomputed
+// name_tokens/name_codes from the metadata they were computed over. The
+// backfill UPDATE re-checks its all-columns-NULL condition under the row
+// lock, so two racing metadata-bearing uploaders resolve to exactly one
+// winner writing all seven columns together.
 func (s *Store) GetOrCreateRelease(ctx context.Context, r Release) (*Release, error) {
 	phashBig, b0, b1, b2, b3, b4 := phashColumns(r)
+	tokens, codes := nameColumns(r)
 
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO releases (work_id, oshash, phash, phash_b0, phash_b1, phash_b2, phash_b3, phash_b4,
-		                       md5, duration_ms, width, height, video_codec)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		                       md5, duration_ms, width, height, video_codec,
+		                       title, stem, release_date, studio, performers, name_tokens, name_codes)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 		ON CONFLICT (oshash) DO NOTHING`,
 		r.WorkID, string(r.OSHash), phashBig, b0, b1, b2, b3, b4,
 		r.MD5, r.DurationMs, r.Width, r.Height, r.VideoCodec,
+		r.Title, r.Stem, r.ReleaseDate, r.Studio, r.Performers, tokens, codes,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("store: GetOrCreateRelease: inserting: %w", err)
+	}
+
+	if hasNameMeta(r) {
+		if _, err := s.pool.Exec(ctx, `
+			UPDATE releases
+			SET title = $2, stem = $3, release_date = $4, studio = $5,
+			    performers = $6, name_tokens = $7, name_codes = $8
+			WHERE oshash = $1
+			  AND title IS NULL AND stem IS NULL AND release_date IS NULL
+			  AND studio IS NULL AND performers IS NULL`,
+			string(r.OSHash), r.Title, r.Stem, r.ReleaseDate, r.Studio,
+			r.Performers, tokens, codes,
+		); err != nil {
+			return nil, fmt.Errorf("store: GetOrCreateRelease: backfilling name metadata: %w", err)
+		}
 	}
 
 	got, err := s.GetReleaseByOshash(ctx, r.OSHash)
@@ -225,31 +315,42 @@ type rowScanner interface {
 // conversion here is a single explicit step rather than implicit magic.
 func scanRelease(row rowScanner) (*Release, error) {
 	var (
-		id         int64
-		workID     *int64
-		oshashStr  string
-		phashBig   *int64
-		md5        *string
-		durationMs int64
-		width      *int
-		height     *int
-		videoCodec *string
-		createdAt  time.Time
+		id          int64
+		workID      *int64
+		oshashStr   string
+		phashBig    *int64
+		md5         *string
+		durationMs  int64
+		width       *int
+		height      *int
+		videoCodec  *string
+		title       *string
+		stem        *string
+		releaseDate *string
+		studio      *string
+		performers  []string
+		createdAt   time.Time
 	)
-	if err := row.Scan(&id, &workID, &oshashStr, &phashBig, &md5, &durationMs, &width, &height, &videoCodec, &createdAt); err != nil {
+	if err := row.Scan(&id, &workID, &oshashStr, &phashBig, &md5, &durationMs, &width, &height, &videoCodec,
+		&title, &stem, &releaseDate, &studio, &performers, &createdAt); err != nil {
 		return nil, err
 	}
 
 	r := &Release{
-		ID:         id,
-		WorkID:     workID,
-		OSHash:     hash.OSHash(oshashStr),
-		MD5:        md5,
-		DurationMs: durationMs,
-		Width:      width,
-		Height:     height,
-		VideoCodec: videoCodec,
-		CreatedAt:  createdAt,
+		ID:          id,
+		WorkID:      workID,
+		OSHash:      hash.OSHash(oshashStr),
+		MD5:         md5,
+		DurationMs:  durationMs,
+		Width:       width,
+		Height:      height,
+		VideoCodec:  videoCodec,
+		Title:       title,
+		Stem:        stem,
+		ReleaseDate: releaseDate,
+		Studio:      studio,
+		Performers:  performers,
+		CreatedAt:   createdAt,
 	}
 	if phashBig != nil {
 		p := hash.PHashFromBigint(*phashBig)
