@@ -32,8 +32,12 @@ accurate and maintained; keep them that way when changing behavior.
   with two spaced `psql SELECT 1` probes — `pg_isready` answers during
   initdb's temporary server and lies.
 - Ported code (`internal/subs` from StashJanitor) keeps its tests
-  unmodified. The regression corpus for the v2 token scorer is
-  `../subtitle-match-report.md`.
+  unmodified. The token scorer's regression corpus is
+  `../subtitle-match-report.md` with a golden verdict pin beside it
+  (`../subtitle-match-report.golden.json`, regenerate via
+  `go test ./internal/subs/ -run TestCorpusReplay -update`); both live
+  outside the repo — the stems are library filenames — and the test
+  skips when they're absent.
 
 ## Load-bearing invariants (violating these corrupts silently)
 
@@ -72,8 +76,10 @@ accurate and maintained; keep them that way when changing behavior.
 
 ## Scope notes
 
-- v1 matches by hash + duration only. The token/filename scorer
-  (StashJanitor match.go/normalize.go/vocab.go) is deferred v2 scope.
+- Matching is hash + duration first (levels 1–4); the token/filename
+  scorer (ported from StashJanitor) is the level-5 no-phash fallback:
+  server-side scoring via POST /api/v1/match, always offer-only in the
+  plugin regardless of server verdict.
 - `PLAN.md` is untracked (`.git/info/exclude`) and contains the full build
   plan, status, and deployment specifics. Never commit it; never put
   private infrastructure details (hostnames, addresses) in tracked files.
