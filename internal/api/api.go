@@ -54,6 +54,7 @@ func NewMux(s *Server) *http.ServeMux {
 	mux.HandleFunc("GET /api/v1/lookup/phash/{block}/{val}", s.handleLookupPhashBlock)
 	mux.HandleFunc("POST /api/v1/lookup/batch", s.handleLookupBatch)
 	mux.HandleFunc("POST /api/v1/lookup/exact", s.handleLookupExact)
+	mux.HandleFunc("POST /api/v1/match", s.handleMatch)
 	return mux
 }
 
