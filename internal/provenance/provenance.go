@@ -16,9 +16,21 @@ import (
 	"regexp"
 )
 
-// Marker is stash-subs's fixed sentinel (subtitles.py's MARKER), embedded in
-// the visible annotation cue of every file it writes.
+// Marker is the historical stash-subs sentinel (subtitles.py's MARKER),
+// embedded in the visible annotation cue of every file it writes. Files
+// carrying it exist in the wild forever, so it stays detected forever.
 const Marker = "[stash-subs]"
+
+// MarkerScriptorium is the sentinel emitted after the tool's rename to
+// Scriptorium (2026-08-04). Detection accepts both markers — this is a
+// wire contract: a moansubs node must recognize the new marker BEFORE any
+// Scriptorium release starts emitting it, or new generated uploads would
+// silently lose their generated flag — exactly the class of failure this
+// package exists to prevent.
+const MarkerScriptorium = "[scriptorium]"
+
+// markers is every sentinel Detect accepts, oldest first.
+var markers = [][]byte{[]byte(Marker), []byte(MarkerScriptorium)}
 
 // sniffBytes mirrors subtitles.py's _SNIFF_BYTES: how much of each end of
 // the file to search when identifying stash-subs's own output, so detection
@@ -90,22 +102,26 @@ func Detect(data []byte) (generated bool, p *Provenance) {
 // looksGenerated ports subtitles.py's looks_generated(): search only the
 // head and tail sniffBytes-sized windows, so this stays cheap on a large
 // file and works whether the marker was placed at the start or end (mode
-// "start" vs "end" annotation placement). The marker is plain ASCII, so a
-// direct byte search is equivalent to Python's decode-with-replace-then-
-// search — invalid UTF-8 elsewhere in the window cannot hide or fake it.
+// "start" vs "end" annotation placement). The markers are plain ASCII, so
+// a direct byte search is equivalent to Python's decode-with-replace-then-
+// search — invalid UTF-8 elsewhere in the window cannot hide or fake them.
 func looksGenerated(data []byte) bool {
 	n := len(data)
 	head := data
 	if n > sniffBytes {
 		head = data[:sniffBytes]
 	}
-	if bytes.Contains(head, []byte(Marker)) {
-		return true
+	for _, m := range markers {
+		if bytes.Contains(head, m) {
+			return true
+		}
 	}
 	if n > sniffBytes {
 		tail := data[n-sniffBytes:]
-		if bytes.Contains(tail, []byte(Marker)) {
-			return true
+		for _, m := range markers {
+			if bytes.Contains(tail, m) {
+				return true
+			}
 		}
 	}
 	return false

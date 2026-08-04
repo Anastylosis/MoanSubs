@@ -84,7 +84,7 @@ and point the plugin at `http://moansubs:8080` instead of the LAN address.
 2. Re-renders to canonical SRT — raw uploaded bytes are never stored.
    HTML-ish markup beyond `<i>`/`<b>` is stripped; input must be UTF-8.
    Caps: 2 MiB, 10,000 cues.
-3. Detects machine generation from the stash-subs marker (on the raw
+3. Detects machine generation from the Scriptorium/stash-subs marker (on the raw
    upload, before sanitization) and records structured provenance. The
    uploader's own claim is ignored.
 4. Rejects subtitles whose last-cue runtime is incompatible with the

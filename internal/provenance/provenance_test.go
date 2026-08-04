@@ -141,6 +141,21 @@ func TestDetect_SRTWithMarkerHasNoStructuredProvenance(t *testing.T) {
 	}
 }
 
+// The renamed tool (Scriptorium, formerly stash-subs) emits its own marker;
+// both must be detected — old files exist in the wild forever, and a node
+// must recognize the new marker before any Scriptorium release emits it.
+func TestDetect_ScriptoriumMarker(t *testing.T) {
+	srt := "1\n00:00:01,000 --> 00:00:03,000\n" + MarkerScriptorium + " machine transcription\n\n" +
+		"2\n00:00:04,000 --> 00:00:05,000\nHello.\n"
+	generated, p := Detect([]byte(srt))
+	if !generated {
+		t.Fatal("generated = false for the Scriptorium marker, want true")
+	}
+	if p != nil {
+		t.Errorf("p = %+v, want nil (SRT carries no NOTE block)", p)
+	}
+}
+
 func TestDetect_AbsentMarker(t *testing.T) {
 	generated, p := Detect([]byte(handMadeSRT))
 	if generated {
