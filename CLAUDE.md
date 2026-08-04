@@ -11,7 +11,9 @@ accurate and maintained; keep them that way when changing behavior.
 
 ## Conventions
 
-- Match the sibling repos (`../fss`, `../StashJanitor`, `../stash-subs`):
+- Match the sibling repos (`../fss`, `../StashJanitor`, `../stash-subs` —
+  on GitHub now Anastylosis/Custodian and Anastylosis/Scriptorium; local
+  directory names unchanged):
   their CI/Dockerfile/Makefile/lint idioms are the house style. Justified
   lint exclusions only.
 - Commits: brief one-line messages, fss style ("Bump Go to 1.26.5"). NO
@@ -52,6 +54,11 @@ accurate and maintained; keep them that way when changing behavior.
 - Uploads are parsed and **re-rendered**; raw bytes are never stored.
   Provenance detection runs on the raw upload *before* sanitization
   (the marker lives in material sanitization discards).
+- **Both provenance markers stay detected forever**: `[stash-subs]`
+  (historical, in files in the wild) and `[scriptorium]` (the tool's
+  post-rename sentinel). Dropping either silently mislabels generated
+  uploads as human-made. A deployed node must know a marker before any
+  tool release emits it.
 
 ## Stash plugin gotchas (each cost real debugging)
 

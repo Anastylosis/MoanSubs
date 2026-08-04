@@ -22,7 +22,8 @@ subtitle reaches another person's library even though their files differ.
 - **Server** (`moansubs serve`): stores releases (fingerprint sets) and
   subtitle tracks. Uploads are sanitized (parsed and re-rendered, never
   stored raw), machine-generated subtitles are auto-detected from
-  [stash-subs](https://github.com/Wasylq/stash-subs) provenance markers and
+  [Scriptorium](https://github.com/Anastylosis/Scriptorium) (formerly
+  stash-subs) provenance markers and
   labeled regardless of what the uploader claims, and a runtime sanity
   check rejects subtitles whose timing contradicts the video's duration.
   When hash lookup finds nothing — most often because phash isn't
