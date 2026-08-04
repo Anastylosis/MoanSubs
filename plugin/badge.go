@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Wasylq/moansubs/internal/hash"
-	"github.com/Wasylq/moansubs/plugin/msclient"
+	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/plugin/msclient"
 )
 
 // badgeStatus is one scene's has-subs answer for the SceneCard badge.

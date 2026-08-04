@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wasylq/moansubs/internal/hash"
-	"github.com/Wasylq/moansubs/internal/subs"
+	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/internal/subs"
 	"github.com/jackc/pgx/v5"
 )
 

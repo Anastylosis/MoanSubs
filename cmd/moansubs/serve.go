@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Wasylq/moansubs/internal/api"
-	"github.com/Wasylq/moansubs/internal/store"
+	"github.com/Anastylosis/MoanSubs/internal/api"
+	"github.com/Anastylosis/MoanSubs/internal/store"
 	"github.com/spf13/cobra"
 )
 

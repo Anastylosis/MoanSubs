@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wasylq/moansubs/internal/store"
-	"github.com/Wasylq/moansubs/internal/subs"
+	"github.com/Anastylosis/MoanSubs/internal/store"
+	"github.com/Anastylosis/MoanSubs/internal/subs"
 )
 
 // -- POST /api/v1/match ----------------------------------------------------

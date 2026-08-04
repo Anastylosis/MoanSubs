@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Wasylq/moansubs/internal/hash"
-	"github.com/Wasylq/moansubs/plugin/msclient"
-	"github.com/Wasylq/moansubs/plugin/stash"
+	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/plugin/msclient"
+	"github.com/Anastylosis/MoanSubs/plugin/stash"
 )
 
 // pluginID must match the id Stash derives from the plugin config filename
