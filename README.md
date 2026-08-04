@@ -25,6 +25,10 @@ subtitle reaches another person's library even though their files differ.
   [stash-subs](https://github.com/Wasylq/stash-subs) provenance markers and
   labeled regardless of what the uploader claims, and a runtime sanity
   check rejects subtitles whose timing contradicts the video's duration.
+  When hash lookup finds nothing — most often because phash isn't
+  generated for a scene — a name-match fallback scores optional title/
+  filename metadata carried on uploads, offered to the user, never
+  auto-applied.
 - **Plugin**: adds a "Subtitles" panel to every scene page, "CC" badges to
   scene cards, and library-wide push tasks. Downloads are anonymous;
   uploads need an account token.

@@ -19,6 +19,13 @@ const (
 	// ConfidenceOffer: phash Hamming 5-8 with close duration — offered,
 	// never auto-applied. Only reachable via exact mode.
 	ConfidenceOffer = "offer"
+	// ConfidenceName: the v2 no-phash fallback (PLAN.md "Matching" level 5,
+	// internal/api's POST /api/v1/match). Ranked below every hash-based
+	// level and always offer-only, regardless of the server's verdict — a
+	// server CONFIRMED there means "the name evidence is strong," not
+	// "this is the same file." Only ever produced when hash-based lookup
+	// (levels 1-4) found nothing at all.
+	ConfidenceName = "name"
 )
 
 // durationGate is the |Δduration| bound that upgrades a near phash to a
@@ -37,6 +44,11 @@ type Candidate struct {
 	// encode than the local file — sync may be off (PLAN.md data model:
 	// allowed but flagged).
 	CrossRelease bool `json:"cross_release"`
+	// Score and Reasons are populated only for ConfidenceName candidates —
+	// the server scorer's score and its human-readable justification, so
+	// the panel can show why a name-only candidate was offered.
+	Score   float64  `json:"score,omitempty"`
+	Reasons []string `json:"reasons,omitempty"`
 }
 
 // rankCandidates filters bucket results down to real matches, client-side.
@@ -98,7 +110,32 @@ func confidenceRank(c string) int {
 		return 0
 	case ConfidenceHigh:
 		return 1
-	default:
+	case ConfidenceName:
+		return 3
+	default: // ConfidenceOffer
 		return 2
 	}
+}
+
+// nameCandidates converts msclient.Match's response into the plugin's
+// Candidate shape at ConfidenceName. Server-side score/name_sim/delta_ms
+// aren't independently useful to the UI beyond the reasons already computed
+// from them, so only Reasons (plus the raw Score, for anyone who wants it)
+// carry over.
+func nameCandidates(result *msclient.MatchResult) []Candidate {
+	out := make([]Candidate, 0, len(result.Candidates))
+	for _, c := range result.Candidates {
+		out = append(out, Candidate{
+			Release:         c.Release,
+			Confidence:      ConfidenceName,
+			HammingDistance: -1, // not applicable — no fingerprint involved
+			// matchCandidate.DeltaMs is releaseDuration-queryDuration
+			// (internal/api/match.go); this struct's convention is the
+			// opposite, scene-minus-release, matching rankCandidates.
+			DurationDeltaMs: -c.DeltaMs,
+			Score:           c.Score,
+			Reasons:         c.Reasons,
+		})
+	}
+	return out
 }

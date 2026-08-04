@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -162,5 +164,80 @@ func TestGetTrack_RoundTrip(t *testing.T) {
 	// writer's job at file-write time, not the server's or the client's.
 	if track.Lang != "pt-BR" {
 		t.Errorf("lang = %q, want pt-BR preserved", track.Lang)
+	}
+}
+
+func TestMatch_Success(t *testing.T) {
+	c, s := newTestServer(t)
+	ctx := context.Background()
+
+	stem := "some-distinctive-scene-stem-2023-1080p"
+	oh, _ := hash.ParseOSHash("6666666666666666")
+	relID, err := s.CreateRelease(ctx, store.Release{
+		OSHash:     oh,
+		DurationMs: 600_000,
+		Stem:       &stem,
+	})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	res, err := c.Match(ctx, MatchRequest{Stem: stem, DurationMs: 600_000})
+	if err != nil {
+		t.Fatalf("Match: %v", err)
+	}
+	// Identical stem + identical duration is an exact filename match —
+	// internal/subs/match.go's decide() confirms on that alone.
+	if res.Verdict != "CONFIRMED" {
+		t.Errorf("verdict = %q, want CONFIRMED", res.Verdict)
+	}
+	if len(res.Candidates) != 1 {
+		t.Fatalf("candidates = %+v, want exactly 1", res.Candidates)
+	}
+	got := res.Candidates[0]
+	if got.Release.ID != relID {
+		t.Errorf("release id = %d, want %d", got.Release.ID, relID)
+	}
+	if got.Stem == nil || *got.Stem != stem {
+		t.Errorf("stem = %v, want %q", got.Stem, stem)
+	}
+	found := false
+	for _, r := range got.Reasons {
+		if r == "filename match" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("reasons = %v, want to include %q", got.Reasons, "filename match")
+	}
+}
+
+func TestMatch_EmptyResult(t *testing.T) {
+	c, _ := newTestServer(t)
+	ctx := context.Background()
+
+	res, err := c.Match(ctx, MatchRequest{Stem: "nothing-in-this-empty-library", DurationMs: 600_000})
+	if err != nil {
+		t.Fatalf("Match: %v", err)
+	}
+	if res.Verdict != "UNMATCHED" {
+		t.Errorf("verdict = %q, want UNMATCHED", res.Verdict)
+	}
+	if len(res.Candidates) != 0 {
+		t.Errorf("candidates = %+v, want none", res.Candidates)
+	}
+}
+
+// TestMatch_OldServer404 simulates an older moansubs server that predates
+// POST /api/v1/match: a bare mux with no route registered 404s exactly the
+// way that server would, without needing a second server binary.
+func TestMatch_OldServer404(t *testing.T) {
+	ts := httptest.NewServer(http.NewServeMux())
+	defer ts.Close()
+
+	c := New(ts.URL, "")
+	_, err := c.Match(context.Background(), MatchRequest{Stem: "x", DurationMs: 1000})
+	if !errors.Is(err, ErrNoMatchEndpoint) {
+		t.Fatalf("Match against a route-less server: err = %v, want ErrNoMatchEndpoint", err)
 	}
 }

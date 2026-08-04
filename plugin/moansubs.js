@@ -134,6 +134,11 @@
   function confidenceBadge(c) {
     if (c === "exact") return '<span class="badge badge-success">Exact match</span>';
     if (c === "high") return '<span class="badge badge-primary">Different encode</span>';
+    // "name" is the v2 no-phash fallback (server-side title/filename
+    // scorer) — offer-only regardless of the server's verdict, same as
+    // "offer" below, but visibly distinct since there's no fingerprint
+    // evidence behind it at all.
+    if (c === "name") return '<span class="badge badge-warning">Name match</span>';
     return '<span class="badge badge-warning">Possible match</span>';
   }
 
@@ -153,6 +158,13 @@
       const sync = c.cross_release
         ? ' <span class="badge badge-warning" title="Timed against a different release of this scene — sync may be off by a few seconds.">sync?</span>'
         : "";
+      // Reasons are only present on name-match candidates — the server
+      // scorer's justification, shown so a user can judge the offer
+      // instead of trusting a bare label.
+      const reasons =
+        c.reasons && c.reasons.length
+          ? '<div class="text-muted small">' + esc(c.reasons.join(", ")) + "</div>"
+          : "";
       const tracks = (c.release.tracks || [])
         .map((t) => {
           const ai = t.generated
@@ -172,6 +184,7 @@
         '<div class="card p-2 mb-2">' +
           '<div class="mb-1">' + confidenceBadge(c.confidence) + sync +
           ' <span class="text-muted small">' + esc(meta) + "</span></div>" +
+          reasons +
           tracks +
           "</div>"
       );

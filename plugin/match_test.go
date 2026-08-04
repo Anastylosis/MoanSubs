@@ -82,3 +82,53 @@ func TestRankCandidates(t *testing.T) {
 		}
 	})
 }
+
+// TestNameCandidates_OfferOnly asserts the offer-only guarantee for the v2
+// no-phash fallback: even a server CONFIRMED verdict must not upgrade a
+// name-match candidate to ConfidenceExact/ConfidenceHigh (the only levels
+// the UI treats as trustworthy) — name evidence is never fingerprint
+// identity (PLAN.md "Matching").
+func TestNameCandidates_OfferOnly(t *testing.T) {
+	result := &msclient.MatchResult{
+		Verdict: "CONFIRMED",
+		Candidates: []msclient.MatchCandidate{
+			{
+				Release: msclient.Release{ID: 42, OSHash: "1111111111111111", DurationMs: 600_000},
+				Score:   130,
+				NameSim: 0.95,
+				DeltaMs: -500,
+				Reasons: []string{"filename match", "runtime +0.5s"},
+			},
+		},
+	}
+
+	got := nameCandidates(result)
+	if len(got) != 1 {
+		t.Fatalf("got %d candidates, want 1", len(got))
+	}
+	c := got[0]
+	if c.Confidence != ConfidenceName {
+		t.Errorf("confidence = %q, want %q even though the server verdict was CONFIRMED", c.Confidence, ConfidenceName)
+	}
+	if confidenceRank(c.Confidence) <= confidenceRank(ConfidenceOffer) {
+		t.Errorf("ConfidenceName must rank below every hash-based level, including offer")
+	}
+	if c.Release.ID != 42 {
+		t.Errorf("release id = %d, want 42", c.Release.ID)
+	}
+	if c.Score != 130 {
+		t.Errorf("score = %v, want 130", c.Score)
+	}
+	if len(c.Reasons) != 2 || c.Reasons[0] != "filename match" {
+		t.Errorf("reasons = %v, want the server's reasons carried through", c.Reasons)
+	}
+	// The plugin's DurationDeltaMs convention is scene-minus-release, the
+	// opposite of the server's DeltaMs (release-minus-query, matchCandidate
+	// in internal/api/match.go), so it must be negated on the way in.
+	if c.DurationDeltaMs != 500 {
+		t.Errorf("duration_delta_ms = %d, want 500 (negated from server's -500)", c.DurationDeltaMs)
+	}
+	if c.HammingDistance != -1 {
+		t.Errorf("hamming_distance = %d, want -1 (not applicable)", c.HammingDistance)
+	}
+}

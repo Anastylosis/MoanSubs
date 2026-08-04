@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strings"
 
 	"github.com/Wasylq/moansubs/internal/hash"
 	"github.com/Wasylq/moansubs/plugin/msclient"
@@ -117,6 +119,14 @@ func sceneKeys(s *stash.Scene) (hash.OSHash, *hash.PHash, int64, string, error) 
 	return oh, ph, durationMs, f.Path, nil
 }
 
+// fileStem returns a file's basename without its extension — the "primary
+// query name" both the upload path and the name-match fallback send as
+// stem (internal/api's matchRequest/uploadRequest doc comments).
+func fileStem(path string) string {
+	base := filepath.Base(path)
+	return strings.TrimSuffix(base, filepath.Ext(base))
+}
+
 // searchResult is the "search" mode's output, consumed by the UI half.
 type searchResult struct {
 	SceneID    string      `json:"scene_id"`
@@ -134,7 +144,7 @@ func (a *app) search(ctx context.Context, sceneID string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	oh, ph, durationMs, _, err := sceneKeys(scene)
+	oh, ph, durationMs, path, err := sceneKeys(scene)
 	if err != nil {
 		return nil, err
 	}
@@ -161,11 +171,54 @@ func (a *app) search(ctx context.Context, sceneID string) (any, error) {
 		// the workhorse and it's opt-in in Stash (PLAN.md "Matching").
 		res.Note = "This scene has no phash. Enable phash generation in Stash (Settings → Tasks → Generate) for much better subtitle matching."
 	}
+	// The v2 no-phash fallback (PLAN.md "Matching" level 5) only ever runs
+	// once hash-based lookup (levels 1-4) came back completely empty —
+	// name evidence is weaker than any fingerprint, so it must never crowd
+	// out a real hash match.
+	if len(res.Candidates) == 0 {
+		res.Candidates = a.nameMatchFallback(ctx, scene, path, durationMs)
+	}
 	if res.Candidates == nil {
 		res.Candidates = []Candidate{}
 	}
 	logInfo("search scene %s: %d candidates (%d bucket releases)", sceneID, len(res.Candidates), len(releases))
 	return res, nil
+}
+
+// nameMatchFallback calls POST /api/v1/match — the v2 no-phash fallback
+// (PLAN.md "Matching" level 5) — once hash-based lookup found nothing.
+// Every failure mode here degrades to "no fallback" rather than surfacing
+// an error to the search caller: an older server (ErrNoMatchEndpoint), a
+// scene with no usable name data, and any request error are all equally
+// "this scene just doesn't get a name-based offer this time."
+func (a *app) nameMatchFallback(ctx context.Context, scene *stash.Scene, path string, durationMs int64) []Candidate {
+	stem := fileStem(path)
+	title := scene.Title
+	if strings.TrimSpace(stem) == "" && strings.TrimSpace(title) == "" {
+		logInfo("search scene %s: no name data for the name-match fallback, skipping", scene.ID)
+		return nil
+	}
+	if durationMs <= 0 {
+		logInfo("search scene %s: no duration for the name-match fallback, skipping", scene.ID)
+		return nil
+	}
+
+	result, err := a.ms.Match(ctx, msclient.MatchRequest{
+		Stem:       stem,
+		Title:      title,
+		Studio:     scene.StudioName(),
+		Performers: scene.PerformerNames(),
+		DurationMs: durationMs,
+	})
+	if err != nil {
+		if errors.Is(err, msclient.ErrNoMatchEndpoint) {
+			logInfo("search scene %s: server has no name-match endpoint, skipping fallback", scene.ID)
+			return nil
+		}
+		logInfo("search scene %s: name-match fallback failed: %v", scene.ID, err)
+		return nil
+	}
+	return nameCandidates(result)
 }
 
 type downloadArgs struct {

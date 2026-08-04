@@ -173,18 +173,54 @@ func (f SceneFile) Fingerprint(typ string) string {
 	return ""
 }
 
+// Studio is a scene's studio (name only — the plugin has no use for its id).
+type Studio struct {
+	Name string `json:"name"`
+}
+
+// Performer is one of a scene's performers (name only, same reasoning).
+type Performer struct {
+	Name string `json:"name"`
+}
+
 // Scene is the subset of Scene the plugin needs.
 type Scene struct {
-	ID       string      `json:"id"`
-	Title    string      `json:"title"`
-	Files    []SceneFile `json:"files"`
-	Captions []Caption   `json:"captions"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	// Date is Stash's YYYY-MM-DD release date, empty when unset.
+	Date       string      `json:"date"`
+	Studio     *Studio     `json:"studio"`
+	Performers []Performer `json:"performers"`
+	Files      []SceneFile `json:"files"`
+	Captions   []Caption   `json:"captions"`
+}
+
+// StudioName returns the scene's studio name, or "" when it has none.
+func (s Scene) StudioName() string {
+	if s.Studio == nil {
+		return ""
+	}
+	return s.Studio.Name
+}
+
+// PerformerNames returns the scene's performer names, or nil when it has
+// none — nil rather than an empty slice so callers get the same "absent"
+// shape msclient.UploadRequest's omitempty expects.
+func (s Scene) PerformerNames() []string {
+	if len(s.Performers) == 0 {
+		return nil
+	}
+	names := make([]string, len(s.Performers))
+	for i, p := range s.Performers {
+		names[i] = p.Name
+	}
+	return names
 }
 
 // FindScene fetches one scene by id. Caption fields are only requested when
 // ProbeCaptions established they exist.
 func (c *Client) FindScene(ctx context.Context, id string) (*Scene, error) {
-	fields := `id title files { path duration fingerprints { type value } }`
+	fields := `id title date studio { name } performers { name } files { path duration fingerprints { type value } }`
 	if c.SupportsCaptions {
 		fields += ` captions { language_code caption_type }`
 	}
@@ -206,7 +242,7 @@ func (c *Client) FindScene(ctx context.Context, id string) (*Scene, error) {
 // FindScenesPage returns one page of all scenes, id-ascending, plus the
 // total count — the iteration backbone for library-wide tasks.
 func (c *Client) FindScenesPage(ctx context.Context, page, perPage int) ([]Scene, int, error) {
-	fields := `id title files { path duration fingerprints { type value } }`
+	fields := `id title date studio { name } performers { name } files { path duration fingerprints { type value } }`
 	if c.SupportsCaptions {
 		fields += ` captions { language_code caption_type }`
 	}
