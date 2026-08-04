@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Wasylq/moansubs/internal/store"
+	"github.com/Anastylosis/MoanSubs/internal/store"
 )
 
 var (

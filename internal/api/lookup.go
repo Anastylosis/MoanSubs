@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wasylq/moansubs/internal/hash"
-	"github.com/Wasylq/moansubs/internal/store"
+	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/internal/store"
 )
 
 // -- shared response shape ------------------------------------------------

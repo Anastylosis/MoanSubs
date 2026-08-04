@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wasylq/moansubs/internal/store"
+	"github.com/Anastylosis/MoanSubs/internal/store"
 )
 
 // openTestStore returns a Store connected to DATABASE_URL, skipping the

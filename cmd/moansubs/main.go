@@ -1,6 +1,6 @@
 // Command moansubs runs the moansubs server and its supporting CLI.
 //
-// See https://github.com/Wasylq/moansubs for documentation.
+// See https://github.com/Anastylosis/MoanSubs for documentation.
 package main
 
 import (

@@ -139,7 +139,7 @@ jobs:
             The primary way to run moansubs is Docker:
 
             ```sh
-            docker pull ghcr.io/wasylq/moansubs:${{ github.ref_name }}
+            docker pull ghcr.io/anastylosis/moansubs:${{ github.ref_name }}
             ```
 
             Or with `docker-compose.example.yml` (copy to `docker-compose.yml`,
@@ -173,11 +173,11 @@ jobs:
 
             ```sh
             # Look up the image digest you want to verify
-            docker pull ghcr.io/wasylq/moansubs:${{ github.ref_name }}
-            digest=$(docker buildx imagetools inspect ghcr.io/wasylq/moansubs:${{ github.ref_name }} --format '{{json .Manifest}}' | jq -r '.digest')
+            docker pull ghcr.io/anastylosis/moansubs:${{ github.ref_name }}
+            digest=$(docker buildx imagetools inspect ghcr.io/anastylosis/moansubs:${{ github.ref_name }} --format '{{json .Manifest}}' | jq -r '.digest')
 
             # Verify provenance against the GitHub workflow that built it
-            gh attestation verify oci://ghcr.io/wasylq/moansubs@$digest --owner Wasylq
+            gh attestation verify oci://ghcr.io/anastylosis/moansubs@$digest --owner Anastylosis
             ```
 
             A successful run prints the build workflow's identity (commit SHA, repo, runner). Failure means the image wasn't built by this repo's release pipeline.
@@ -274,7 +274,7 @@ jobs:
 
       - name: Lowercase image repo for Trivy
         # OCI references must be all-lowercase. ${{ github.repository }} can
-        # contain uppercase (e.g. "Wasylq/moansubs"), and GitHub expressions
+        # contain uppercase (e.g. "Anastylosis/MoanSubs"), and GitHub expressions
         # have no case-conversion function — so we bounce through bash to
         # produce a lowercase ref that Trivy can parse. Same fix as docker.yml.
         run: echo "IMAGE_REPO_LC=ghcr.io/${REPO,,}" >> "$GITHUB_ENV"

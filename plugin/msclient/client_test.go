@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Wasylq/moansubs/internal/api"
-	"github.com/Wasylq/moansubs/internal/hash"
-	"github.com/Wasylq/moansubs/internal/store"
+	"github.com/Anastylosis/MoanSubs/internal/api"
+	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/internal/store"
 )
 
 // newTestServer runs the real moansubs API (real store, real Postgres) in

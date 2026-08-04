@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Wasylq/moansubs/plugin/msclient"
-	"github.com/Wasylq/moansubs/plugin/stash"
+	"github.com/Anastylosis/MoanSubs/plugin/msclient"
+	"github.com/Anastylosis/MoanSubs/plugin/stash"
 	"golang.org/x/text/language"
 )
 

@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wasylq/moansubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/internal/hash"
 )
 
 // Client talks to one moansubs server. Safe for concurrent use.

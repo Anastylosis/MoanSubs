@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/Wasylq/moansubs/internal/hash"
-	"github.com/Wasylq/moansubs/plugin/msclient"
+	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/plugin/msclient"
 )
 
 func mustOSHash(t *testing.T, s string) hash.OSHash {

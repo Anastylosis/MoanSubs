@@ -9,7 +9,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/Wasylq/moansubs/internal/store"
+	"github.com/Anastylosis/MoanSubs/internal/store"
 )
 
 // UploadRateLimitPerHour is the per-account-token upload budget from

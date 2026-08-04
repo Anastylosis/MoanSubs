@@ -1,4 +1,4 @@
-module github.com/Wasylq/moansubs
+module github.com/Anastylosis/MoanSubs
 
 go 1.25.0
 
