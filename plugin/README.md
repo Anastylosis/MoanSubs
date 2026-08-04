@@ -36,9 +36,13 @@ across different people's libraries is nearly never.
   with their evidence — **Exact match** (identical file), **Different
   encode** (near phash, duration agrees; flagged **sync?** because timing
   may be off by a few seconds), **Possible match** (full-hash mode only;
-  never auto-applied). Tracks show their language, license, and an **AI**
-  badge when the subtitle was machine-generated (auto-detected server-side,
-  not self-declared).
+  never auto-applied). If hash-based lookup finds nothing at all, and the
+  scene's title/filename was pushed with name metadata, a **Name match**
+  candidate may appear instead — a title/filename score from the server,
+  always offer-only regardless of how confident the server is, shown with
+  its reasons so you can judge it yourself. Tracks show their language,
+  license, and an **AI** badge when the subtitle was machine-generated
+  (auto-detected server-side, not self-declared).
 - **Download** writes `<video stem>.<lang>.srt` next to the scene file and
   triggers a metadata scan when needed. Regional language tags lose their
   region in the filename (`pt-BR` → `.pt.srt`) because Stash only attaches
@@ -57,7 +61,11 @@ across different people's libraries is nearly never.
 - **Push subtitles** — uploads every sidecar subtitle in the library.
   Safe to re-run: the server returns duplicates instead of storing copies.
   Suffix-less captions and non-language suffixes are skipped; the server
-  additionally rejects subtitles whose timing contradicts the video.
+  additionally rejects subtitles whose timing contradicts the video. Each
+  upload carries whatever scene name metadata Stash reports (title,
+  filename stem, date, studio, performers) — this is what later lets a
+  scene with no phash still turn up a **Name match** on someone else's
+  server (see above); a scene missing a field simply pushes without it.
 
 ## Troubleshooting
 

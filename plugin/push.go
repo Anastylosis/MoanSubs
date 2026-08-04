@@ -125,6 +125,15 @@ func (a *app) pushScene(ctx context.Context, scene *stash.Scene, dryRun bool, st
 			DurationMs: int64(f.Duration * 1000),
 			Lang:       sc.Lang,
 			Body:       string(body),
+			// Name metadata for the v2 no-phash fallback (POST
+			// /api/v1/match); only what Stash actually reported for this
+			// scene — UploadRequest's omitempty keeps absent fields absent
+			// on the wire rather than sending empty strings.
+			Title:      scene.Title,
+			Stem:       fileStem(f.Path),
+			Date:       scene.Date,
+			Studio:     scene.StudioName(),
+			Performers: scene.PerformerNames(),
 		})
 		if err != nil {
 			st.Errors++

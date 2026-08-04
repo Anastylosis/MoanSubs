@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -203,6 +204,61 @@ func (c *Client) LookupExact(ctx context.Context, oshash hash.OSHash, phash *has
 	return resp.Releases, nil
 }
 
+// ErrNoMatchEndpoint means the server answered 404 to POST /api/v1/match —
+// an older server predating the v2 no-phash fallback (PLAN.md "Matching"
+// level 5). Callers must degrade to "no fallback" silently rather than
+// surface an error, since this is an expected compatibility case, not a
+// failure.
+var ErrNoMatchEndpoint = errors.New("msclient: server has no /api/v1/match endpoint (older server?)")
+
+// MatchRequest carries a scene's name metadata to POST /api/v1/match, the
+// no-phash fallback used only once hash-based lookup finds nothing. Mirrors
+// internal/api's matchRequest field-for-field.
+type MatchRequest struct {
+	Stem       string   `json:"stem,omitempty"`
+	Title      string   `json:"title,omitempty"`
+	Studio     string   `json:"studio,omitempty"`
+	Performers []string `json:"performers,omitempty"`
+	DurationMs int64    `json:"duration_ms"`
+}
+
+// MatchCandidate is one scored possibility, mirroring the server's
+// matchCandidate. Title/Stem are the stored release's own name metadata,
+// echoed back so a caller can show what the score was computed against.
+type MatchCandidate struct {
+	Release Release  `json:"release"`
+	Title   *string  `json:"title"`
+	Stem    *string  `json:"stem"`
+	Score   float64  `json:"score"`
+	NameSim float64  `json:"name_sim"`
+	DeltaMs int64    `json:"delta_ms"`
+	Reasons []string `json:"reasons"`
+}
+
+// MatchResult mirrors the server's matchResponse. Verdict is one of
+// CONFIRMED/LIKELY/AMBIGUOUS/UNMATCHED, but every verdict here is
+// offer-only: name evidence, unlike a fingerprint, is never grounds to
+// auto-apply (PLAN.md "Matching").
+type MatchResult struct {
+	Verdict    string           `json:"verdict"`
+	Candidates []MatchCandidate `json:"candidates"`
+}
+
+// Match calls POST /api/v1/match with a query scene's name metadata. POST
+// keeps titles and filenames out of access logs, same rationale as exact
+// mode. Returns ErrNoMatchEndpoint when the server predates this endpoint.
+func (c *Client) Match(ctx context.Context, req MatchRequest) (*MatchResult, error) {
+	var res MatchResult
+	if err := c.post(ctx, "/api/v1/match", req, &res); err != nil {
+		var statusErr *httpStatusError
+		if errors.As(err, &statusErr) && statusErr.status == http.StatusNotFound {
+			return nil, ErrNoMatchEndpoint
+		}
+		return nil, err
+	}
+	return &res, nil
+}
+
 // UploadRequest is one subtitle upload (POST /api/v1/subtitles).
 type UploadRequest struct {
 	OSHash     string `json:"oshash"`
@@ -211,6 +267,18 @@ type UploadRequest struct {
 	DurationMs int64  `json:"duration_ms"`
 	Lang       string `json:"lang"`
 	Body       string `json:"body"`
+
+	// Optional scene name metadata (server migration 0003), stored on the
+	// release so the v2 no-phash fallback (POST /api/v1/match) can offer it
+	// later. Omitempty is load-bearing here: a scene Stash didn't report a
+	// studio for must send no "studio" field at all, not an empty string —
+	// GetOrCreateRelease's backfill only fires when the existing release has
+	// no metadata whatsoever, and an empty string is still "sent".
+	Title      string   `json:"title,omitempty"`
+	Stem       string   `json:"stem,omitempty"`
+	Date       string   `json:"date,omitempty"`
+	Studio     string   `json:"studio,omitempty"`
+	Performers []string `json:"performers,omitempty"`
 }
 
 // UploadResult mirrors the server's upload response.
@@ -272,6 +340,18 @@ func (c *Client) post(ctx context.Context, path string, body, out any) error {
 	return c.do(req, out)
 }
 
+// httpStatusError wraps a non-2xx response with its status code, so a
+// caller (currently just Match) can distinguish a specific status without
+// parsing the error text. Error() delegates to the wrapped message, so this
+// is transparent to every other caller that only ever prints the error.
+type httpStatusError struct {
+	status int
+	err    error
+}
+
+func (e *httpStatusError) Error() string { return e.err.Error() }
+func (e *httpStatusError) Unwrap() error { return e.err }
+
 func (c *Client) do(req *http.Request, out any) error {
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
@@ -280,7 +360,10 @@ func (c *Client) do(req *http.Request, out any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("msclient: %s: HTTP %d: %s", req.URL.Path, resp.StatusCode, strings.TrimSpace(string(b)))
+		return &httpStatusError{
+			status: resp.StatusCode,
+			err:    fmt.Errorf("msclient: %s: HTTP %d: %s", req.URL.Path, resp.StatusCode, strings.TrimSpace(string(b))),
+		}
 	}
 	if out != nil {
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
