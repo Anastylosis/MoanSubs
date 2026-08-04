@@ -167,10 +167,10 @@ func tokenizeWords(text string) []string {
 }
 
 // isAllDigits reports whether s is non-empty and every byte is an ASCII
-// digit. Pulled in from StashJanitor/internal/subs/normalize.go, which is
-// otherwise v2 scope (PLAN.md: match.go/normalize.go/vocab.go are the token
-// scorer, not ported here) — readSample above is its only caller in the v1
-// subset.
+// digit. Ported from StashJanitor/internal/subs/normalize.go (verbatim,
+// same implementation); kept here as the single definition rather than
+// duplicated in normalize.go since readSample above and Tokens/StripNoise
+// both need it.
 func isAllDigits(s string) bool {
 	for i := 0; i < len(s); i++ {
 		if s[i] < '0' || s[i] > '9' {

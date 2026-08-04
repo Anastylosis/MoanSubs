@@ -1,7 +1,3 @@
-// Package subs is ported from StashJanitor/internal/subs (PLAN.md
-// "Matching"). v1 brings across only runtime.go and lang.go — the upload-time
-// runtime sanity check and language detection. match.go, normalize.go and
-// vocab.go (the token scorer, the no-phash fallback) are v2.
 package subs
 
 import (
