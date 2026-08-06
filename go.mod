@@ -3,6 +3,7 @@ module github.com/Anastylosis/MoanSubs
 go 1.25.0
 
 require (
+	github.com/Anastylosis/subs v0.1.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/text v0.29.0
