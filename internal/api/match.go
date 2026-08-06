@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Anastylosis/MoanSubs/internal/store"
-	"github.com/Anastylosis/MoanSubs/internal/subs"
+	"github.com/Anastylosis/subs"
 )
 
 // -- POST /api/v1/match ----------------------------------------------------
