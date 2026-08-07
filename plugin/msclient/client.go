@@ -31,6 +31,8 @@ type Client struct {
 	HTTP *http.Client
 }
 
+// New returns a client for the moansubs server at baseURL, authenticating
+// with token. A trailing slash on baseURL is ignored.
 func New(baseURL, token string) *Client {
 	return &Client{
 		BaseURL: strings.TrimRight(baseURL, "/"),
@@ -357,7 +359,7 @@ func (c *Client) do(req *http.Request, out any) error {
 	if err != nil {
 		return fmt.Errorf("msclient: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return &httpStatusError{
