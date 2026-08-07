@@ -1,0 +1,20 @@
+# Mirrors the org-wide defaults in Anastylosis/.github. Duplicated here on
+# purpose: Codecov only reads that global file once it has synced the .github
+# repository, and it has not — so the org copy is the intent and this is what
+# actually applies. Keep them in step.
+
+coverage:
+  status:
+    # Informational, for the same reason vulncheck and Trivy are: a coverage
+    # dip should be visible without blocking. A transport refactor legitimately
+    # moves the patch figure, and a status that fails on that gets ignored.
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+comment:
+  behavior: default
+  require_changes: true
