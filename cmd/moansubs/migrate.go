@@ -31,7 +31,7 @@ var migrateCmd = &cobra.Command{
 		}
 		s.Close()
 
-		fmt.Fprintln(cmd.OutOrStdout(), "migrations applied")
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "migrations applied")
 		return nil
 	},
 }

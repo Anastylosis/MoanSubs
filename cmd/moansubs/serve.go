@@ -71,7 +71,7 @@ var serveCmd = &cobra.Command{
 
 		errCh := make(chan error, 1)
 		go func() {
-			fmt.Fprintf(cmd.OutOrStdout(), "moansubs serve: listening on %s\n", listen)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "moansubs serve: listening on %s\n", listen)
 			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				errCh <- err
 				return
@@ -86,7 +86,7 @@ var serveCmd = &cobra.Command{
 			}
 			return nil
 		case <-ctx.Done():
-			fmt.Fprintln(cmd.OutOrStdout(), "moansubs serve: shutting down")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "moansubs serve: shutting down")
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			if err := srv.Shutdown(shutdownCtx); err != nil {

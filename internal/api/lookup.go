@@ -172,9 +172,9 @@ func (s *Server) handleLookupPhashBlock(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "val must be a hex integer")
 		return
 	}
-	if max := phashBlockMax(blockIndex); val > max {
+	if limit := phashBlockMax(blockIndex); val > limit {
 		writeError(w, http.StatusBadRequest,
-			fmt.Sprintf("val %#x out of range for block %d (max %#x; block 4 is 12 bits, blocks 0-3 are 13 bits)", val, blockIndex, max))
+			fmt.Sprintf("val %#x out of range for block %d (max %#x; block 4 is 12 bits, blocks 0-3 are 13 bits)", val, blockIndex, limit))
 		return
 	}
 
@@ -291,9 +291,9 @@ func (s *Server) handleLookupBatch(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("phash_blocks: val %q is not a hex integer", pb.Val))
 			return
 		}
-		if max := phashBlockMax(pb.Block); val > max {
+		if limit := phashBlockMax(pb.Block); val > limit {
 			writeError(w, http.StatusBadRequest,
-				fmt.Sprintf("phash_blocks: val %#x out of range for block %d (max %#x)", val, pb.Block, max))
+				fmt.Sprintf("phash_blocks: val %#x out of range for block %d (max %#x)", val, pb.Block, limit))
 			return
 		}
 		releases, err := s.Store.LookupByBlock(ctx, pb.Block, uint16(val))

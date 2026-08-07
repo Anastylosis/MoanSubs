@@ -38,7 +38,7 @@ func ResolveCaptionLang(tag string) (CaptionLang, error) {
 	}
 	t, err := language.Parse(tag)
 	if err != nil {
-		return CaptionLang{}, fmt.Errorf("language tag %q is not parseable (%v); refusing to write a sidecar that would never attach", tag, err)
+		return CaptionLang{}, fmt.Errorf("language tag %q is not parseable (%w); refusing to write a sidecar that would never attach", tag, err)
 	}
 	base, conf := t.Base()
 	if conf == language.No {

@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -83,7 +84,7 @@ func (c *Client) Execute(ctx context.Context, query string, variables map[string
 	if err != nil {
 		return fmt.Errorf("stash: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -137,12 +138,11 @@ func (c *Client) ProbeCaptions(ctx context.Context) bool {
 	return true
 }
 
+// isGraphQLError reports whether err is, or wraps, a *GraphQLError, assigning
+// it to target when so. errors.As rather than a type assertion because the
+// transport wraps its errors — a bare assertion misses every wrapped one.
 func isGraphQLError(err error, target **GraphQLError) bool {
-	e, ok := err.(*GraphQLError)
-	if ok {
-		*target = e
-	}
-	return ok
+	return errors.As(err, target)
 }
 
 // Caption is one attached caption as Stash reports it.

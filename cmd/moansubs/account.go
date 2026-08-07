@@ -45,9 +45,9 @@ var accountCreateCmd = &cobra.Command{
 		}
 
 		out := cmd.OutOrStdout()
-		fmt.Fprintf(out, "Account %q created (id %d).\n", args[0], id)
-		fmt.Fprintln(out, "API token — store this now, it will not be shown again:")
-		fmt.Fprintln(out, token)
+		_, _ = fmt.Fprintf(out, "Account %q created (id %d).\n", args[0], id)
+		_, _ = fmt.Fprintln(out, "API token — store this now, it will not be shown again:")
+		_, _ = fmt.Fprintln(out, token)
 		return nil
 	},
 }

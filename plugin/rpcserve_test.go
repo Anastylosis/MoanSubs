@@ -22,7 +22,7 @@ func TestRPCRoundTrip(t *testing.T) {
 	go s.ServeCodec(jsonrpc.NewServerCodec(pluginSide))
 
 	client := rpc.NewClientWithCodec(jsonrpc.NewClientCodec(hostSide))
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	// An unknown mode must come back as PluginOutput.Error — an RPC-level
 	// error would crash the task with no useful message in Stash's log.
