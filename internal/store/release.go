@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Anastylosis/MoanSubs/internal/hash"
-	"github.com/Anastylosis/subs"
+	subs "github.com/Anastylosis/subtitlematch"
 	"github.com/jackc/pgx/v5"
 )
 

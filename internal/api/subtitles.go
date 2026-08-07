@@ -14,7 +14,7 @@ import (
 	"github.com/Anastylosis/MoanSubs/internal/provenance"
 	"github.com/Anastylosis/MoanSubs/internal/store"
 	"github.com/Anastylosis/MoanSubs/internal/subtitle"
-	"github.com/Anastylosis/subs"
+	subs "github.com/Anastylosis/subtitlematch"
 	"golang.org/x/text/language"
 )
 
