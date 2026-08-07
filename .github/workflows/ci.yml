@@ -4,6 +4,7 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -13,206 +14,28 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: moansubs
-          POSTGRES_PASSWORD: moansubs
-          POSTGRES_DB: moansubs_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U moansubs -d moansubs_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      # internal/store tests skip themselves when this is unset, so the job
-      # still runs (and stays green) before the store package exists.
-      DATABASE_URL: postgres://moansubs:moansubs@localhost:5432/moansubs_test?sslmode=disable
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-
-      - name: Build
-        run: go build ./...
-
-      - name: Install gotestsum
-        # Pinned so the test-output.txt grep in the coverage-summary step
-        # doesn't break on a silent format change. Bump together with the
-        # govulncheck pin in the vulncheck job.
-        run: go install gotest.tools/gotestsum@v1.13.0
-
-      - name: Test with coverage
-        # `shell: bash` for pipefail. The default Linux shell is `bash -e` with
-        # NO pipefail, so the step would exit with tee's status (always 0) and a
-        # failing test would go green. The pipe itself is load-bearing: the
-        # coverage-summary step below reads test-output.txt.
-        shell: bash
-        # -p 1: internal/store and internal/api both TRUNCATE the shared
-        # Postgres service container's tables in test setup, so their test
-        # binaries must run one at a time, not in parallel (see Makefile).
-        run: gotestsum --junitfile junit.xml -- -p 1 -race -count=1 -coverprofile=coverage.out -covermode=atomic ./... 2>&1 | tee test-output.txt
-
-      # TODO: fuzz SRT/VTT parser once internal/subs lands
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v7
-        with:
-          files: coverage.out
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: Upload test results to Codecov
-        if: ${{ !cancelled() }}
-        uses: codecov/test-results-action@v1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: Generate coverage summary
-        if: always()
-        run: |
-          total=$(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}')
-
-          {
-            echo "## Test Results"
-            echo ""
-            echo "**Total coverage: ${total}**"
-            echo ""
-            echo "| Package | Coverage |"
-            echo "|---------|----------|"
-            grep 'coverage:' test-output.txt | sed 's/ok  \t//' | while IFS=$'\t' read -r pkg _ cov; do
-              cov=$(echo "$cov" | sed 's/coverage: //' | sed 's/ of statements//')
-              echo "| \`${pkg}\` | ${cov} |"
-            done
-            grep '\[no test files\]' test-output.txt | sed 's/\?\s*\t//' | while IFS=$'\t' read -r pkg _; do
-              echo "| \`${pkg}\` | — |"
-            done
-          } >> $GITHUB_STEP_SUMMARY
-
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
+  ci:
+    uses: Anastylosis/.github/.github/workflows/go-ci.yml@v1
     permissions:
       contents: read
       checks: write
-    steps:
-      - uses: actions/checkout@v7
+      # Codecov uploads authenticate with an OIDC token. A reusable workflow
+      # cannot grant itself more than the caller holds, so it has to be here.
+      id-token: write
+    secrets: inherit
+    with:
+      binary-name: moansubs
+      main-package: ./cmd/moansubs
+      postgres-image: postgres:16-alpine
+      # -p 1: internal/store and internal/api both TRUNCATE the shared
+      # Postgres tables in test setup, so their test binaries must run one at
+      # a time, not in parallel (see the Makefile).
+      test-flags: '-p 1 -race -count=1'
+      check-dockerfile-go-version: true
 
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-
-      - name: Run go vet
-        run: go vet ./...
-
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.11.4
-          args: --timeout=5m
-
-      - name: Check Dockerfile GO_VERSION matches go.mod
-        # CI builds pass GO_VERSION dynamically from go.mod via
-        # scripts/go-version.sh, but the Dockerfile's ARG default is the
-        # fallback for naive `docker build .` runs locally. Keep them in
-        # sync — bump both when bumping the Go toolchain.
-        run: |
-          gomod_ver=$(./scripts/go-version.sh)
-          dockerfile_ver=$(awk -F= '/^ARG GO_VERSION=/ { print $2; exit }' Dockerfile)
-          if [ "$gomod_ver" != "$dockerfile_ver" ]; then
-            echo "::error::go.mod says Go $gomod_ver but Dockerfile default ARG GO_VERSION=$dockerfile_ver."
-            echo "::error::Edit Dockerfile so the ARG GO_VERSION default matches go.mod."
-            exit 1
-          fi
-          echo "OK: Dockerfile GO_VERSION=$dockerfile_ver matches go.mod"
-
-  # The provenance format is a wire contract with Scriptorium, in Python, with
-  # nothing at build time keeping the two in agreement. Detection here fails
-  # open: if the producer changes shape and this repo is not updated, machine
-  # transcripts are ingested with no disclosure — no error, just a missing
-  # flag.
-  #
-  # internal/provenance/testdata holds a vendored copy of Scriptorium's
-  # conformance fixtures so the unit tests stay offline. This job is the only
-  # thing that notices when that copy goes stale, so it needs the network and
-  # lives outside the test job.
-  provenance-drift:
-    name: Provenance fixtures match Scriptorium
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7.0.1
-
-      - name: Compare vendored fixtures against the producer
-        run: |
-          upstream=https://raw.githubusercontent.com/Anastylosis/Scriptorium/master/spec/provenance/fixtures
-          cd internal/provenance/testdata
-
-          if ! curl -fsSL "$upstream/SHA256SUMS" -o upstream.sums; then
-            echo "::warning::could not reach Scriptorium; skipping the drift check"
-            exit 0
-          fi
-
-          if diff -u SHA256SUMS upstream.sums; then
-            echo "fixtures are current"
-            exit 0
-          fi
-
-          echo "::error title=Provenance fixtures are stale::Scriptorium's conformance fixtures have changed."
-          echo "The wire format moved. Copy spec/provenance/fixtures/ from Scriptorium into"
-          echo "internal/provenance/testdata/ and make internal/provenance handle the new shape."
-          exit 1
-
-  # Vulncheck is intentionally informational and is NOT gated on release.
-  # The Go vulnerability database reports findings for older Go *toolchains*
-  # as well as third-party deps, so a "fail on any finding" policy would
-  # require bumping go.mod / the Go toolchain on every new Go point release
-  # to keep the pipeline green. We prefer to see findings as warnings and
-  # decide deliberately when to upgrade.
-  vulncheck:
-    name: Vulncheck (informational)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-
-      - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
-
-      - name: Run govulncheck
-        run: govulncheck ./... || echo "::warning::govulncheck found vulnerabilities (see above)"
-
-  # Cross-build deliberately omits linux/amd64: the `test` job above runs on
-  # ubuntu-latest (linux/amd64) and does `go build ./...` natively before
-  # tests, so the native build is already gated. This matrix exists only to
-  # catch breakage in *cross-compilation* for linux/arm64, the other
-  # platform shipped by release.yml — moansubs is a server, so darwin/windows
-  # cross-builds don't apply here.
-  cross-build:
-    name: Cross-build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-
-      - name: Build
-        env:
-          GOOS: linux
-          GOARCH: arm64
-        run: go build -o moansubs ./cmd/moansubs
+# NOTE: the shared workflow exports DATABASE_URL with generic ci/ci/ci_test
+# credentials rather than moansubs/moansubs/moansubs_test. internal/store's
+# tests read DATABASE_URL and skip when unset, so nothing needs to change —
+# but do not hardcode the old credentials anywhere new.
+#
+# TODO once internal/subs lands: add fuzz-targets for the SRT/VTT parser.
