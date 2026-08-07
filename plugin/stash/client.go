@@ -9,108 +9,84 @@
 package stash
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
 	"time"
+
+	upstream "github.com/Anastylosis/stash-go"
 )
 
 // Client is a Stash GraphQL client. Safe for concurrent use.
 type Client struct {
-	// Endpoint is the fully-qualified GraphQL URL.
+	// Endpoint is the base URL as given to NewClient, kept for logging.
 	Endpoint string
-
-	// APIKey is sent in the `ApiKey` header when non-empty.
-	APIKey string
-
-	// Cookie is the session cookie from the plugin's server_connection;
-	// used only when APIKey is empty.
-	Cookie *http.Cookie
 
 	// SupportsCaptions is set by ProbeCaptions. Zero value means "not yet
 	// probed"; callers must probe before building scene queries that touch
 	// captions, because an unknown GraphQL field fails the entire query.
 	SupportsCaptions bool
 
-	HTTP *http.Client
+	up *upstream.Client
 }
 
 // NewClient builds a Client for the given base URL (scheme://host:port).
+//
+// apiKey wins over cookie when both are present — that precedence lives in
+// the shared client now, for the same reason it lived here: a session cookie
+// expires mid-run and fails a long task partway through.
 func NewClient(baseURL, apiKey string, cookie *http.Cookie) *Client {
 	return &Client{
-		Endpoint: strings.TrimRight(baseURL, "/") + "/graphql",
-		APIKey:   apiKey,
-		Cookie:   cookie,
-		HTTP:     &http.Client{Timeout: 2 * time.Minute},
+		Endpoint: baseURL,
+		up: upstream.NewClient(baseURL,
+			upstream.WithAPIKey(apiKey),
+			upstream.WithCookie(cookie),
+			upstream.WithHTTPClient(&http.Client{Timeout: 2 * time.Minute}),
+		),
 	}
 }
 
-// GraphQLError is a non-empty `errors` array in the GraphQL response —
-// schema mismatches (unknown field) and auth failures surface here.
-type GraphQLError struct {
-	Messages []string
+// UseAPIKey switches authentication to an API key.
+//
+// The plugin cannot know the key up front: it connects with the session cookie
+// Stash supplies, reads its own settings over that connection, and only then
+// learns whether an operator configured one. Preferring the key from that
+// point on is deliberate — session cookies expire mid-run, and a long task
+// then fails partway through (stashapp/stash#5332).
+//
+// The shared client is immutable, so this rebuilds it rather than mutating
+// auth underneath in-flight requests.
+func (c *Client) UseAPIKey(key string) {
+	if key == "" {
+		return
+	}
+	c.up = upstream.NewClient(c.Endpoint,
+		upstream.WithAPIKey(key),
+		upstream.WithHTTPClient(&http.Client{Timeout: 2 * time.Minute}),
+	)
 }
 
-func (e *GraphQLError) Error() string {
-	return "stash graphql: " + strings.Join(e.Messages, "; ")
-}
+// GraphQLError is a non-empty `errors` array in the GraphQL response — schema
+// mismatches (unknown field) and auth failures surface here.
+//
+// An alias for the shared type, so a value returned by the upstream client
+// satisfies it exactly. Each entry now also keeps its `path` and `extensions`.
+type GraphQLError = upstream.APIError
 
 // Execute posts one GraphQL query and decodes the `data` field into out
 // (a non-nil pointer, or nil when the caller ignores the result).
 func (c *Client) Execute(ctx context.Context, query string, variables map[string]any, out any) error {
-	body, err := json.Marshal(map[string]any{"query": query, "variables": variables})
+	data, err := c.up.Execute(ctx, query, variables)
 	if err != nil {
-		return fmt.Errorf("stash: marshalling request: %w", err)
+		return err
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Endpoint, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("stash: building request: %w", err)
+	if out == nil {
+		return nil
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	if c.APIKey != "" {
-		req.Header.Set("ApiKey", c.APIKey)
-	} else if c.Cookie != nil {
-		req.AddCookie(c.Cookie)
-	}
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return fmt.Errorf("stash: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("stash: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
-	}
-
-	var envelope struct {
-		Data   json.RawMessage `json:"data"`
-		Errors []struct {
-			Message string `json:"message"`
-		} `json:"errors"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
-		return fmt.Errorf("stash: decoding response: %w", err)
-	}
-	if len(envelope.Errors) > 0 {
-		gqlErr := &GraphQLError{}
-		for _, e := range envelope.Errors {
-			gqlErr.Messages = append(gqlErr.Messages, e.Message)
-		}
-		return gqlErr
-	}
-	if out != nil {
-		if err := json.Unmarshal(envelope.Data, out); err != nil {
-			return fmt.Errorf("stash: decoding data: %w", err)
-		}
+	if err := json.Unmarshal(data, out); err != nil {
+		return fmt.Errorf("stash: decoding data: %w", err)
 	}
 	return nil
 }

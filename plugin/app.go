@@ -48,7 +48,7 @@ func newApp(ctx context.Context, input PluginInput) (*app, error) {
 		return nil, fmt.Errorf("reading plugin settings: %w", err)
 	}
 	if key, _ := settings["stash_api_key"].(string); key != "" {
-		st.APIKey = key
+		st.UseAPIKey(key)
 	}
 
 	serverURL, _ := settings["server_url"].(string)
