@@ -135,6 +135,42 @@ jobs:
           fi
           echo "OK: Dockerfile GO_VERSION=$dockerfile_ver matches go.mod"
 
+  # The provenance format is a wire contract with Scriptorium, in Python, with
+  # nothing at build time keeping the two in agreement. Detection here fails
+  # open: if the producer changes shape and this repo is not updated, machine
+  # transcripts are ingested with no disclosure — no error, just a missing
+  # flag.
+  #
+  # internal/provenance/testdata holds a vendored copy of Scriptorium's
+  # conformance fixtures so the unit tests stay offline. This job is the only
+  # thing that notices when that copy goes stale, so it needs the network and
+  # lives outside the test job.
+  provenance-drift:
+    name: Provenance fixtures match Scriptorium
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Compare vendored fixtures against the producer
+        run: |
+          upstream=https://raw.githubusercontent.com/Anastylosis/Scriptorium/master/spec/provenance/fixtures
+          cd internal/provenance/testdata
+
+          if ! curl -fsSL "$upstream/SHA256SUMS" -o upstream.sums; then
+            echo "::warning::could not reach Scriptorium; skipping the drift check"
+            exit 0
+          fi
+
+          if diff -u SHA256SUMS upstream.sums; then
+            echo "fixtures are current"
+            exit 0
+          fi
+
+          echo "::error title=Provenance fixtures are stale::Scriptorium's conformance fixtures have changed."
+          echo "The wire format moved. Copy spec/provenance/fixtures/ from Scriptorium into"
+          echo "internal/provenance/testdata/ and make internal/provenance handle the new shape."
+          exit 1
+
   # Vulncheck is intentionally informational and is NOT gated on release.
   # The Go vulnerability database reports findings for older Go *toolchains*
   # as well as third-party deps, so a "fail on any finding" policy would
