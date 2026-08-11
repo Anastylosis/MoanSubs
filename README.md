@@ -104,6 +104,8 @@ database dumps. There is no public moansubs instance yet.
 
 ## License
 
+Copyright (C) 2026 Wasylq
+
 Code: [GPL-3.0-only](LICENSE). Uploaded subtitles: uploaders declare
 [CC0](https://creativecommons.org/publicdomain/zero/1.0/); mirrored seed
 content may carry a different per-track license (recorded in the track's
