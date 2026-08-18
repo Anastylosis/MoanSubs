@@ -63,6 +63,9 @@ func NewServer(s *store.Store) *Server {
 // NewMux builds the moansubs HTTP mux.
 func NewMux(s *Server) *http.ServeMux {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", s.handleIndex)
+	mux.HandleFunc("GET /register", s.handleRegisterForm)
+	mux.HandleFunc("POST /register", s.handleRegisterSubmit)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("POST /api/v1/accounts", s.handleRegisterAccount)
 	mux.HandleFunc("POST /api/v1/subtitles", s.handleUploadSubtitle)

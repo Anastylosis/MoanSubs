@@ -1,0 +1,28 @@
+{{define "body"}}
+{{if .Token}}
+  <h2>Account created</h2>
+  <p>Your upload token for <strong>{{.Name}}</strong>:</p>
+  <code class="token">{{.Token}}</code>
+  <div class="warn"><strong>Copy it now.</strong> Only a hash of this token
+  is stored, so it cannot be shown again or recovered — losing it means
+  registering a new name.</div>
+  <p>Paste it into the moansubs plugin in Stash:
+  <em>Settings → Plugins → moansubs → Upload token</em>.</p>
+{{else if not .Open}}
+  <h2>Registration is closed</h2>
+  <p>This node does not accept self-registration. Ask whoever runs it for
+  an account.</p>
+{{else}}
+  <h2>Register</h2>
+  {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+  <p>No email, no password. You pick a name and get a token — the token
+  <em>is</em> the account.</p>
+  <form method="post" action="/register">
+    <label for="name">Name</label>
+    <input type="text" id="name" name="name" value="{{.Name}}" autofocus
+           required minlength="3" maxlength="64" autocomplete="off">
+    <p class="hint">3–64 characters: letters, digits, underscore, hyphen and dot.</p>
+    <button type="submit">Create account</button>
+  </form>
+{{end}}
+{{end}}
