@@ -18,7 +18,14 @@ sees them.
 **Tokens.** Upload tokens are 256-bit random values; the server stores
 only their SHA-256 and compares in constant time. A leaked token can
 upload (rate-limited) but cannot read or delete anything it couldn't read
-anonymously. Rotate by creating a new account and disabling the old row.
+anonymously. Rotate by creating a new account and disabling the old one
+(`moansubs account disable <name>`).
+
+**Registration.** Nodes accept self-service registration by default
+(`POST /api/v1/accounts`), rate-limited per IP. It collects nothing but a
+name — no email, no password — so the token *is* the account, and an
+operator's remedy for abuse is `account disable`, not a password reset.
+Run with `MOANSUBS_OPEN_REGISTRATION=false` for an invite-only node.
 
 **Anonymous surface.** Lookups and downloads need no auth and are
 rate-limited per IP. Bucketed lookups are designed so clients don't send

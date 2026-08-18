@@ -10,10 +10,17 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// Account is an upload-authorized identity (PLAN.md "Upload safety": no
-// self-registration in v1 — accounts are created by an admin CLI command).
+// ErrNameTaken is returned by CreateAccount when the name is already in use,
+// case-insensitively (migration 0004). Self-registration turns this from an
+// operator typo into an ordinary, expected outcome the API answers with 409.
+var ErrNameTaken = errors.New("store: account name already taken")
+
+// Account is an upload-authorized identity, created either by the operator
+// (`moansubs account create`) or by a visitor registering through
+// POST /api/v1/accounts on a node that allows it.
 type Account struct {
 	ID        int64
 	Name      string
@@ -46,9 +53,56 @@ func (s *Store) CreateAccount(ctx context.Context, name string) (id int64, token
 		name, tokenHash,
 	).Scan(&id)
 	if err != nil {
+		// 23505 is unique_violation: either accounts_name_key (exact) or
+		// accounts_name_lower_key (case-insensitive, migration 0004).
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return 0, "", ErrNameTaken
+		}
 		return 0, "", fmt.Errorf("store: CreateAccount: %w", err)
 	}
 	return id, token, nil
+}
+
+// ListAccounts returns every account, oldest first. The token hash is left
+// on the struct but is of no use to a caller — the plaintext is
+// unrecoverable by construction.
+func (s *Store) ListAccounts(ctx context.Context) ([]Account, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, name, token_hash, disabled, created_at FROM accounts ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("store: ListAccounts: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Account
+	for rows.Next() {
+		var a Account
+		if err := rows.Scan(&a.ID, &a.Name, &a.TokenHash, &a.Disabled, &a.CreatedAt); err != nil {
+			return nil, fmt.Errorf("store: ListAccounts: %w", err)
+		}
+		out = append(out, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: ListAccounts: %w", err)
+	}
+	return out, nil
+}
+
+// SetAccountDisabled flips an account's disabled flag, matched on name
+// case-insensitively so an operator revoking access does not have to
+// reproduce the registrant's capitalization. Returns ErrNotFound when no
+// such account exists.
+func (s *Store) SetAccountDisabled(ctx context.Context, name string, disabled bool) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE accounts SET disabled = $2 WHERE lower(name) = lower($1)`, name, disabled)
+	if err != nil {
+		return fmt.Errorf("store: SetAccountDisabled: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // HashToken returns the SHA-256 hex digest of an API token — the only form

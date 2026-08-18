@@ -47,6 +47,26 @@ var serveCmd = &cobra.Command{
 			uploadRate = n
 		}
 
+		// Registration is open by default; a node that wants to stay
+		// invite-only closes it here rather than in code.
+		openRegistration := true
+		if v := os.Getenv("MOANSUBS_OPEN_REGISTRATION"); v != "" {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_OPEN_REGISTRATION %q", v)
+			}
+			openRegistration = b
+		}
+
+		registerRate := api.RegisterRateLimitPerHour
+		if v := os.Getenv("MOANSUBS_REGISTER_RATE_PER_HOUR"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_REGISTER_RATE_PER_HOUR %q", v)
+			}
+			registerRate = n
+		}
+
 		// Cancelled on SIGINT/SIGTERM, which also starts the graceful
 		// shutdown below.
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
@@ -64,6 +84,8 @@ var serveCmd = &cobra.Command{
 
 		apiSrv := api.NewServer(s)
 		apiSrv.Limiter = api.NewRateLimiter(uploadRate)
+		apiSrv.RegisterLimiter = api.NewRateLimiter(registerRate)
+		apiSrv.OpenRegistration = openRegistration
 		srv := &http.Server{
 			Addr:    listen,
 			Handler: api.NewMux(apiSrv),
@@ -71,7 +93,8 @@ var serveCmd = &cobra.Command{
 
 		errCh := make(chan error, 1)
 		go func() {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "moansubs serve: listening on %s\n", listen)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "moansubs serve: listening on %s (registration %s)\n",
+				listen, map[bool]string{true: "open", false: "closed"}[openRegistration])
 			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				errCh <- err
 				return

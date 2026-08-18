@@ -24,6 +24,11 @@ const UploadRateLimitPerHour = 30
 // with the batch endpoint as the actual pressure valve for a SceneCard wall.
 const LookupRateLimitPerMinute = 300
 
+// RegisterRateLimitPerHour is the per-IP budget for self-registration. Low
+// on purpose: a person needs one account, so anything above a handful per
+// hour from one address is somebody minting names, not somebody signing up.
+const RegisterRateLimitPerHour = 5
+
 // Server holds the dependencies HTTP handlers need.
 type Server struct {
 	Store *store.Store
@@ -33,14 +38,25 @@ type Server struct {
 	// LookupLimiter is the per-IP limiter shared by all four lookup
 	// endpoints, also exported for the same reason as Limiter.
 	LookupLimiter *RateLimiter
+	// RegisterLimiter is the per-IP limiter for self-registration.
+	RegisterLimiter *RateLimiter
+	// OpenRegistration allows strangers to create their own upload accounts
+	// (POST /api/v1/accounts). A node that leaves this off is invite-only:
+	// the operator mints accounts with `moansubs account create`.
+	OpenRegistration bool
 }
 
 // NewServer builds a Server backed by s, with its own rate limiters.
 func NewServer(s *store.Store) *Server {
 	return &Server{
-		Store:         s,
-		Limiter:       NewRateLimiter(UploadRateLimitPerHour),
-		LookupLimiter: NewRateLimiterPerMinute(LookupRateLimitPerMinute),
+		Store:           s,
+		Limiter:         NewRateLimiter(UploadRateLimitPerHour),
+		LookupLimiter:   NewRateLimiterPerMinute(LookupRateLimitPerMinute),
+		RegisterLimiter: NewRateLimiter(RegisterRateLimitPerHour),
+		// Open by default: a subtitle database with no contributors is a
+		// mirror. Operators running a private node close it with
+		// MOANSUBS_OPEN_REGISTRATION=false.
+		OpenRegistration: true,
 	}
 }
 
@@ -48,6 +64,7 @@ func NewServer(s *store.Store) *Server {
 func NewMux(s *Server) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
+	mux.HandleFunc("POST /api/v1/accounts", s.handleRegisterAccount)
 	mux.HandleFunc("POST /api/v1/subtitles", s.handleUploadSubtitle)
 	mux.HandleFunc("GET /api/v1/subtitles/{id}", s.handleGetSubtitle)
 	mux.HandleFunc("GET /api/v1/lookup/oshash/{prefix}", s.handleLookupOshashPrefix)
