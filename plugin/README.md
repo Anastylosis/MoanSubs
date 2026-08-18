@@ -10,12 +10,39 @@ only ever talks to Stash's own GraphQL endpoint.
 
 ## Install
 
-1. Copy `moansubs.yml`, `moansubs.js`, and the binary (built with
-   `make plugin`, pick your architecture, rename to `moansubs-plugin`,
-   `chmod +x`) into `<stash plugins dir>/moansubs/`.
-2. Stash → **Settings → Plugins → Reload plugins**.
-3. Configure the plugin settings (below), then run the **Probe** task —
-   it fails loudly with the reason if anything is misconfigured.
+The exec half is a native binary, so every install path is
+architecture-specific: pick the one matching the machine **Stash itself**
+runs on, which is not necessarily the one running the moansubs server.
+
+### From the package source (once a release is published)
+
+Stash → **Settings → Plugins → Available Plugins → Add Source**, with:
+
+| Stash's arch | Source URL |
+|---|---|
+| linux/amd64 | `https://anastylosis.github.io/MoanSubs/plugin/amd64/index.yml` |
+| linux/arm64 | `https://anastylosis.github.io/MoanSubs/plugin/arm64/index.yml` |
+
+Then install **moansubs** from that source. Later releases show up as
+upgrades in the same place. Adding the index for the wrong architecture
+installs a binary that cannot execute — Stash reports the plugin as
+failing to start.
+
+### From a release archive
+
+```sh
+tar xzf moansubs-plugin-v0.2.0-linux-amd64.tar.gz -C <stash plugins dir>
+```
+
+### From source
+
+Build with `make plugin`, then copy `moansubs.yml`, `moansubs.js` and your
+architecture's binary (renamed to `moansubs-plugin`, `chmod +x`) into
+`<stash plugins dir>/moansubs/`.
+
+Whichever route: Stash → **Settings → Plugins → Reload plugins**, then
+configure the settings below and run the **Probe** task — it fails loudly
+with the reason if anything is misconfigured.
 
 ## Settings
 

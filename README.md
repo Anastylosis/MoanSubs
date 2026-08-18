@@ -62,8 +62,20 @@ reverse proxies).
 
 ## Installing the plugin
 
-1. Build the plugin binary and copy the plugin directory into your Stash
-   plugins folder:
+1. Add the package source in Stash (**Settings → Plugins → Available
+   Plugins → Add Source**) and install **moansubs** from it:
+
+   | Stash's arch | Source URL |
+   |---|---|
+   | linux/amd64 | `https://anastylosis.github.io/MoanSubs/plugin/amd64/index.yml` |
+   | linux/arm64 | `https://anastylosis.github.io/MoanSubs/plugin/arm64/index.yml` |
+
+   The exec half is a native binary and Stash's package source has no
+   notion of architecture, hence one index per arch — match the machine
+   **Stash** runs on. The binary is static, so it runs in any Stash
+   container regardless of base image.
+
+   To build it yourself instead:
 
    ```sh
    make plugin
@@ -72,9 +84,6 @@ reverse proxies).
    cp plugin/dist/moansubs-plugin-linux-amd64 /path/to/stash/plugins/moansubs/moansubs-plugin
    chmod +x /path/to/stash/plugins/moansubs/moansubs-plugin
    ```
-
-   The binary is static — it runs in any Stash container regardless of the
-   base image. Use the `-arm64` build for ARM hosts.
 
 2. In Stash: **Settings → Plugins → Reload plugins**, then configure
    **moansubs**: the server URL, and (for uploading) your account token.
@@ -90,9 +99,11 @@ Full plugin documentation (settings, tasks, badges, troubleshooting):
 ## Status
 
 Working v1: server, lookup/upload API, and both plugin halves are built,
-tested, and running against a real Stash library. Not yet done: public
-binary/image releases, plugin distribution via a source index, and
-database dumps. There is no public moansubs instance yet.
+tested, and running against a real Stash library. Release packaging —
+binaries, image, plugin bundles and the plugin package source — is wired
+up but no release has been cut yet, so the source URLs above go live with
+the first tag. Database dumps are still to come, and there is no public
+moansubs instance yet.
 
 ## Documentation
 
