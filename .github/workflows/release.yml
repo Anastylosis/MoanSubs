@@ -49,6 +49,22 @@ jobs:
         ./moansubs --version
         ```
 
+        ### Stash plugin
+
+        The plugin bundle unpacks straight into your Stash plugins
+        directory, then **Settings → Plugins → Reload plugins**:
+
+        ```sh
+        tar xzf moansubs-plugin-${{ github.ref_name }}-linux-amd64.tar.gz \
+          -C /path/to/stash/plugins
+        ```
+
+        Pick the bundle matching the architecture Stash itself runs on —
+        the exec half is a static native binary, so an arm64 NAS needs the
+        arm64 bundle even when the server runs elsewhere. Configure the
+        server URL (and an upload token, for pushing) in the plugin's
+        settings; see plugin/README.md.
+
   # Gated behind the release job, so no image lands on GHCR unless the manual
   # approval went through.
   docker:
@@ -61,3 +77,75 @@ jobs:
       attestations: write
     with:
       mode: release
+
+  # Also gated behind the release job: the bundles are attached to a release
+  # that only exists once the manual approval went through, and the index is
+  # only advertised for a release that exists.
+  #
+  # Everything here is arch-specific because the exec half is a native binary
+  # and Stash's package source has no notion of architecture. See
+  # scripts/plugin-package.sh for the two archive shapes and why they differ.
+  plugin:
+    name: Package and attach the Stash plugin
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          # Full history: this job commits to gh-pages, and pushing a branch
+          # from the default shallow clone is not reliable.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Build plugin binaries
+        run: make plugin
+
+      - name: Package plugin bundles and index
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          scripts/plugin-package.sh "$TAG" \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}" \
+            dist-plugin
+
+      - name: Attach bundles to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" dist-plugin/*.zip dist-plugin/*.tar.gz --clobber
+
+      # The index lives on a stable URL while the zips it points at are
+      # per-release assets — Stash resolves an absolute `path` as-is
+      # (pkg/pkg/repository_http.go resolvePath), so nothing has to be mirrored
+      # here. Users add the URL once and every later release reaches them.
+      - name: Publish the package index to gh-pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code origin gh-pages >/dev/null 2>&1; then
+            git fetch origin gh-pages
+            git checkout -B gh-pages origin/gh-pages
+          else
+            # First release: an orphan branch, so the site carries no source
+            # history it has no reason to hold.
+            git checkout --orphan gh-pages
+            git rm -rf . >/dev/null
+          fi
+
+          mkdir -p plugin/amd64 plugin/arm64
+          cp dist-plugin/index-amd64.yml plugin/amd64/index.yml
+          cp dist-plugin/index-arm64.yml plugin/arm64/index.yml
+
+          git add plugin/amd64/index.yml plugin/arm64/index.yml
+          git commit -m "Plugin package index for ${TAG}"
+          git push origin gh-pages

@@ -30,6 +30,8 @@ go.work.sum
 
 # GoReleaser output
 dist/
+# scripts/plugin-package.sh output
+dist-plugin/
 
 # Editor/IDE
 .idea/
