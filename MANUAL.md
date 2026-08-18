@@ -17,6 +17,7 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_UPLOAD_RATE_PER_HOUR` | `30` | Upload budget per account token. The default assumes strangers on a public node; raise it (e.g. `10000`) when seeding your own node from a large library, then set it back. |
 | `MOANSUBS_OPEN_REGISTRATION` | `true` | Whether strangers may create their own upload accounts via `POST /api/v1/accounts`. Set `false` for an invite-only node, where accounts exist only through `moansubs account create`. |
 | `MOANSUBS_REGISTER_RATE_PER_HOUR` | `5` | Registration budget per IP. A person needs one account; anything much above this from a single address is name-minting, not signing up. |
+| `MOANSUBS_TRUSTED_PROXY_CIDRS` | *(unset)* | Comma-separated CIDRs (e.g. `172.28.0.0/24,10.0.0.0/8`). The rate limiters' `X-Forwarded-For` handling only trusts the header when the request's direct peer address falls inside one of these — see "Reverse proxies" below. Unset means none are trusted. |
 
 Two pages are served for humans: `/` (what this node is) and `/register`
 (the registration form). They are self-contained — no assets, no
@@ -98,10 +99,20 @@ Prints version, commit, and build date (stamped by `make`/CI builds).
 automatically and are safe to re-run. Migrations are append-only; nothing
 ever rewrites an applied migration file.
 
-**Reverse proxies.** The lookup rate limiter keys on the first
-`X-Forwarded-For` entry when present, else the socket address. Only run it
-behind a proxy you control, since `X-Forwarded-For` is client-forgeable
-when the server is reachable directly.
+**Reverse proxies.** The lookup and registration rate limiters key on the
+last `X-Forwarded-For` entry (the one the proxy appended — earlier entries
+are whatever the client sent), but only when the request's direct peer
+address is inside `MOANSUBS_TRUSTED_PROXY_CIDRS`; otherwise they key on the
+socket address. **The default when the env var is unset is to trust no
+CIDR at all**, so `X-Forwarded-For` is ignored and every caller is
+rate-limited by its raw socket address — a behaviour change from earlier
+versions, which trusted the header unconditionally regardless of where the
+request came from. Set `MOANSUBS_TRUSTED_PROXY_CIDRS` to your reverse
+proxy's address (or its Docker network subnet — see `deploy/`) to restore
+per-real-client limiting behind a proxy you control; leaving it unset on a
+node reachable directly is the safer default, since an unset value can
+only under-count distinct callers, never let a spoofed header impersonate
+someone else's.
 
 **Multiple instances.** Not supported against one database yet — the
 migration runner takes no cross-instance lock, so start one instance at a

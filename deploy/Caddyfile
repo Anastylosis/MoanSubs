@@ -1,0 +1,13 @@
+# Caddy 2 auto-provisions and renews a TLS cert for whatever DOMAIN
+# resolves to (Caddyfile env substitution: {$DOMAIN}, set in
+# docker-compose.yml). Point DOMAIN's DNS A/AAAA record at this host and
+# open 80/443 before starting the stack, or the ACME challenge fails.
+{$DOMAIN} {
+	# Caddy appends the address it saw to X-Forwarded-For (its default);
+	# moansubs reads the *last* entry once it trusts the proxy that set it
+	# (MOANSUBS_TRUSTED_PROXY_CIDRS), so anything a client put in the header
+	# itself sits earlier in the list and is ignored.
+	reverse_proxy server:8080
+
+	encode gzip
+}

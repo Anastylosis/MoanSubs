@@ -110,7 +110,7 @@ func (s *Server) handleRegisterAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	got, rerr := s.register(r.Context(), clientIP(r), req.Name)
+	got, rerr := s.register(r.Context(), s.clientIP(r), req.Name)
 	if rerr != nil {
 		writeError(w, rerr.status, rerr.msg)
 		return

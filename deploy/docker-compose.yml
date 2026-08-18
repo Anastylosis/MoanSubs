@@ -1,0 +1,90 @@
+# Reference stack for a public moansubs node: Caddy terminates TLS and is
+# the only thing that talks to `server` directly, `server` runs the API,
+# Postgres holds all state, and `backup` takes a nightly pg_dump to object
+# storage via rclone with a 30-day retention. Generic on purpose — every
+# placeholder below (DOMAIN, <bucket>, POSTGRES_PASSWORD, MOANSUBS_TAG)
+# needs a real value before `docker compose up -d`. See README.md for the
+# first-boot, upgrade and restore steps.
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN to the node's hostname, e.g. subs.example.org}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - server
+
+  server:
+    # No release has been cut yet (README.md "Status"), so there is no
+    # default tag to fall back to — MOANSUBS_TAG must name a real one.
+    image: ghcr.io/anastylosis/moansubs:${MOANSUBS_TAG:?set MOANSUBS_TAG to a released version}
+    restart: unless-stopped
+    # `serve` applies pending migrations on startup (MANUAL.md), so
+    # `docker compose pull && up -d` is a complete upgrade on its own.
+    environment:
+      DATABASE_URL: postgres://moansubs:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/moansubs?sslmode=disable
+      MOANSUBS_LISTEN: ":8080"
+      # Caddy is the only thing that reaches `server` directly on this
+      # stack, always from this compose network — see the "Trust proxy
+      # note" in README.md before changing or removing this.
+      MOANSUBS_TRUSTED_PROXY_CIDRS: "172.28.0.0/24"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: moansubs
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: moansubs
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moansubs -d moansubs"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backup:
+    build: ./backup
+    restart: unless-stopped
+    environment:
+      PGHOST: postgres
+      PGUSER: moansubs
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      PGDATABASE: moansubs
+      # Name of an rclone remote configured in the mounted rclone.conf
+      # below, e.g. "s3" for an [s3] remote section.
+      RCLONE_REMOTE: s3
+      BACKUP_BUCKET: <bucket>
+      BACKUP_RETENTION_DAYS: "30"
+    volumes:
+      # Not tracked here (CLAUDE.md: no private infra details in tracked
+      # files) — create it yourself; see README.md.
+      - ./backup/rclone.conf:/root/.config/rclone/rclone.conf:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+# A fixed subnet, not the default dynamically-assigned one, so
+# MOANSUBS_TRUSTED_PROXY_CIDRS above names an address range that's actually
+# stable across `docker compose up` runs.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

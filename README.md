@@ -72,6 +72,16 @@ Server configuration is environment-only — see [MANUAL.md](MANUAL.md) for
 every variable, CLI command, and operational note (backups, rate limits,
 reverse proxies).
 
+## Running a public node
+
+[`deploy/`](deploy/) has a reference compose stack for a public node:
+Caddy (auto-TLS) in front of the server, Postgres, and a nightly backup
+sidecar (`pg_dump | gzip | rclone rcat`, 30-day retention). It's generic —
+copy it, fill in the placeholders (domain, bucket, passwords), and see
+[deploy/README.md](deploy/README.md) for first boot, upgrades, and a
+restore drill, plus the reverse-proxy trust note that
+`docker-compose.example.yml` above doesn't need.
+
 ## Installing the plugin
 
 1. Add the package source in Stash (**Settings → Plugins → Available

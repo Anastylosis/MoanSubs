@@ -64,7 +64,7 @@ type matchResponse struct {
 func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	if !s.LookupLimiter.Allow(clientIP(r)) {
+	if !s.LookupLimiter.Allow(s.clientIP(r)) {
 		writeError(w, http.StatusTooManyRequests, "lookup rate limit exceeded")
 		return
 	}

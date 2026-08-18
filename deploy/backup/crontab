@@ -1,0 +1,4 @@
+# busybox crond format: min hour dom month dow command. Nightly at 03:00
+# UTC, logged to the container's own stdout/stderr (PID 1) so it shows up
+# in `docker compose logs backup`.
+0 3 * * * /usr/local/bin/backup.sh >> /proc/1/fd/1 2>> /proc/1/fd/2

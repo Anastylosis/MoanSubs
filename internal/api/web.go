@@ -95,7 +95,7 @@ func (s *Server) handleRegisterSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	name := r.PostFormValue("name")
 
-	got, rerr := s.register(r.Context(), clientIP(r), name)
+	got, rerr := s.register(r.Context(), s.clientIP(r), name)
 	if rerr != nil {
 		s.renderPage(w, rerr.status, "register.html", pageData{
 			Title: "Register", Open: s.OpenRegistration, Name: name, Error: rerr.msg,

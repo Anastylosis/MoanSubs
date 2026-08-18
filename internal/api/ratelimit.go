@@ -56,28 +56,50 @@ func NewRateLimiterPerMinute(perMinute int) *RateLimiter {
 	}
 }
 
-// clientIP returns the key to rate-limit r by: the first entry of
-// X-Forwarded-For when present, else the host portion of RemoteAddr.
+// clientIP returns the key to rate-limit r by: the last entry of
+// X-Forwarded-For when RemoteAddr is inside a trusted proxy CIDR, else the
+// host portion of RemoteAddr. The last entry, not the first: a proxy
+// appends the address it saw, so the last entry is the one the trusted hop
+// wrote and every earlier one is whatever the client chose to send.
 //
 // Trust caveat: X-Forwarded-For is caller-supplied and trivially spoofable
-// unless something upstream strips or overwrites it before forwarding. The
-// canonical moansubs deployment sits behind a reverse proxy that sets this
-// header correctly; a node run bare (proxy-less, directly exposed) is
-// trusting client-supplied IPs for rate-limiting purposes, which only weakens
-// the limiter, not correctness elsewhere — worth knowing, not worth blocking
-// on for v1.
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		first, _, _ := strings.Cut(xff, ",")
-		if ip := strings.TrimSpace(first); ip != "" {
-			return ip
-		}
-	}
+// unless something upstream strips or overwrites it before forwarding.
+// TrustedProxyCIDRs (MOANSUBS_TRUSTED_PROXY_CIDRS) names the reverse proxies
+// allowed to set it; a direct caller pretending to be that proxy can't
+// forge RemoteAddr, so only requests that actually transited a trusted hop
+// get the header believed. Unset — the default — trusts no CIDR, so the
+// header is always ignored and RemoteAddr wins even behind a real proxy;
+// this is a deliberate change from earlier versions, which trusted the
+// header unconditionally regardless of where the request came from
+// (MANUAL.md "Reverse proxies").
+func (s *Server) clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
+	}
+
+	if len(s.TrustedProxyCIDRs) > 0 {
+		if ip := net.ParseIP(host); ip != nil && s.trustsProxy(ip) {
+			if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+				last := xff[strings.LastIndex(xff, ",")+1:]
+				if trimmed := strings.TrimSpace(last); trimmed != "" {
+					return trimmed
+				}
+			}
+		}
 	}
 	return host
+}
+
+// trustsProxy reports whether ip falls inside any configured trusted proxy
+// CIDR.
+func (s *Server) trustsProxy(ip net.IP) bool {
+	for _, cidr := range s.TrustedProxyCIDRs {
+		if cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // Allow reports whether a request for key is permitted right now, consuming

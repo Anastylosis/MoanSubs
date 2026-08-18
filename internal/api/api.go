@@ -7,6 +7,7 @@
 package api
 
 import (
+	"net"
 	"net/http"
 
 	"github.com/Anastylosis/MoanSubs/internal/store"
@@ -49,6 +50,11 @@ type Server struct {
 	// var; NewServer's default keeps a bare-Go build honest about being
 	// unstamped rather than claiming a version it wasn't built with.
 	Version string
+	// TrustedProxyCIDRs gates clientIP's use of X-Forwarded-For: the header
+	// is only honoured when RemoteAddr falls inside one of these networks.
+	// Nil (the default) trusts none, so RemoteAddr always wins. Exported for
+	// the same reason as Limiter — tests set it directly.
+	TrustedProxyCIDRs []*net.IPNet
 }
 
 // NewServer builds a Server backed by s, with its own rate limiters.

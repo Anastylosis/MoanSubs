@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -67,6 +69,23 @@ var serveCmd = &cobra.Command{
 			registerRate = n
 		}
 
+		// Unset trusts no proxy, so clientIP ignores X-Forwarded-For and
+		// always uses RemoteAddr -- see internal/api/ratelimit.go.
+		var trustedProxyCIDRs []*net.IPNet
+		if v := os.Getenv("MOANSUBS_TRUSTED_PROXY_CIDRS"); v != "" {
+			for _, part := range strings.Split(v, ",") {
+				part = strings.TrimSpace(part)
+				if part == "" {
+					continue
+				}
+				_, cidr, err := net.ParseCIDR(part)
+				if err != nil {
+					return fmt.Errorf("moansubs serve: invalid MOANSUBS_TRUSTED_PROXY_CIDRS %q: %w", part, err)
+				}
+				trustedProxyCIDRs = append(trustedProxyCIDRs, cidr)
+			}
+		}
+
 		// Cancelled on SIGINT/SIGTERM, which also starts the graceful
 		// shutdown below.
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
@@ -90,6 +109,7 @@ var serveCmd = &cobra.Command{
 		// without them); GET /api/v1/version reports whatever this process
 		// actually is, the same source --version already uses.
 		apiSrv.Version = version
+		apiSrv.TrustedProxyCIDRs = trustedProxyCIDRs
 		srv := &http.Server{
 			Addr:    listen,
 			Handler: api.NewMux(apiSrv),
