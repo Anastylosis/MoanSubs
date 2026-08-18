@@ -29,6 +29,9 @@ type lookupTrackSummary struct {
 	License       string    `json:"license"`
 	HasProvenance bool      `json:"has_provenance"`
 	CreatedAt     time.Time `json:"created_at"`
+	// Downloads is migration 0006's per-track counter (WP-A2). Additive —
+	// older plugins that don't know the field simply ignore it.
+	Downloads int64 `json:"downloads"`
 }
 
 // lookupRelease is one release as returned by any of the four lookup
@@ -82,6 +85,7 @@ func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) (
 				License:       t.License,
 				HasProvenance: t.HasProvenance,
 				CreatedAt:     t.CreatedAt,
+				Downloads:     t.Downloads,
 			})
 		}
 
@@ -138,6 +142,7 @@ func (s *Server) handleLookupOshashPrefix(w http.ResponseWriter, r *http.Request
 	// Empty bucket => 200 with an empty list, never 404 (PLAN.md task
 	// brief): a 404 here would create a timing/behavior oracle distinguishing
 	// "bucket empty" from "bad request", which the uniform 200 avoids.
+	s.Stats.record(&s.Stats.LookupsOshash, &s.Stats.HitsOshash, len(out) > 0)
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -190,6 +195,7 @@ func (s *Server) handleLookupPhashBlock(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	s.Stats.record(&s.Stats.LookupsPhash, &s.Stats.HitsPhash, len(out) > 0)
 	writeJSON(w, http.StatusOK, out) // empty bucket => 200 + [], see handleLookupOshashPrefix's comment
 }
 
@@ -259,6 +265,9 @@ func (s *Server) handleLookupBatch(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	results := make(map[string][]lookupRelease, total)
+	// batchHit tracks whether any entry in this request returned a
+	// non-empty bucket — see the WP-A2 caveat on hits.batch below.
+	batchHit := false
 
 	for _, prefix := range req.OshashPrefixes {
 		if !oshashPrefixPattern.MatchString(prefix) {
@@ -279,6 +288,9 @@ func (s *Server) handleLookupBatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		results[oshashResultKey(prefix)] = out
+		if len(out) > 0 {
+			batchHit = true
+		}
 	}
 
 	for _, pb := range req.PhashBlocks {
@@ -309,8 +321,23 @@ func (s *Server) handleLookupBatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		results[phashResultKey(pb.Block, pb.Val)] = out
+		if len(out) > 0 {
+			batchHit = true
+		}
 	}
 
+	// WP-A2 spec asks for hit/miss accounted "per requested scene, count
+	// scenes, not requests" — but the batch wire format (API.md) carries no
+	// scene identifier: an oshash_prefixes entry is roughly one scene, while
+	// a single scene's phash lookup legitimately spans up to 5 phash_blocks
+	// entries (one per MIH block), and the server has no way to tell which
+	// entries in a mixed batch came from the same client-side scene. Exact
+	// per-scene counting would need a protocol change outside this
+	// package's scope, so this counts per HTTP request instead: one
+	// lookups.batch per call, hits.batch when any entry in it was
+	// non-empty. Flagged as a spec point that couldn't be implemented as
+	// written, not silently worked around.
+	s.Stats.record(&s.Stats.LookupsBatch, &s.Stats.HitsBatch, batchHit)
 	writeJSON(w, http.StatusOK, batchLookupResponse{Results: results})
 }
 
@@ -432,5 +459,6 @@ func (s *Server) handleLookupExact(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	s.Stats.record(&s.Stats.LookupsExact, &s.Stats.HitsExact, len(out) > 0)
 	writeJSON(w, http.StatusOK, exactLookupResponse{Releases: out})
 }

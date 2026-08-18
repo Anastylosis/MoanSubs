@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -118,6 +119,57 @@ func TestMatch_FindsUploadedReleaseByName(t *testing.T) {
 	// this pair must score as genuinely similar, not a coincidence match.
 	if out.Verdict != "CONFIRMED" && out.Verdict != "LIKELY" {
 		t.Errorf("verdict = %s, want CONFIRMED or LIKELY", out.Verdict)
+	}
+}
+
+// A "hit" for match is verdict != UNMATCHED (WP-A2 spec), the third
+// distinct hit-accounting shape (single-bucket and batch are the other
+// two): lookups.match counts every call, hits.match only the non-UNMATCHED
+// ones.
+func TestMatch_RecordsLookupAndHitStats(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	body := "1\n00:00:01,000 --> 00:00:02,000\nhello\n\n2\n00:58:00,000 --> 00:58:02,000\nbye\n"
+	_, token, err := st.CreateAccount(t.Context(), "uploader")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	upload := doUpload(t, ts, token, map[string]any{
+		"oshash":      "feed000000000003",
+		"duration_ms": int64(3540000),
+		"lang":        "en",
+		"body":        body,
+		"title":       "The Reluctant Pet Sitter",
+		"stem":        "The-Reluctant-Pet-Sitter-Part-1",
+		"studio":      "The House Next Door",
+		"performers":  []string{"Alice Ray"},
+	})
+	if upload.StatusCode != http.StatusCreated {
+		t.Fatalf("upload status = %d, want 201", upload.StatusCode)
+	}
+
+	hit := doPostJSON(t, ts, "/api/v1/match", map[string]any{
+		"stem": "thehousenextdoor2024 - The Reluctant Dog Sitter - Compressed", "duration_ms": int64(3541000),
+	})
+	if hit.StatusCode != http.StatusOK {
+		t.Fatalf("hit request status = %d, want 200", hit.StatusCode)
+	}
+
+	miss := doPostJSON(t, ts, "/api/v1/match", map[string]any{
+		"stem": "totally-unrelated-name", "duration_ms": int64(60000),
+	})
+	if miss.StatusCode != http.StatusOK {
+		t.Fatalf("miss request status = %d, want 200", miss.StatusCode)
+	}
+
+	if got := srv.Stats.LookupsMatch.Load(); got != 2 {
+		t.Errorf("LookupsMatch = %d, want 2 (one per call)", got)
+	}
+	if got := srv.Stats.HitsMatch.Load(); got != 1 {
+		t.Errorf("HitsMatch = %d, want 1 (only the non-UNMATCHED verdict)", got)
 	}
 }
 

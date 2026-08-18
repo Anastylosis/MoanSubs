@@ -279,6 +279,10 @@ type getSubtitleResponse struct {
 	License    string          `json:"license"`
 	Source     *string         `json:"source,omitempty"`
 	CreatedAt  time.Time       `json:"created_at"`
+	// Downloads is migration 0006's per-track counter (WP-A2), reflecting
+	// the count as of just before this request's own increment. Additive —
+	// older plugins that don't know the field simply ignore it.
+	Downloads int64 `json:"downloads"`
 }
 
 // handleGetSubtitle implements GET /api/v1/subtitles/{id} — public, no
@@ -323,10 +327,25 @@ func (s *Server) handleGetSubtitle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Both 410 checks above passed: this is a successful download of
+	// visible content, so it counts exactly once (WP-A2 spec). A single
+	// extra statement after the checks, not folded into the fetch above —
+	// see store.IncrementDownloads's doc comment for why. A failed
+	// increment doesn't fail the download itself: the counter is
+	// telemetry, and the body the caller asked for has already been read
+	// successfully.
+	downloads := track.Downloads
+	if err := s.Store.IncrementDownloads(ctx, track.ID); err != nil {
+		log.Printf("api: IncrementDownloads: %v", err)
+	} else {
+		downloads++
+	}
+
 	writeJSON(w, http.StatusOK, getSubtitleResponse{
 		ID:         track.ID,
 		ReleaseID:  track.ReleaseID,
 		Lang:       track.Lang,
+		Downloads:  downloads,
 		Body:       track.Body,
 		Generated:  track.Generated,
 		Provenance: json.RawMessage(track.Provenance),

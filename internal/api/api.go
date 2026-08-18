@@ -55,6 +55,11 @@ type Server struct {
 	// Nil (the default) trusts none, so RemoteAddr always wins. Exported for
 	// the same reason as Limiter — tests set it directly.
 	TrustedProxyCIDRs []*net.IPNet
+	// Stats holds the in-memory lookup hit-rate counters (WP-A2): the four
+	// lookup handlers and handleMatch record into it directly, cmd/moansubs
+	// serve.go runs its Run method alongside graceful shutdown, and
+	// GET /api/v1/stats reads its persisted, cached snapshot.
+	Stats *Stats
 }
 
 // NewServer builds a Server backed by s, with its own rate limiters.
@@ -69,6 +74,7 @@ func NewServer(s *store.Store) *Server {
 		// MOANSUBS_OPEN_REGISTRATION=false.
 		OpenRegistration: true,
 		Version:          "dev",
+		Stats:            NewStats(s),
 	}
 }
 
@@ -80,6 +86,7 @@ func NewMux(s *Server) *http.ServeMux {
 	mux.HandleFunc("POST /register", s.handleRegisterSubmit)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /api/v1/version", s.handleVersion)
+	mux.HandleFunc("GET /api/v1/stats", s.handleStats)
 	mux.HandleFunc("POST /api/v1/accounts", s.handleRegisterAccount)
 	mux.HandleFunc("POST /api/v1/subtitles", s.handleUploadSubtitle)
 	mux.HandleFunc("GET /api/v1/subtitles/{id}", s.handleGetSubtitle)

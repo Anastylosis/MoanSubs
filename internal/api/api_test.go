@@ -34,7 +34,7 @@ func openTestStore(t *testing.T) *store.Store {
 	}
 	t.Cleanup(s.Close)
 
-	if _, err := s.Pool().Exec(ctx, `TRUNCATE works, releases, accounts, subtitle_tracks, track_release_offsets RESTART IDENTITY CASCADE`); err != nil {
+	if _, err := s.Pool().Exec(ctx, `TRUNCATE works, releases, accounts, subtitle_tracks, track_release_offsets, stats RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("truncating tables: %v", err)
 	}
 	return s
@@ -495,6 +495,106 @@ func TestUpload_DuplicateOfWithdrawnTrack_Returns410(t *testing.T) {
 	})
 	if resp.StatusCode != http.StatusGone {
 		t.Errorf("status = %d, want 410 (re-upload of a withdrawn track)", resp.StatusCode)
+	}
+}
+
+// -- downloads counter (WP-A2) ---------------------------------------------
+
+func TestGetSubtitle_IncrementsDownloadsOnce(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	up := doUpload(t, ts, token, map[string]any{
+		"oshash": "d0d0d0d0d0d0d0d0", "duration_ms": 13000, "lang": "en", "body": basicSRT,
+	})
+	if up.StatusCode != http.StatusCreated {
+		t.Fatalf("upload status = %d, want 201", up.StatusCode)
+	}
+	created := decodeJSON[uploadResponse](t, up)
+	path := ts.URL + "/api/v1/subtitles/" + strconv.FormatInt(created.TrackID, 10)
+
+	first, err := http.Get(path)
+	if err != nil {
+		t.Fatalf("first GET: %v", err)
+	}
+	defer func() { _ = first.Body.Close() }()
+	if got := decodeJSON[getSubtitleResponse](t, first); got.Downloads != 1 {
+		t.Errorf("first GET Downloads = %d, want 1", got.Downloads)
+	}
+
+	second, err := http.Get(path)
+	if err != nil {
+		t.Fatalf("second GET: %v", err)
+	}
+	defer func() { _ = second.Body.Close() }()
+	if got := decodeJSON[getSubtitleResponse](t, second); got.Downloads != 2 {
+		t.Errorf("second GET Downloads = %d, want 2 (one increment per successful get)", got.Downloads)
+	}
+}
+
+// A 410 (withdrawn track or release) must not increment downloads — only a
+// successful get counts (WP-A2 spec).
+func TestGetSubtitle_WithdrawnTrack_DoesNotIncrementDownloads(t *testing.T) {
+	ts, st, token := newTestServer(t)
+	up := doUpload(t, ts, token, map[string]any{
+		"oshash": "d1d1d1d1d1d1d1d1", "duration_ms": 13000, "lang": "en", "body": basicSRT,
+	})
+	if up.StatusCode != http.StatusCreated {
+		t.Fatalf("upload status = %d, want 201", up.StatusCode)
+	}
+	created := decodeJSON[uploadResponse](t, up)
+
+	if err := st.WithdrawTrack(context.Background(), created.TrackID, "test"); err != nil {
+		t.Fatalf("WithdrawTrack: %v", err)
+	}
+
+	resp, err := http.Get(ts.URL + "/api/v1/subtitles/" + strconv.FormatInt(created.TrackID, 10))
+	if err != nil {
+		t.Fatalf("GET subtitle: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusGone {
+		t.Fatalf("status = %d, want 410", resp.StatusCode)
+	}
+
+	track, err := st.GetSubtitleTrack(context.Background(), created.TrackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if track.Downloads != 0 {
+		t.Errorf("Downloads = %d, want 0 (410 must not count as a download)", track.Downloads)
+	}
+}
+
+// Same as above, but the release is withdrawn rather than the track itself
+// — the other 410 path in handleGetSubtitle.
+func TestGetSubtitle_WithdrawnRelease_DoesNotIncrementDownloads(t *testing.T) {
+	ts, st, token := newTestServer(t)
+	up := doUpload(t, ts, token, map[string]any{
+		"oshash": "d2d2d2d2d2d2d2d2", "duration_ms": 13000, "lang": "en", "body": basicSRT,
+	})
+	if up.StatusCode != http.StatusCreated {
+		t.Fatalf("upload status = %d, want 201", up.StatusCode)
+	}
+	created := decodeJSON[uploadResponse](t, up)
+
+	if err := st.WithdrawRelease(context.Background(), created.ReleaseID, "test"); err != nil {
+		t.Fatalf("WithdrawRelease: %v", err)
+	}
+
+	resp, err := http.Get(ts.URL + "/api/v1/subtitles/" + strconv.FormatInt(created.TrackID, 10))
+	if err != nil {
+		t.Fatalf("GET subtitle: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusGone {
+		t.Fatalf("status = %d, want 410", resp.StatusCode)
+	}
+
+	track, err := st.GetSubtitleTrack(context.Background(), created.TrackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if track.Downloads != 0 {
+		t.Errorf("Downloads = %d, want 0 (410 must not count as a download)", track.Downloads)
 	}
 }
 

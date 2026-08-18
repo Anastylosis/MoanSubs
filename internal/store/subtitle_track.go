@@ -34,9 +34,13 @@ type SubtitleTrack struct {
 	// (PLAN.md WP-A1). Nil means active.
 	WithdrawnAt     *time.Time
 	WithdrawnReason *string
+	// Downloads is migration 0006's counter (WP-A2), bumped once per
+	// successful GET /api/v1/subtitles/{id} via IncrementDownloads. Never
+	// set on insert — always starts at 0.
+	Downloads int64
 }
 
-const subtitleTrackColumns = `id, release_id, lang, body, generated, provenance, license, source, uploader_id, created_at, withdrawn_at, withdrawn_reason`
+const subtitleTrackColumns = `id, release_id, lang, body, generated, provenance, license, source, uploader_id, created_at, withdrawn_at, withdrawn_reason, downloads`
 
 // CreateSubtitleTrack inserts t and returns its assigned id.
 // FindIdenticalTrack returns the id of an existing track with the same
@@ -112,6 +116,10 @@ type SubtitleTrackSummary struct {
 	License       string
 	HasProvenance bool
 	CreatedAt     time.Time
+	// Downloads mirrors SubtitleTrack.Downloads (migration 0006, WP-A2) —
+	// additive on the wire, so older plugins that don't know the field
+	// simply ignore it.
+	Downloads int64
 }
 
 // TrackSummariesByReleaseIDs returns every subtitle track for the given
@@ -127,7 +135,7 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, release_id, lang, generated, license, provenance IS NOT NULL, created_at
+		SELECT id, release_id, lang, generated, license, provenance IS NOT NULL, created_at, downloads
 		FROM subtitle_tracks
 		WHERE release_id = ANY($1) AND withdrawn_at IS NULL
 		ORDER BY release_id, id`, releaseIDs)
@@ -141,7 +149,7 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 			t         SubtitleTrackSummary
 			releaseID int64
 		)
-		if err := rows.Scan(&t.ID, &releaseID, &t.Lang, &t.Generated, &t.License, &t.HasProvenance, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &releaseID, &t.Lang, &t.Generated, &t.License, &t.HasProvenance, &t.CreatedAt, &t.Downloads); err != nil {
 			return nil, fmt.Errorf("store: TrackSummariesByReleaseIDs: scanning: %w", err)
 		}
 		out[releaseID] = append(out[releaseID], t)
@@ -225,9 +233,10 @@ func scanSubtitleTrack(row rowScanner) (*SubtitleTrack, error) {
 		createdAt       time.Time
 		withdrawnAt     *time.Time
 		withdrawnReason *string
+		downloads       int64
 	)
 	if err := row.Scan(&id, &releaseID, &lang, &body, &generated, &provenance, &license, &source, &uploaderID, &createdAt,
-		&withdrawnAt, &withdrawnReason); err != nil {
+		&withdrawnAt, &withdrawnReason, &downloads); err != nil {
 		return nil, err
 	}
 	return &SubtitleTrack{
@@ -243,6 +252,7 @@ func scanSubtitleTrack(row rowScanner) (*SubtitleTrack, error) {
 		CreatedAt:       createdAt,
 		WithdrawnAt:     withdrawnAt,
 		WithdrawnReason: withdrawnReason,
+		Downloads:       downloads,
 	}, nil
 }
 

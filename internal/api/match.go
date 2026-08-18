@@ -106,6 +106,9 @@ func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(candidates) == 0 {
+		// verdict is UNMATCHED by construction (nothing to score against),
+		// so this is always a miss.
+		s.Stats.record(&s.Stats.LookupsMatch, &s.Stats.HitsMatch, false)
 		writeJSON(w, http.StatusOK, matchResponse{
 			Verdict:    string(subs.Unmatched),
 			Candidates: []matchCandidate{},
@@ -176,5 +179,9 @@ func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request) {
 			Reasons: c.Reasons,
 		})
 	}
+	// A "hit" is a verdict other than UNMATCHED (WP-A2 spec) — a weaker bar
+	// than "has any candidate" would be, since AMBIGUOUS can still carry
+	// candidates subs.decide judged too close to call.
+	s.Stats.record(&s.Stats.LookupsMatch, &s.Stats.HitsMatch, m.Verdict != subs.Unmatched)
 	writeJSON(w, http.StatusOK, out)
 }

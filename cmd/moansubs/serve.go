@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -115,6 +116,19 @@ var serveCmd = &cobra.Command{
 			Handler: api.NewMux(apiSrv),
 		}
 
+		// Stats.Run flushes the in-memory lookup counters to the stats
+		// table every api.StatsFlushInterval, and once more when ctx is
+		// cancelled (WP-A2). A WaitGroup so both exit paths below can wait
+		// for that final flush to land before returning — s.Close() is
+		// deferred above and would otherwise race closing the pool against
+		// a flush still in flight.
+		var statsWG sync.WaitGroup
+		statsWG.Add(1)
+		go func() {
+			defer statsWG.Done()
+			apiSrv.Stats.Run(ctx, api.StatsFlushInterval)
+		}()
+
 		errCh := make(chan error, 1)
 		go func() {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "moansubs serve: listening on %s (registration %s)\n",
@@ -128,6 +142,11 @@ var serveCmd = &cobra.Command{
 
 		select {
 		case err := <-errCh:
+			// The server exited on its own (crash or otherwise): cancel ctx
+			// so Stats.Run's shutdown branch still fires and flushes
+			// whatever it's holding, the same as a signal-triggered exit.
+			stop()
+			statsWG.Wait()
 			if err != nil {
 				return fmt.Errorf("moansubs serve: %w", err)
 			}
@@ -136,8 +155,10 @@ var serveCmd = &cobra.Command{
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "moansubs serve: shutting down")
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			if err := srv.Shutdown(shutdownCtx); err != nil {
-				return fmt.Errorf("moansubs serve: graceful shutdown: %w", err)
+			shutdownErr := srv.Shutdown(shutdownCtx)
+			statsWG.Wait()
+			if shutdownErr != nil {
+				return fmt.Errorf("moansubs serve: graceful shutdown: %w", shutdownErr)
 			}
 			return nil
 		}

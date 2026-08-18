@@ -148,6 +148,81 @@ func TestLookupOshash_ReturnsReleaseWithTrackSummary(t *testing.T) {
 	}
 }
 
+// -- hit rate counters (WP-A2) ----------------------------------------------
+
+// A single-bucket lookup (oshash, representative of the same "any release
+// in the response = hit" logic phash and exact share) must count every
+// call in lookups.oshash and only the non-empty ones in hits.oshash.
+func TestLookupOshash_RecordsLookupAndHitStats(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+	ctx := context.Background()
+
+	oh := mustOSHash(t, "c0c0c00000000001")
+	if _, err := st.CreateRelease(ctx, store.Release{OSHash: oh, DurationMs: 1}); err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	hit, err := http.Get(ts.URL + "/api/v1/lookup/oshash/" + oh.BucketPrefix())
+	if err != nil {
+		t.Fatalf("GET (hit): %v", err)
+	}
+	_ = hit.Body.Close()
+
+	miss, err := http.Get(ts.URL + "/api/v1/lookup/oshash/fffff")
+	if err != nil {
+		t.Fatalf("GET (miss): %v", err)
+	}
+	_ = miss.Body.Close()
+
+	if got := srv.Stats.LookupsOshash.Load(); got != 2 {
+		t.Errorf("LookupsOshash = %d, want 2 (one per call)", got)
+	}
+	if got := srv.Stats.HitsOshash.Load(); got != 1 {
+		t.Errorf("HitsOshash = %d, want 1 (only the non-empty bucket)", got)
+	}
+}
+
+// The batch endpoint counts per HTTP request, not per entry (WP-A2 spec
+// asks for "per requested scene", which the batch wire format has no way to
+// identify — see handleLookupBatch's comment): one lookups.batch per call,
+// hits.batch only when at least one entry in that call was non-empty.
+func TestLookupBatch_RecordsLookupAndHitStats(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+	ctx := context.Background()
+
+	oh := mustOSHash(t, "c0c0c00000000002")
+	if _, err := st.CreateRelease(ctx, store.Release{OSHash: oh, DurationMs: 1}); err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	hit := doPostJSON(t, ts, "/api/v1/lookup/batch", map[string]any{
+		"oshash_prefixes": []string{oh.BucketPrefix(), "fffff"}, // one hit, one miss entry
+	})
+	if hit.StatusCode != http.StatusOK {
+		t.Fatalf("hit request status = %d, want 200", hit.StatusCode)
+	}
+
+	miss := doPostJSON(t, ts, "/api/v1/lookup/batch", map[string]any{
+		"oshash_prefixes": []string{"eeeee"},
+	})
+	if miss.StatusCode != http.StatusOK {
+		t.Fatalf("miss request status = %d, want 200", miss.StatusCode)
+	}
+
+	if got := srv.Stats.LookupsBatch.Load(); got != 2 {
+		t.Errorf("LookupsBatch = %d, want 2 (one per HTTP request)", got)
+	}
+	if got := srv.Stats.HitsBatch.Load(); got != 1 {
+		t.Errorf("HitsBatch = %d, want 1 (only the request with a non-empty entry)", got)
+	}
+}
+
 // -- GET /api/v1/lookup/phash/{block}/{val} ------------------------------
 
 func TestLookupPhashBlock_RejectsOutOfRangeBlockIndex(t *testing.T) {

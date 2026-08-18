@@ -40,7 +40,7 @@ func newTestServer(t *testing.T) (*Client, *store.Store) {
 func truncate(t *testing.T, s *store.Store) {
 	t.Helper()
 	if _, err := s.Pool().Exec(context.Background(),
-		`TRUNCATE works, releases, accounts, subtitle_tracks, track_release_offsets RESTART IDENTITY CASCADE`); err != nil {
+		`TRUNCATE works, releases, accounts, subtitle_tracks, track_release_offsets, stats RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 }
@@ -255,7 +255,7 @@ func TestVersion_ParsesVersionAndFeatures(t *testing.T) {
 	if v.Version != "dev" {
 		t.Errorf("Version.Version = %q, want %q", v.Version, "dev")
 	}
-	want := map[string]bool{"lookup": true, "match": true, "withdraw": true}
+	want := map[string]bool{"lookup": true, "match": true, "withdraw": true, "stats": true}
 	if len(v.Features) != len(want) {
 		t.Fatalf("Features = %v, want exactly %v", v.Features, want)
 	}

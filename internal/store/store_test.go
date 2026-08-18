@@ -32,7 +32,7 @@ func openTestStore(t *testing.T) *Store {
 
 	// Each test starts from a clean slate. TRUNCATE ... CASCADE rather than
 	// per-table DELETE keeps this correct as FKs are added across steps.
-	if _, err := s.pool.Exec(ctx, `TRUNCATE works, releases, accounts, subtitle_tracks, track_release_offsets RESTART IDENTITY CASCADE`); err != nil {
+	if _, err := s.pool.Exec(ctx, `TRUNCATE works, releases, accounts, subtitle_tracks, track_release_offsets, stats RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("truncating tables: %v", err)
 	}
 	return s

@@ -237,3 +237,34 @@ and point the plugin at `http://moansubs:8080` instead of the LAN address.
 5. Deduplicates: a byte-identical track for the same release and language
    returns the existing track (`duplicate: true`) instead of inserting.
    Bulk pushes are therefore safe to re-run.
+
+## Counters (`GET /api/v1/stats`, API.md)
+
+Two independent counters, both pure telemetry — neither one is an access
+log:
+
+- **Downloads.** Every successful `GET /api/v1/subtitles/{id}` bumps that
+  track's `downloads` column by exactly one, in the same request, before
+  the response is sent. A 404 or 410 (no such track, or a withdrawn track
+  or release) does not count. Nothing else is recorded about the
+  request — no IP, no account, no timestamp — the number is a plain
+  counter, not a log a takedown or an abuse investigation could mine for
+  who downloaded what.
+- **Lookup hit rate.** The four bucketed/exact/name-match lookup endpoints
+  (`/lookup/oshash`, `/lookup/phash`, `/lookup/batch`, `/lookup/exact`,
+  `/match`) each increment an in-memory total on every call and a hit
+  count when the response actually carried a release (for `/match`, when
+  the verdict wasn't `UNMATCHED`). These live in process memory and flush
+  to the database every 30 seconds and once more on graceful shutdown —
+  losing up to 30 seconds of counts to a crash is an accepted trade-off,
+  the same reasoning as the in-memory rate limiter buckets above. The
+  batch endpoint counts per HTTP request, not per scene, because its wire
+  format carries no scene identifier for the server to group by.
+
+`GET /api/v1/stats` is public, unauthenticated, and answers from a 5-minute
+in-process cache — its `tracks`/`releases`/`languages`/`generated_share`/
+`downloads_total` fields exclude withdrawn content, and `lookups.*` reflects
+the last flush rather than the live in-memory counters. Restarting the
+server does not reset either counter: `downloads` lives on the track row,
+and the lookup totals are flushed to the `stats` table before shutdown
+completes.

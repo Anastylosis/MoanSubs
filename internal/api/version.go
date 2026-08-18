@@ -7,7 +7,7 @@ import "net/http"
 // introspected from the mux: each later package that adds a new endpoint
 // appends its own name here, in that package's own commit, so an old
 // client can tell a feature is missing before it trips over a 404.
-var features = []string{"lookup", "match", "withdraw"}
+var features = []string{"lookup", "match", "withdraw", "stats"}
 
 // versionResponse is the body of GET /api/v1/version.
 type versionResponse struct {
