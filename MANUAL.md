@@ -57,6 +57,15 @@ case-insensitively. Uploads from a disabled account get `403 account
 disabled`. Revocation is a flag, not a delete, so existing uploads keep
 their attribution and the name cannot be re-registered by somebody else.
 
+### `moansubs account rotate-token <name>`
+
+Generates a new API token for an account. Use this when a token has leaked.
+The old token becomes invalid immediately — anything still presenting it
+gets `401` — and the new token is printed once and must be stored. Existing
+uploads keep their attribution and the account stays enabled. Rotation is
+"my token leaked", not "log me out": browser sessions, once the web UI has
+them, are unaffected.
+
 ### `moansubs --version`
 
 Prints version, commit, and build date (stamped by `make`/CI builds).

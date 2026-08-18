@@ -135,7 +135,39 @@ var accountEnableCmd = &cobra.Command{
 	RunE:  setDisabled(false, "enable"),
 }
 
+// accountRotateTokenCmd rotates an account's API token — the action to take
+// when a token has leaked. The old token becomes invalid immediately; the new
+// token is shown once. Deliberately does not touch anything but token_hash:
+// rotation is "my token leaked", not "log me out".
+var accountRotateTokenCmd = &cobra.Command{
+	Use:   "rotate-token <name>",
+	Short: "Rotate an account's API token",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		s, ctx, cancel, err := openStore(cmd, "account rotate-token")
+		if err != nil {
+			return err
+		}
+		defer cancel()
+		defer s.Close()
+
+		token, err := s.RotateAccountToken(ctx, args[0])
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return fmt.Errorf("moansubs account rotate-token: no account named %q", args[0])
+			}
+			return fmt.Errorf("moansubs account rotate-token: %w", err)
+		}
+
+		out := cmd.OutOrStdout()
+		_, _ = fmt.Fprintf(out, "Token rotated for account %q.\n", args[0])
+		_, _ = fmt.Fprintln(out, "New API token — store this now, it will not be shown again:")
+		_, _ = fmt.Fprintln(out, token)
+		return nil
+	},
+}
+
 func init() {
-	accountCmd.AddCommand(accountCreateCmd, accountListCmd, accountDisableCmd, accountEnableCmd)
+	accountCmd.AddCommand(accountCreateCmd, accountListCmd, accountDisableCmd, accountEnableCmd, accountRotateTokenCmd)
 	rootCmd.AddCommand(accountCmd)
 }

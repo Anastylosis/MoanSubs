@@ -71,3 +71,80 @@ func TestStore_CreateAccount_TokensAreDistinct(t *testing.T) {
 		t.Error("two CreateAccount calls returned the same token")
 	}
 }
+
+func TestStore_RotateAccountToken_InvalidatesOldToken(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	_, oldToken, err := s.CreateAccount(ctx, "alice")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	// Old token should work before rotation.
+	if _, err := s.GetAccountByTokenHash(ctx, HashToken(oldToken)); err != nil {
+		t.Fatalf("GetAccountByTokenHash with old token: %v", err)
+	}
+
+	// Rotate the token.
+	newToken, err := s.RotateAccountToken(ctx, "alice")
+	if err != nil {
+		t.Fatalf("RotateAccountToken: %v", err)
+	}
+	if newToken == oldToken {
+		t.Error("new token is the same as old token")
+	}
+	if len(newToken) != 64 {
+		t.Fatalf("new token length = %d, want 64", len(newToken))
+	}
+
+	// New token should work.
+	if _, err := s.GetAccountByTokenHash(ctx, HashToken(newToken)); err != nil {
+		t.Fatalf("GetAccountByTokenHash with new token: %v", err)
+	}
+
+	// Old token should no longer work.
+	if _, err := s.GetAccountByTokenHash(ctx, HashToken(oldToken)); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetAccountByTokenHash with old token: got %v, want ErrNotFound", err)
+	}
+}
+
+func TestStore_RotateAccountToken_CaseInsensitive(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	_, oldToken, err := s.CreateAccount(ctx, "Alice")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	// Rotate using a different case variant.
+	newToken, err := s.RotateAccountToken(ctx, "ALICE")
+	if err != nil {
+		t.Fatalf("RotateAccountToken: %v", err)
+	}
+
+	// New token should work.
+	acct, err := s.GetAccountByTokenHash(ctx, HashToken(newToken))
+	if err != nil {
+		t.Fatalf("GetAccountByTokenHash: %v", err)
+	}
+	if acct.Name != "Alice" {
+		t.Errorf("account name = %q, want Alice", acct.Name)
+	}
+
+	// Old token should no longer work.
+	if _, err := s.GetAccountByTokenHash(ctx, HashToken(oldToken)); !errors.Is(err, ErrNotFound) {
+		t.Errorf("old token still works, want ErrNotFound")
+	}
+}
+
+func TestStore_RotateAccountToken_NotFound(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	_, err := s.RotateAccountToken(ctx, "nonexistent")
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("RotateAccountToken for nonexistent account: got %v, want ErrNotFound", err)
+	}
+}

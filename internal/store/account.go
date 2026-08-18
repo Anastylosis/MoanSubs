@@ -133,3 +133,27 @@ func (s *Store) GetAccountByTokenHash(ctx context.Context, tokenHash string) (*A
 	}
 	return &a, nil
 }
+
+// RotateAccountToken generates a new token for the account named name
+// (case-insensitive), replacing the old token_hash and invalidating the
+// old token immediately. Returns the new token (unrecoverable once lost)
+// or ErrNotFound if no such account exists. Like CreateAccount, the new
+// token must be shown to the account holder exactly once.
+func (s *Store) RotateAccountToken(ctx context.Context, name string) (token string, err error) {
+	buf := make([]byte, tokenBytes)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("store: RotateAccountToken: generating token: %w", err)
+	}
+	token = hex.EncodeToString(buf)
+	tokenHash := HashToken(token)
+
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE accounts SET token_hash = $2 WHERE lower(name) = lower($1)`, name, tokenHash)
+	if err != nil {
+		return "", fmt.Errorf("store: RotateAccountToken: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return "", ErrNotFound
+	}
+	return token, nil
+}

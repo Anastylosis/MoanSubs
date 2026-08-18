@@ -18,8 +18,9 @@ sees them.
 **Tokens.** Upload tokens are 256-bit random values; the server stores
 only their SHA-256 and compares in constant time. A leaked token can
 upload (rate-limited) but cannot read or delete anything it couldn't read
-anonymously. Rotate by creating a new account and disabling the old one
-(`moansubs account disable <name>`).
+anonymously. If a token leaks, rotate it with `moansubs account rotate-token
+<name>` — the old token becomes invalid immediately, and the account continues
+working with the new one. Existing uploads keep their attribution.
 
 **Registration.** Nodes accept self-service registration by default
 (`POST /api/v1/accounts`), rate-limited per IP. It collects nothing but a
