@@ -2,6 +2,9 @@
 # and adjust before running `docker compose up`.
 services:
   server:
+    # Published images are ghcr.io/anastylosis/moansubs:<version>; prefer a
+    # pinned tag over a moving one so a restart cannot change versions under
+    # you. Until the first tagged release, build from this checkout:
     build: .
     restart: unless-stopped
     ports:
