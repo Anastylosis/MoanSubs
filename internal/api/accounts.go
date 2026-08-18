@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -61,48 +62,62 @@ func validateAccountName(name string) (string, error) {
 	return name, nil
 }
 
-// handleRegisterAccount implements POST /api/v1/accounts: self-service
-// registration, returning the account's upload token exactly once.
+// regError is a registration failure carrying the status and the wording
+// both the JSON endpoint and the HTML form should present.
+type regError struct {
+	status int
+	msg    string
+}
+
+// register is the whole of registration — gate, rate limit, validate,
+// create — shared by POST /api/v1/accounts and the HTML form so the two can
+// never drift on what a valid name is or when a node is closed.
 //
-// Rate-limited per IP rather than per account for the obvious reason — there
-// is no account yet — which means the limit is only as good as the client IP
-// the node can see. See clientIP's trust caveat: behind a reverse proxy that
-// sets X-Forwarded-For this is sound, on a bare node it is advisory.
-func (s *Server) handleRegisterAccount(w http.ResponseWriter, r *http.Request) {
+// Rate-limited per IP rather than per account for the obvious reason: there
+// is no account yet. That makes the limit only as good as the client IP the
+// node can see — see clientIP's trust caveat. Behind a reverse proxy setting
+// X-Forwarded-For it is sound; on a bare node it is advisory.
+func (s *Server) register(ctx context.Context, ip, rawName string) (*registerResponse, *regError) {
 	if !s.OpenRegistration {
-		writeError(w, http.StatusForbidden, "registration is closed on this node; ask the operator for an account")
-		return
+		return nil, &regError{http.StatusForbidden, "registration is closed on this node; ask the operator for an account"}
 	}
-	if !s.RegisterLimiter.Allow(clientIP(r)) {
-		writeError(w, http.StatusTooManyRequests, "registration rate limit exceeded")
-		return
+	if !s.RegisterLimiter.Allow(ip) {
+		return nil, &regError{http.StatusTooManyRequests, "registration rate limit exceeded"}
 	}
 
+	name, err := validateAccountName(rawName)
+	if err != nil {
+		return nil, &regError{http.StatusBadRequest, err.Error()}
+	}
+
+	id, token, err := s.Store.CreateAccount(ctx, name)
+	if err != nil {
+		if errors.Is(err, store.ErrNameTaken) {
+			return nil, &regError{http.StatusConflict, "that name is already taken"}
+		}
+		log.Printf("api: CreateAccount: %v", err)
+		return nil, &regError{http.StatusInternalServerError, "internal error"}
+	}
+	return &registerResponse{ID: id, Name: name, Token: token}, nil
+}
+
+// handleRegisterAccount implements POST /api/v1/accounts: self-service
+// registration, returning the account's upload token exactly once.
+func (s *Server) handleRegisterAccount(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
 
-	name, err := validateAccountName(req.Name)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	id, token, err := s.Store.CreateAccount(r.Context(), name)
-	if err != nil {
-		if errors.Is(err, store.ErrNameTaken) {
-			writeError(w, http.StatusConflict, "that name is already taken")
-			return
-		}
-		log.Printf("api: CreateAccount: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+	got, rerr := s.register(r.Context(), clientIP(r), req.Name)
+	if rerr != nil {
+		writeError(w, rerr.status, rerr.msg)
 		return
 	}
 
 	// The token must never reach an access log or a shared cache, and a
 	// stray intermediary caching a 201 would do exactly that.
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusCreated, registerResponse{ID: id, Name: name, Token: token})
+	writeJSON(w, http.StatusCreated, got)
 }

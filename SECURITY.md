@@ -27,6 +27,13 @@ name — no email, no password — so the token *is* the account, and an
 operator's remedy for abuse is `account disable`, not a password reset.
 Run with `MOANSUBS_OPEN_REGISTRATION=false` for an invite-only node.
 
+**Web pages.** The node serves two HTML pages (`/` and `/register`), built
+with `html/template` so anything reflected back into the form is escaped.
+They carry a strict `Content-Security-Policy` (nothing loads from anywhere,
+forms post only to this node), `Referrer-Policy: no-referrer`, and
+`Cache-Control: no-store` on the page that displays a token. There is no
+login, no session and no cookie anywhere in moansubs.
+
 **Anonymous surface.** Lookups and downloads need no auth and are
 rate-limited per IP. Bucketed lookups are designed so clients don't send
 full fingerprints by default — but see API.md for an honest statement of

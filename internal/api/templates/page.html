@@ -1,0 +1,39 @@
+{{define "page"}}<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} — moansubs</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1a1a1a; --bg: #fdfdfc; --muted: #5f5f5c; --line: #dcdcd8; --accent: #7a4fd6; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #e8e8e6; --bg: #16161a; --muted: #a0a09c; --line: #33333a; --accent: #b79cf0; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 3rem 1.25rem; background: var(--bg); color: var(--fg);
+         font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 34rem; margin: 0 auto; }
+  h1 { font-size: 1.6rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
+  h1 a { color: inherit; text-decoration: none; }
+  .sub { color: var(--muted); margin: 0 0 2rem; }
+  p { margin: 0 0 1rem; }
+  a { color: var(--accent); }
+  label { display: block; font-weight: 600; margin-bottom: .35rem; }
+  input[type=text] { width: 100%; padding: .6rem .7rem; font: inherit; color: var(--fg);
+                     background: transparent; border: 1px solid var(--line); border-radius: 6px; }
+  button { margin-top: .9rem; padding: .6rem 1.1rem; font: inherit; font-weight: 600; cursor: pointer;
+           color: var(--bg); background: var(--fg); border: 0; border-radius: 6px; }
+  .hint { color: var(--muted); font-size: .875rem; margin-top: .5rem; }
+  .error { border-left: 3px solid #c0392b; padding: .6rem .8rem; margin-bottom: 1.5rem; background: rgba(192,57,43,.08); }
+  .token { display: block; padding: .8rem; margin: .5rem 0 1rem; border: 1px solid var(--line); border-radius: 6px;
+           font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9rem; word-break: break-all;
+           background: rgba(127,127,127,.08); }
+  .warn { border-left: 3px solid var(--accent); padding: .6rem .8rem; margin-bottom: 1.5rem; background: rgba(127,127,127,.06); }
+  footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .875rem; }
+</style>
+<main>
+  <h1><a href="/">moansubs</a></h1>
+  <p class="sub">A subtitle database for Stash.</p>
+  {{template "body" .}}
+  <footer>Downloads and lookups need no account. An account is only for uploading.</footer>
+</main>
+</html>{{end}}

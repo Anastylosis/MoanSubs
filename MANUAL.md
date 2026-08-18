@@ -18,6 +18,11 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_OPEN_REGISTRATION` | `true` | Whether strangers may create their own upload accounts via `POST /api/v1/accounts`. Set `false` for an invite-only node, where accounts exist only through `moansubs account create`. |
 | `MOANSUBS_REGISTER_RATE_PER_HOUR` | `5` | Registration budget per IP. A person needs one account; anything much above this from a single address is name-minting, not signing up. |
 
+Two pages are served for humans: `/` (what this node is) and `/register`
+(the registration form). They are self-contained — no assets, no
+JavaScript — and `/register` shows the new token once, exactly like the API
+does. Everything else 404s.
+
 Startup applies any pending migrations, then serves. Shutdown is graceful
 on SIGINT/SIGTERM (in-flight requests get 10 seconds).
 

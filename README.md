@@ -50,15 +50,15 @@ docker compose up -d
 curl http://localhost:8080/healthz   # -> ok
 ```
 
-Uploading needs an account. People register their own against a running
-node:
+Uploading needs an account. People register their own by visiting the node
+in a browser — `https://your-node/register` — or over the API:
 
 ```sh
 curl -X POST https://your-node/api/v1/accounts \
   -H 'Content-Type: application/json' -d '{"name": "somebody"}'
 ```
 
-The response carries the token once — no email, no password, and no way to
+Either way the token is shown once — no email, no password, and no way to
 recover it. Operators can mint one directly, which is also the only route
 on a node running with `MOANSUBS_OPEN_REGISTRATION=false`:
 

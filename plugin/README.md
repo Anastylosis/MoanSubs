@@ -49,7 +49,7 @@ with the reason if anything is misconfigured.
 | Setting | Meaning |
 |---|---|
 | **moansubs server URL** | Base URL of the server, e.g. `https://subs.example` or `http://moansubs:8080` when both run in Docker on one host (see MANUAL.md on hairpin NAT). Required. |
-| **Upload token** | Your account token — register for one against the server (`POST /api/v1/accounts`, see API.md) or ask the operator on an invite-only node. Only needed for pushing; downloads are anonymous. |
+| **Upload token** | Your account token — register for one by opening the server's address in a browser (`/register`), or ask the operator on an invite-only node. Only needed for pushing; downloads are anonymous. |
 | **Stash API key** | Recommended if your Stash has auth: the session cookie Stash hands plugins expires mid-run on long tasks. |
 | **Full-hash lookup** | Off by default. Sends complete fingerprints to the server for wider fuzzy matching (Hamming ≤8 instead of ≤4) — reveals your exact hashes to the node operator. |
 
