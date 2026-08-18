@@ -118,14 +118,23 @@ restore drill, plus the reverse-proxy trust note that
 Full plugin documentation (settings, tasks, badges, troubleshooting):
 [plugin/README.md](plugin/README.md).
 
+## Mirroring
+
+`moansubs dump [-o FILE]` writes every non-withdrawn release and track as
+gzip JSONL (`moansubs dump | rclone rcat s3:bucket/dumps/latest.jsonl.gz`
+publishes it straight from a pipe); `moansubs import FILE` reads that format
+into another node, matching releases by `oshash` and skipping tracks it
+already has, so re-running it is always safe. A mirror carries the same
+notice-and-takedown obligations as the node it copies — see
+[TAKEDOWN.md](TAKEDOWN.md).
+
 ## Status
 
-Working v1: server, lookup/upload API, and both plugin halves are built,
-tested, and running against a real Stash library. Release packaging —
-binaries, image, plugin bundles and the plugin package source — is wired
-up but no release has been cut yet, so the source URLs above go live with
-the first tag. Database dumps are still to come, and there is no public
-moansubs instance yet.
+Working v1: server, lookup/upload API, both plugin halves, and public dumps
+for mirroring are built, tested, and running against a real Stash library.
+Release packaging — binaries, image, plugin bundles and the plugin package
+source — is wired up but no release has been cut yet, so the source URLs
+above go live with the first tag. There is no public moansubs instance yet.
 
 ## Documentation
 

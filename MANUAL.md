@@ -130,6 +130,49 @@ tracks were withdrawn. Use this for a leaked or clearly abusive account,
 where taking down its whole contribution by hand (finding every track id)
 would be impractical.
 
+### `moansubs dump [-o FILE]`
+
+Writes every non-withdrawn release and track as gzip-compressed JSONL: a
+`meta` line first (`format`, `generated_at`, `node` version), then one
+`release` line per release (fingerprints, duration, resolution and the
+name metadata `POST /api/v1/match` scores against — a mirror without it
+would have no name matching and an empty catalogue), then one `track` line
+per track. Withdrawn
+releases and tracks are excluded, as is any track under a withdrawn release
+even if the track itself was never individually withdrawn (TAKEDOWN.md).
+Track lines carry the uploader's account **name** (or `null`), never an
+account id or token — nothing else from `accounts`, `sessions`, or
+`track_votes` appears in the output.
+
+Without `-o`, the gzip stream is written to stdout and nothing else is —
+`moansubs dump | rclone rcat s3:bucket/dumps/latest.jsonl.gz` works as a
+single pipe. With `-o FILE`, the stream goes to `FILE` and a one-line
+summary (releases/tracks written) goes to stderr instead. Streams in
+batches rather than loading the tables into memory, so exporting a large
+node doesn't need proportionally large RAM.
+
+### `moansubs import FILE`
+
+Reads a `moansubs dump` file (gzip JSONL, same format) into an empty or
+already-populated node. Releases are matched/created by `oshash`, same as a
+normal upload; tracks go through the same idempotent duplicate check
+uploads use, so importing the same file twice — or a newer dump from the
+same upstream — never doubles anything up. Every imported track's body is
+re-parsed and re-rendered through the current sanitizer rather than trusted
+as-is (the file may be from an older or different node); a body that fails
+to parse is printed and skipped, not treated as fatal.
+
+Import never creates an account or sets a track's uploader — there is
+nothing on this node to attach it to. Instead the uploader's name from the
+dump (if any) is folded into `source` as `mirror:<name>`, or plain `mirror`
+when the dump line had no uploader; `license` is carried over unchanged.
+Release name metadata is backfill-only, exactly as for uploads: it fills a
+release this node knows nothing about and never overwrites one it does. A
+release withdrawn *on this node* stays withdrawn — its tracks in the dump
+are counted and dropped, so a local takedown survives re-importing
+upstream. Prints final counts: releases seen, and tracks imported/already
+present/skipped (unparseable, or under a locally withdrawn release).
+
 ### `moansubs --version`
 
 Prints version, commit, and build date (stamped by `make`/CI builds).

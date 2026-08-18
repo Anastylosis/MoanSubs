@@ -22,12 +22,13 @@ one — the row stays, so attribution and the ability to explain "why is this
 gone" later are preserved, and the operator can `track restore`/`release
 restore` it if a request turns out to be invalid. A withdrawn track stops
 appearing anywhere: lookups, `/match`, and `GET /api/v1/subtitles/{id}`
-(which starts returning `410`). Database dumps, once they exist (see
-README.md "Status"), are expected to exclude withdrawn tracks and releases
-by the same rule the live API uses, so mirroring a node never republishes
-content that was taken down on the origin. Repeat-infringing accounts are
-disabled (or `moansubs account purge` — withdraws everything they uploaded,
-then disables the account).
+(which starts returning `410`). `moansubs dump` excludes withdrawn tracks
+and releases by the same rule the live API uses, so a dump published after
+a withdrawal never republishes the content — but withdrawn tracks are
+excluded only from dumps made *after* the withdrawal; a dump taken before it
+still names them, same as any other mirror snapshot (see "For self-hosters"
+below). Repeat-infringing accounts are disabled (or `moansubs account
+purge` — withdraws everything they uploaded, then disables the account).
 
 ## For self-hosters
 

@@ -74,6 +74,27 @@ since Caddy is the only thing that ever talks to `server` directly here.
 Caddy appends the address it saw to `X-Forwarded-For` and moansubs reads
 the last entry, so a client can't smuggle a fake one through.
 
-Scheduled dumps published for bulk mirroring are a separate, not-yet-built
-feature (the `moansubs dump` command); the `backup` service here is only
-the operator's own restore-from-backup copy.
+## Publishing a mirror dump
+
+`moansubs dump` (now built — see README.md "Mirroring" and MANUAL.md) is a
+separate thing from the `backup` service above: `backup` is the operator's
+own restore-from-backup copy (raw `pg_dump`, everything, private), while a
+dump is a public, redistributable export with withdrawn content and account
+internals already stripped out (TAKEDOWN.md).
+
+There's no sidecar for this — `backup`'s container is `postgres:16-alpine`
+plus `rclone`, with no `moansubs` binary in it (its whole job is `pg_dump`,
+which doesn't need one), so publishing has to run wherever `docker compose
+exec` can reach the `server` container, i.e. the host. Add a weekly line to
+the **host's** crontab (not `deploy/backup/crontab`, which only the backup
+container's own crond reads):
+
+```
+0 4 * * 0 cd /path/to/this/directory && docker compose exec -T server moansubs dump | rclone rcat s3:<bucket>/dumps/latest.jsonl.gz
+```
+
+`moansubs dump` already gzips its own output — don't pipe it through `gzip`
+again, or `latest.jsonl.gz` ends up double-compressed and nothing default
+can read it back with a plain `gunzip`. `-T` disables `exec`'s pseudo-tty
+allocation, which would otherwise mangle the binary gzip stream going
+through the pipe.
