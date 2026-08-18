@@ -36,7 +36,7 @@ type Cue struct {
 
 // cueTimeRe mirrors subtitles.py's _CUE_TIMES: an SRT/VTT cue timing line,
 // comma (SRT) or dot (VTT) as the millisecond separator. Minutes and seconds
-// are restricted to 00-59, unlike internal/subs's more permissive
+// are restricted to 00-59, unlike subtitlematch's more permissive
 // timestamp-anywhere-in-a-line scan — this one anchors cue boundaries, so it
 // follows the Python parser's stricter shape.
 var cueTimeRe = regexp.MustCompile(
@@ -135,18 +135,41 @@ var allowedTags = map[string]bool{"i": true, "b": true}
 // <i>) and collapses control characters, per PLAN.md "Upload safety":
 // "Normalize to UTF-8; strip HTML-ish markup beyond the basic <i>/<b> tags."
 func sanitizeText(s string) string {
+	// Control characters go first. "<\x05script>" does not match tagRe, so
+	// stripping the control character afterwards handed the tag straight back
+	// — sanitized text that still carried the markup this function exists to
+	// remove.
+	s = collapseControlChars(s)
+
 	s = tagRe.ReplaceAllStringFunc(s, func(tag string) string {
 		m := tagRe.FindStringSubmatch(tag)
 		name := strings.ToLower(m[1])
 		if !allowedTags[name] {
 			return ""
 		}
+		// Park kept tags on sentinels so the sweep below cannot eat them.
+		// collapseControlChars just guaranteed these bytes are absent.
 		if strings.HasPrefix(tag, "</") {
-			return "</" + name + ">"
+			return "\x00/" + name + "\x01"
 		}
-		return "<" + name + ">"
+		return "\x00" + name + "\x01"
 	})
-	s = collapseControlChars(s)
+
+	// Deleting a tag can splice its neighbours into a new one — "<<script>script>"
+	// leaves "<script>" — and ReplaceAllStringFunc never rescans what it wrote.
+	// Anything cleverer than dropping every surviving "<" splices the same way
+	// one level up ("<<A" defeats a one-pass opener sweep), so drop them all:
+	// with no "<" left, tagRe cannot match this text again, at any depth.
+	// ">" stays — it cannot open a tag, and ">>" is a common speaker marker.
+	s = strings.ReplaceAll(s, "<", "")
+
+	s = strings.NewReplacer("\x00", "<", "\x01", ">").Replace(s)
+
+	// Sanitizing can empty an interior line — "0\n\x19\n0" becomes "0\n\n0" —
+	// and a blank line is exactly what ends a cue. Rendered into the stored
+	// SRT, everything past it would be lost on the next parse.
+	s = blankLineRe.ReplaceAllString(s, "\n")
+
 	return strings.TrimSpace(s)
 }
 
@@ -202,6 +225,25 @@ func RenderSRT(cues []Cue) string {
 // embedded in rendered text would silently corrupt the output.
 var blankLineRe = regexp.MustCompile(`\n\s*\n+`)
 
+// sanitizeNote makes note safe to sit in a WebVTT NOTE block. The note is
+// provenance lifted from an upload, so it is attacker-influenced text served
+// to a different user: anything that can end the comment block early or forge
+// a cue inside it has to go. Order is load-bearing — dropping a control
+// character can leave a line empty, and an empty line is what ends the block.
+func sanitizeNote(note string) string {
+	s := strings.ToValidUTF8(note, "")
+	s = collapseControlChars(s)
+	s = blankLineRe.ReplaceAllString(strings.TrimSpace(s), "\n")
+	// WebVTT forbids "-->" in a comment for exactly this reason: left intact,
+	// it closes the NOTE and turns the rest of the note into cues.
+	return arrowRe.ReplaceAllString(s, "->")
+}
+
+// arrowRe matches the whole dash run, not just "-->": a plain
+// strings.ReplaceAll("--->", "-->", "->") rebuilds the arrow it just removed,
+// leaving "-" + "->" behind.
+var arrowRe = regexp.MustCompile(`-{2,}>`)
+
 // RenderVTT re-renders cues to WebVTT, optionally with a NOTE block carrying
 // note verbatim (e.g. provenance JSON — see internal/provenance). Needed for
 // later NOTE-block provenance passthrough on download (PLAN.md "AI-generated
@@ -209,8 +251,7 @@ var blankLineRe = regexp.MustCompile(`\n\s*\n+`)
 func RenderVTT(cues []Cue, note string) string {
 	var b strings.Builder
 	b.WriteString("WEBVTT\n\n")
-	if note != "" {
-		body := blankLineRe.ReplaceAllString(strings.TrimSpace(note), "\n")
+	if body := sanitizeNote(note); body != "" {
 		fmt.Fprintf(&b, "NOTE\n%s\n\n", body)
 	}
 	for i, c := range cues {

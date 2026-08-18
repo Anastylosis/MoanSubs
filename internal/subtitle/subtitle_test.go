@@ -283,3 +283,81 @@ func TestRoundTrip_VTT(t *testing.T) {
 		t.Fatalf("round trip through VTT: got %+v", cues2)
 	}
 }
+
+// -- regressions found by fuzzing ----------------------------------------
+
+func TestSanitize_ControlCharInsideTagDoesNotHideIt(t *testing.T) {
+	// A control character between the tag name and ">" hid the tag from the
+	// allowlist, and stripping control characters afterwards handed it back.
+	src := "1\n00:00:01,000 --> 00:00:03,000\n<\x05script>x</\x05script>\n\n"
+	cues, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if strings.ContainsAny(cues[0].Text, "<") {
+		t.Errorf("markup survived sanitization: %q", cues[0].Text)
+	}
+}
+
+func TestSanitize_NestedOpenerCannotRebuildATag(t *testing.T) {
+	// Deleting the inner tag splices the leftovers into a fresh one.
+	src := "1\n00:00:01,000 --> 00:00:03,000\n<<script>script>x\n\n"
+	cues, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if strings.Contains(cues[0].Text, "<") {
+		t.Errorf("tag rebuilt by its own removal: %q", cues[0].Text)
+	}
+}
+
+func TestSanitize_KeepsSpeakerMarkers(t *testing.T) {
+	// ">>" is a real caption convention; only "<" is dropped wholesale.
+	src := "1\n00:00:01,000 --> 00:00:03,000\n>> SPEAKER: hello\n\n"
+	cues, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cues[0].Text != ">> SPEAKER: hello" {
+		t.Errorf("cue text = %q, want the speaker marker intact", cues[0].Text)
+	}
+}
+
+func TestSanitize_EmptiedLineDoesNotSplitTheCue(t *testing.T) {
+	// The middle line sanitizes to nothing; a blank line left in its place
+	// ends the cue on re-parse and drops everything after it.
+	src := "1\n00:00:01,000 --> 00:00:03,000\nfirst\n\x19\nlast\n\n"
+	cues, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if strings.Contains(cues[0].Text, "\n\n") {
+		t.Fatalf("blank line left inside cue text: %q", cues[0].Text)
+	}
+	reparsed, err := Parse([]byte(RenderSRT(cues)))
+	if err != nil {
+		t.Fatalf("re-parse: %v", err)
+	}
+	if reparsed[0].Text != cues[0].Text {
+		t.Errorf("round-trip lost cue text: %q -> %q", cues[0].Text, reparsed[0].Text)
+	}
+}
+
+func TestRenderVTT_NoteCannotForgeACue(t *testing.T) {
+	// The note carries provenance lifted from the upload. An arrow left in it
+	// closes the NOTE block and forges a cue in the file served to someone
+	// else; "--->" additionally rebuilt the arrow when it was replaced naively.
+	for _, note := range []string{
+		"00:00:09.000 --> 00:00:10.000\nforged",
+		"00:00:09.000 ---> 00:00:10.000\nforged",
+	} {
+		out := RenderVTT([]Cue{{Start: 0, End: time.Second, Text: "real"}}, note)
+		cues, err := Parse([]byte(out))
+		if err != nil {
+			t.Fatalf("note %q: rendered VTT does not parse: %v", note, err)
+		}
+		if len(cues) != 1 {
+			t.Errorf("note %q forged cues: got %d, want 1", note, len(cues))
+		}
+	}
+}
