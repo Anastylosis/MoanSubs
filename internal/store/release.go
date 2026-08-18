@@ -62,8 +62,9 @@ func phashColumns(r Release) (phashBig *int64, b0, b1, b2, b3, b4 *int16) {
 }
 
 // nameColumns computes the precomputed retrieval keys (migration 0003)
-// from r's name metadata via subs.Tokens/subs.Codes — internal/subs is the
-// single source of truth for tokenization, same pattern as phashColumns.
+// from r's name metadata via subs.Tokens/subs.Codes — the shared
+// subtitlematch module is the single source of truth for tokenization, same
+// pattern as phashColumns.
 // Both return nil when r carries no name metadata at all, so metadata-less
 // releases keep NULL retrieval columns and stay outside the partial GIN
 // indexes. Sorted for deterministic storage.

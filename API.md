@@ -81,7 +81,7 @@ past that). POST deliberately, so hashes stay out of access logs. Response:
 The v2 no-phash fallback (PLAN.md "Matching" level 5): when a scene has no
 phash — or hash lookup simply found nothing — this scores stored releases'
 name metadata (title, filename stem, studio, performers) against the query
-scene, via the ported `internal/subs` token/runtime scorer. POST
+scene, via the shared `subtitlematch` token/runtime scorer. POST
 deliberately, like exact mode: titles and filenames are the user's library
 content and must stay out of access logs. This is documented the same way
 exact mode is — trusting the node — because there is no bucketed variant of
