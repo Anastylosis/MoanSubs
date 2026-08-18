@@ -40,6 +40,17 @@ leaks the same, explicitly.
 
 `ok` (200) when the server and database are reachable.
 
+### `GET /api/v1/version`
+
+`{"version": "<semver or dev>", "features": ["lookup", "match"]}`. Anonymous
+and unthrottled — it never touches the database. Lets a client discover the
+node's version and API surface up front and degrade a missing feature
+gracefully (skip with one log line) instead of tripping over a 404 mid-task.
+`features` is a hand-maintained list; each endpoint added after this one
+appends its own name here in the commit that adds it. A node predating this
+endpoint entirely 404s, which a client should treat identically to a current
+node answering with an empty `features` list.
+
 ### `GET /api/v1/lookup/oshash/{prefix}`
 
 `prefix` is exactly 5 lowercase hex chars (400 otherwise). Returns every

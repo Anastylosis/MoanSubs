@@ -82,7 +82,9 @@ across different people's libraries is nearly never.
 
 ## Tasks (Settings → Tasks → Plugin tasks)
 
-- **Probe** — connectivity/diagnostics check.
+- **Probe** — connectivity/diagnostics check; also reports the server's
+  version and feature list (`GET /api/v1/version`), so you can tell an
+  older node apart from a real connection failure.
 - **Push subtitles (dry run)** — walks the library and reports which
   sidecar files *would* be uploaded.
 - **Push subtitles** — uploads every sidecar subtitle in the library.
@@ -108,3 +110,10 @@ across different people's libraries is nearly never.
   plugin binary predates the log-envelope fix; update it.
 - **Uploads fail with 429**: you hit the server's per-token upload budget;
   the operator can raise `MOANSUBS_UPLOAD_RATE_PER_HOUR` (MANUAL.md).
+- **Against an old node**: the plugin checks `GET /api/v1/version` before
+  trying the **Name match** fallback. A pre-0.2 node has no version
+  endpoint at all (404), which is treated the same as a current node that
+  simply doesn't list `"match"` in its features — either way the fallback
+  is skipped with one log line ("server ... has no name matching; upgrade
+  the node") instead of failing the search. Hash-based lookup, downloads,
+  and uploads are unaffected; only the no-phash name fallback degrades.

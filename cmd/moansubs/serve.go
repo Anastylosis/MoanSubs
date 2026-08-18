@@ -86,6 +86,10 @@ var serveCmd = &cobra.Command{
 		apiSrv.Limiter = api.NewRateLimiter(uploadRate)
 		apiSrv.RegisterLimiter = api.NewRateLimiter(registerRate)
 		apiSrv.OpenRegistration = openRegistration
+		// version is main.go's ldflags-stamped build var ("dev" when built
+		// without them); GET /api/v1/version reports whatever this process
+		// actually is, the same source --version already uses.
+		apiSrv.Version = version
 		srv := &http.Server{
 			Addr:    listen,
 			Handler: api.NewMux(apiSrv),

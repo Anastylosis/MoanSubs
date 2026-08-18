@@ -261,6 +261,35 @@ func (c *Client) Match(ctx context.Context, req MatchRequest) (*MatchResult, err
 	return &res, nil
 }
 
+// ServerVersion mirrors GET /api/v1/version: the node's build version and
+// its advertised feature list, so a caller can tell what an older server
+// is missing before tripping over a 404 mid-task.
+type ServerVersion struct {
+	Version  string   `json:"version"`
+	Features []string `json:"features"`
+}
+
+// Version calls GET /api/v1/version. A 404 — a pre-0.2 node that predates
+// this endpoint entirely — is not an error: it yields
+// &ServerVersion{Features: nil}, the same "nothing advertised" shape as a
+// current node with an empty feature list, so callers only ever need to
+// check Features, never a separate not-found case.
+func (c *Client) Version(ctx context.Context) (*ServerVersion, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/api/v1/version", nil)
+	if err != nil {
+		return nil, err
+	}
+	var v ServerVersion
+	if err := c.do(httpReq, &v); err != nil {
+		var statusErr *httpStatusError
+		if errors.As(err, &statusErr) && statusErr.status == http.StatusNotFound {
+			return &ServerVersion{}, nil
+		}
+		return nil, err
+	}
+	return &v, nil
+}
+
 // UploadRequest is one subtitle upload (POST /api/v1/subtitles).
 type UploadRequest struct {
 	OSHash     string `json:"oshash"`

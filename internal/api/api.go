@@ -44,6 +44,11 @@ type Server struct {
 	// (POST /api/v1/accounts). A node that leaves this off is invite-only:
 	// the operator mints accounts with `moansubs account create`.
 	OpenRegistration bool
+	// Version is the running build's semver (or "dev"), reported by
+	// GET /api/v1/version. Set from cmd/moansubs's ldflags-stamped version
+	// var; NewServer's default keeps a bare-Go build honest about being
+	// unstamped rather than claiming a version it wasn't built with.
+	Version string
 }
 
 // NewServer builds a Server backed by s, with its own rate limiters.
@@ -57,6 +62,7 @@ func NewServer(s *store.Store) *Server {
 		// mirror. Operators running a private node close it with
 		// MOANSUBS_OPEN_REGISTRATION=false.
 		OpenRegistration: true,
+		Version:          "dev",
 	}
 }
 
@@ -67,6 +73,7 @@ func NewMux(s *Server) *http.ServeMux {
 	mux.HandleFunc("GET /register", s.handleRegisterForm)
 	mux.HandleFunc("POST /register", s.handleRegisterSubmit)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
+	mux.HandleFunc("GET /api/v1/version", s.handleVersion)
 	mux.HandleFunc("POST /api/v1/accounts", s.handleRegisterAccount)
 	mux.HandleFunc("POST /api/v1/subtitles", s.handleUploadSubtitle)
 	mux.HandleFunc("GET /api/v1/subtitles/{id}", s.handleGetSubtitle)

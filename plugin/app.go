@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/Anastylosis/MoanSubs/internal/hash"
@@ -25,6 +26,11 @@ type app struct {
 	// exactMode mirrors the opt-in "exact_mode" plugin setting (full-hash
 	// lookup; PLAN.md "Lookup" — never the default).
 	exactMode bool
+	// version is the moansubs server's GET /api/v1/version answer, fetched
+	// and cached on first use by serverVersion. One process serves one
+	// task invocation, so this is at most one extra round trip per task,
+	// never one per candidate or per scene.
+	version *msclient.ServerVersion
 }
 
 func newApp(ctx context.Context, input PluginInput) (*app, error) {
@@ -72,19 +78,56 @@ func newApp(ctx context.Context, input PluginInput) (*app, error) {
 // probeResult is diagnostic output for the "probe" mode — surfaced in the
 // UI so a misconfigured install fails visibly, not silently.
 type probeResult struct {
-	StashOK          bool   `json:"stash_ok"`
-	SupportsCaptions bool   `json:"supports_captions"`
-	ServerURL        string `json:"server_url"`
-	ExactMode        bool   `json:"exact_mode"`
+	StashOK          bool     `json:"stash_ok"`
+	SupportsCaptions bool     `json:"supports_captions"`
+	ServerURL        string   `json:"server_url"`
+	ExactMode        bool     `json:"exact_mode"`
+	ServerVersion    string   `json:"server_version"`
+	ServerFeatures   []string `json:"server_features"`
 }
 
-func (a *app) probe(_ context.Context) (any, error) {
+func (a *app) probe(ctx context.Context) (any, error) {
+	// A version-fetch failure (unreachable server, wrong URL) is exactly
+	// the kind of misconfiguration probe exists to surface, so it's
+	// reported through the same non-fatal degrade as everywhere else
+	// rather than failing the whole probe call.
+	v, err := a.serverVersion(ctx)
+	if err != nil {
+		logInfo("probe: reading server version failed: %v", err)
+		v = &msclient.ServerVersion{}
+	}
 	return probeResult{
 		StashOK:          true, // newApp already round-tripped settings
 		SupportsCaptions: a.stash.SupportsCaptions,
 		ServerURL:        a.ms.BaseURL,
 		ExactMode:        a.exactMode,
+		ServerVersion:    v.Version,
+		ServerFeatures:   v.Features,
 	}, nil
+}
+
+// serverVersion fetches GET /api/v1/version and caches the answer:
+// search's name-match fallback and probe both need it, and there is no
+// reason to round-trip twice in the same task invocation. Only a
+// successful fetch is cached; a transient failure is retried on next call
+// rather than sticking for the rest of the process.
+func (a *app) serverVersion(ctx context.Context) (*msclient.ServerVersion, error) {
+	if a.version != nil {
+		return a.version, nil
+	}
+	v, err := a.ms.Version(ctx)
+	if err != nil {
+		return nil, err
+	}
+	a.version = v
+	return v, nil
+}
+
+// hasFeature reports whether the server's advertised feature list includes
+// name. nil/empty (a pre-0.2 node, or a probe that already degraded to an
+// empty ServerVersion) simply never has anything.
+func hasFeature(features []string, name string) bool {
+	return slices.Contains(features, name)
 }
 
 // sceneKeys extracts the lookup keys from a scene's primary file.
@@ -200,6 +243,19 @@ func (a *app) nameMatchFallback(ctx context.Context, scene *stash.Scene, path st
 	}
 	if durationMs <= 0 {
 		logInfo("search scene %s: no duration for the name-match fallback, skipping", scene.ID)
+		return nil
+	}
+
+	// Check the cached server version before calling: a node that doesn't
+	// advertise "match" would just 404, and this way that's one predictable
+	// log line instead of an error surfaced from the request itself.
+	v, err := a.serverVersion(ctx)
+	if err != nil {
+		logInfo("search scene %s: could not read server version, skipping name-match fallback: %v", scene.ID, err)
+		return nil
+	}
+	if !hasFeature(v.Features, "match") {
+		logInfo("server %s has no name matching; upgrade the node", v.Version)
 		return nil
 	}
 

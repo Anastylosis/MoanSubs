@@ -241,3 +241,45 @@ func TestMatch_OldServer404(t *testing.T) {
 		t.Fatalf("Match against a route-less server: err = %v, want ErrNoMatchEndpoint", err)
 	}
 }
+
+func TestVersion_ParsesVersionAndFeatures(t *testing.T) {
+	c, _ := newTestServer(t)
+
+	v, err := c.Version(context.Background())
+	if err != nil {
+		t.Fatalf("Version: %v", err)
+	}
+	// The real server (api.NewServer's default) reports "dev" with the
+	// current feature list — this is a round-trip against the actual
+	// handler, not a fake.
+	if v.Version != "dev" {
+		t.Errorf("Version.Version = %q, want %q", v.Version, "dev")
+	}
+	want := map[string]bool{"lookup": true, "match": true}
+	if len(v.Features) != len(want) {
+		t.Fatalf("Features = %v, want exactly %v", v.Features, want)
+	}
+	for _, f := range v.Features {
+		if !want[f] {
+			t.Errorf("unexpected feature %q", f)
+		}
+	}
+}
+
+// TestVersion_OldServer404 mirrors TestMatch_OldServer404: a server that
+// predates GET /api/v1/version entirely must degrade to an empty feature
+// list, not an error — that's what lets a caller treat "no version
+// endpoint" and "version endpoint says nothing" identically.
+func TestVersion_OldServer404(t *testing.T) {
+	ts := httptest.NewServer(http.NewServeMux())
+	defer ts.Close()
+
+	c := New(ts.URL, "")
+	v, err := c.Version(context.Background())
+	if err != nil {
+		t.Fatalf("Version against a route-less server: err = %v, want nil", err)
+	}
+	if len(v.Features) != 0 {
+		t.Errorf("Features = %v, want empty", v.Features)
+	}
+}
