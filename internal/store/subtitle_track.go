@@ -144,6 +144,63 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 	return out, nil
 }
 
+// SubtitleTrackBody is the minimal per-track view `moansubs track
+// resanitize` (cmd/moansubs/track.go) walks: id and the stored body, without
+// the other columns a re-render backfill has no use for.
+type SubtitleTrackBody struct {
+	ID   int64
+	Body string
+}
+
+// SubtitleTracksAfter returns up to limit tracks with id > afterID, ordered
+// by id — the paging primitive `track resanitize` walks in batches of 500 so
+// a full-table backfill never holds one long transaction or loads the whole
+// table into memory at once.
+//
+// Walks every track, non-withdrawn or not: withdrawn_at doesn't exist yet
+// (WP-A1 lands separately) — add `AND withdrawn_at IS NULL` here once it
+// does, matching every other read path.
+func (s *Store) SubtitleTracksAfter(ctx context.Context, afterID int64, limit int) ([]SubtitleTrackBody, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, body FROM subtitle_tracks
+		WHERE id > $1
+		ORDER BY id
+		LIMIT $2`, afterID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: SubtitleTracksAfter: %w", err)
+	}
+	defer rows.Close()
+
+	var out []SubtitleTrackBody
+	for rows.Next() {
+		var t SubtitleTrackBody
+		if err := rows.Scan(&t.ID, &t.Body); err != nil {
+			return nil, fmt.Errorf("store: SubtitleTracksAfter: scanning: %w", err)
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: SubtitleTracksAfter: %w", err)
+	}
+	return out, nil
+}
+
+// UpdateSubtitleTrackBody overwrites a track's stored body in place — the
+// write half of `track resanitize`: re-rendering through the current
+// internal/subtitle sanitizer must never change id, language, or any other
+// column, only the stored text. Returns ErrNotFound when no such track
+// exists.
+func (s *Store) UpdateSubtitleTrackBody(ctx context.Context, id int64, body string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE subtitle_tracks SET body = $1 WHERE id = $2`, body, id)
+	if err != nil {
+		return fmt.Errorf("store: UpdateSubtitleTrackBody: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func scanSubtitleTrack(row rowScanner) (*SubtitleTrack, error) {
 	var (
 		id         int64

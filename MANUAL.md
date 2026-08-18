@@ -66,6 +66,24 @@ uploads keep their attribution and the account stays enabled. Rotation is
 "my token leaked", not "log me out": browser sessions, once the web UI has
 them, are unaffected.
 
+### `moansubs track resanitize [--dry-run] [--id N]`
+
+Re-renders every stored subtitle body through the current parse/render
+sanitizer (the same one `POST /api/v1/subtitles` uses on upload) and, where
+the result differs from what's stored, updates it in place. Prints
+`id: N X bytes → Y bytes` for each track it changes, and a `scanned ...,
+updated ..., skipped ...` summary at the end.
+
+Run this after a sanitizer change to bring already-stored bodies in line
+with what a fresh upload would now produce. Always `--dry-run` first to see
+what would change.
+
+`--id N` limits the run to a single track. Without it, every track is
+walked in batches of 500 by id — no single run holds one long transaction.
+A track whose body fails to parse is printed and skipped, never modified or
+withdrawn: bodies are already sanitized SRT, so a parse failure there means
+something is wrong with the stored data, not the input.
+
 ### `moansubs --version`
 
 Prints version, commit, and build date (stamped by `make`/CI builds).

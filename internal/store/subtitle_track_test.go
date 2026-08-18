@@ -274,3 +274,111 @@ func TestStore_CreateSubtitleTrack_UploaderAndSource(t *testing.T) {
 		t.Errorf("got.UploaderID = %v, want %d", got.UploaderID, accountID)
 	}
 }
+
+// TestStore_SubtitleTracksAfter_Pages is `track resanitize`'s paging
+// primitive (cmd/moansubs/track.go): a small limit forces multiple pages, so
+// this confirms afterID actually advances the window rather than repeating
+// or skipping rows.
+func TestStore_SubtitleTracksAfter_Pages(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "5050505050505050"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	var ids []int64
+	for i := 0; i < 5; i++ {
+		id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+			ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+		})
+		if err != nil {
+			t.Fatalf("CreateSubtitleTrack(%d): %v", i, err)
+		}
+		ids = append(ids, id)
+	}
+
+	var got []int64
+	var afterID int64
+	for {
+		batch, err := s.SubtitleTracksAfter(ctx, afterID, 2)
+		if err != nil {
+			t.Fatalf("SubtitleTracksAfter(afterID=%d): %v", afterID, err)
+		}
+		if len(batch) == 0 {
+			break
+		}
+		if len(batch) > 2 {
+			t.Fatalf("SubtitleTracksAfter returned %d rows, want at most limit=2", len(batch))
+		}
+		for _, tr := range batch {
+			got = append(got, tr.ID)
+		}
+		afterID = batch[len(batch)-1].ID
+	}
+
+	if len(got) != len(ids) {
+		t.Fatalf("paged through %d ids, want %d: %v", len(got), len(ids), got)
+	}
+	for i, id := range ids {
+		if got[i] != id {
+			t.Errorf("got[%d] = %d, want %d (ids must come back in id order, no gaps or repeats)", i, got[i], id)
+		}
+	}
+}
+
+func TestStore_SubtitleTracksAfter_EmptyTable(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	got, err := s.SubtitleTracksAfter(ctx, 0, 500)
+	if err != nil {
+		t.Fatalf("SubtitleTracksAfter: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("SubtitleTracksAfter on an empty table = %+v, want empty", got)
+	}
+}
+
+func TestStore_UpdateSubtitleTrackBody(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "6060606060606060"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	newBody := "1\n00:00:01,000 --> 00:00:02,000\nhello\n\n"
+	if err := s.UpdateSubtitleTrackBody(ctx, id, newBody); err != nil {
+		t.Fatalf("UpdateSubtitleTrackBody: %v", err)
+	}
+
+	got, err := s.GetSubtitleTrack(ctx, id)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if got.Body != newBody {
+		t.Errorf("got.Body = %q, want %q", got.Body, newBody)
+	}
+	// The other columns must be untouched by a body-only update.
+	if got.ReleaseID != releaseID || got.Lang != "en" {
+		t.Errorf("UpdateSubtitleTrackBody changed more than body: got %+v", got)
+	}
+}
+
+func TestStore_UpdateSubtitleTrackBody_NotFound(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if err := s.UpdateSubtitleTrackBody(ctx, 999999, "anything"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("UpdateSubtitleTrackBody(999999): got %v, want ErrNotFound", err)
+	}
+}
