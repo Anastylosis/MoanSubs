@@ -11,15 +11,16 @@ accurate and maintained; keep them that way when changing behavior.
 
 ## Conventions
 
-- Match the sibling repos (`../fss`, `../StashJanitor`, `../stash-subs` —
-  on GitHub now Anastylosis/Custodian and Anastylosis/Scriptorium; local
-  directory names unchanged):
-  their CI/Dockerfile/Makefile/lint idioms are the house style. Justified
-  lint exclusions only.
+- Match the sibling repos (`../fss`, `../Custodian`, `../Scriptorium`,
+  `../stash-go`, `../subtitlematch`): their CI/Dockerfile/Makefile/lint
+  idioms are the house style. CI, docker and release workflows are the
+  shared reusable ones from `Anastylosis/.github` — change them there, not
+  here. Justified lint exclusions only.
 - Commits: brief one-line messages, fss style ("Bump Go to 1.26.5"). NO
   Co-Authored-By or Generated-with trailers.
-- Dependencies are minimal by policy: pgx/v5, cobra, x/text. Adding one is
-  a decision, not a convenience.
+- Dependencies are minimal by policy: pgx/v5, cobra, x/text, plus the two
+  in-house shared modules (`stash-go` for Stash transport, `subtitlematch`
+  for the token scorer). Adding one is a decision, not a convenience.
 - Comment the non-obvious *why*, never the what. Documentation lives in
   `.md` files, not comment blocks.
 - No "phase" language in commits or docs.
@@ -33,13 +34,15 @@ accurate and maintained; keep them that way when changing behavior.
   throwaway `docker run --rm postgres:16-alpine`, and wait for readiness
   with two spaced `psql SELECT 1` probes — `pg_isready` answers during
   initdb's temporary server and lies.
-- Ported code (`internal/subs` from StashJanitor) keeps its tests
-  unmodified. The token scorer's regression corpus is
-  `../subtitle-match-report.md` with a golden verdict pin beside it
-  (`../subtitle-match-report.golden.json`, regenerate via
-  `go test ./internal/subs/ -run TestCorpusReplay -update`); both live
-  outside the repo — the stems are library filenames — and the test
-  skips when they're absent.
+- The token scorer and its regression corpus now live in the shared
+  `subtitlematch` module, not here — matcher changes and corpus replays
+  belong in that repo.
+- `internal/subtitle` carries fuzz targets (`FuzzParse`,
+  `FuzzRenderVTTNote`). Their seed corpus runs as part of `make test`;
+  hunt for new findings with
+  `go test ./internal/subtitle/ -fuzz FuzzParse -fuzztime 2m`. Every
+  sanitizer bug found so far was a removal pass splicing its leftovers
+  into fresh markup — assume that shape first.
 
 ## Load-bearing invariants (violating these corrupts silently)
 
@@ -84,7 +87,8 @@ accurate and maintained; keep them that way when changing behavior.
 ## Scope notes
 
 - Matching is hash + duration first (levels 1–4); the token/filename
-  scorer (ported from StashJanitor) is the level-5 no-phash fallback:
+  scorer (the shared `subtitlematch` module) is the level-5 no-phash
+  fallback:
   server-side scoring via POST /api/v1/match, always offer-only in the
   plugin regardless of server verdict.
 - `PLAN.md` is untracked (`.git/info/exclude`) and contains the full build

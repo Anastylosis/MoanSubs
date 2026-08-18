@@ -45,7 +45,7 @@ linters:
     rules:
       # godoc comments only matter for code other modules can import.
       # internal/ is unimportable by definition, and per PLAN.md's layout
-      # (internal/api, internal/store, internal/hash, internal/subs,
+      # (internal/api, internal/store, internal/hash, internal/subtitle,
       # internal/provenance) that is almost the entire module — documenting
       # each identically would be pure churn for no reader.
       - path: internal/

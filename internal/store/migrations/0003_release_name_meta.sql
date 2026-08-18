@@ -15,14 +15,14 @@ ALTER TABLE releases
     ADD COLUMN title text,
     ADD COLUMN stem text,
     -- YYYY-MM-DD as text, matching the scorer's string comparison
-    -- (subDate in internal/subs/helpers.go produces the same shape).
+    -- (subDate in the shared subtitlematch module produces the same shape).
     ADD COLUMN release_date text,
     -- Creator evidence for the scorer's vocabulary split (vocab.go) — a
     -- weak, bounded signal, never identification on its own.
     ADD COLUMN studio text,
     ADD COLUMN performers text[],
     -- Precomputed retrieval keys: subs.Tokens/subs.Codes over the name
-    -- blob, computed in Go on write (internal/subs is the single source of
+    -- blob, computed in Go on write (subtitlematch is the single source of
     -- truth, mirroring how the phash MIH block columns work) and stored
     -- redundantly so candidate retrieval is one indexed array-overlap
     -- query. These replace the in-memory Index's byToken/byCode postings
