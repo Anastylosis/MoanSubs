@@ -40,6 +40,7 @@ type DumpTrack struct {
 	Source       *string
 	UploaderName *string
 	CreatedAt    time.Time
+	Downloads    int64
 }
 
 // DumpTracksAfter returns up to limit DumpTracks with id > afterID, ordered
@@ -50,7 +51,7 @@ type DumpTrack struct {
 // redundant with the track-level filter.
 func (s *Store) DumpTracksAfter(ctx context.Context, afterID int64, limit int) ([]DumpTrack, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT t.id, t.release_id, t.lang, t.body, t.generated, t.provenance, t.license, t.source, a.name, t.created_at
+		SELECT t.id, t.release_id, t.lang, t.body, t.generated, t.provenance, t.license, t.source, a.name, t.created_at, t.downloads
 		FROM subtitle_tracks t
 		JOIN releases r ON r.id = t.release_id
 		LEFT JOIN accounts a ON a.id = t.uploader_id
@@ -66,7 +67,7 @@ func (s *Store) DumpTracksAfter(ctx context.Context, afterID int64, limit int) (
 	for rows.Next() {
 		var t DumpTrack
 		if err := rows.Scan(&t.ID, &t.ReleaseID, &t.Lang, &t.Body, &t.Generated, &t.Provenance,
-			&t.License, &t.Source, &t.UploaderName, &t.CreatedAt); err != nil {
+			&t.License, &t.Source, &t.UploaderName, &t.CreatedAt, &t.Downloads); err != nil {
 			return nil, fmt.Errorf("store: DumpTracksAfter: scanning: %w", err)
 		}
 		out = append(out, t)

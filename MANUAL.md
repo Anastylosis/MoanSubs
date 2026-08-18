@@ -140,7 +140,9 @@ would have no name matching and an empty catalogue), then one `track` line
 per track. Withdrawn
 releases and tracks are excluded, as is any track under a withdrawn release
 even if the track itself was never individually withdrawn (TAKEDOWN.md).
-Track lines carry the uploader's account **name** (or `null`), never an
+Track lines carry the origin node's download count (informational; an
+import starts its own at zero) and the uploader's account **name** (or
+`null`), never an
 account id or token — nothing else from `accounts`, `sessions`, or
 `track_votes` appears in the output.
 
