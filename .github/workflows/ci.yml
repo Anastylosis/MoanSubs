@@ -38,4 +38,7 @@ jobs:
 # tests read DATABASE_URL and skip when unset, so nothing needs to change —
 # but do not hardcode the old credentials anywhere new.
 #
-# TODO once internal/subs lands: add fuzz-targets for the SRT/VTT parser.
+# The SRT/VTT parser has fuzz targets in internal/subtitle (FuzzParse,
+# FuzzRenderVTTNote). `go test` runs their seed corpus like ordinary tests, so
+# every regression they found stays pinned here without a fuzzing job; hunting
+# for new ones is a local `-fuzz` run, which is where the time budget belongs.
