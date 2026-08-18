@@ -19,6 +19,10 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "moansubs",
 	Short: "moansubs — a self-hostable subtitle database for Stash",
+	// A failed command is almost never a usage problem — it's an unreachable
+	// database or a name already taken. Printing the usage block after those
+	// buries the one line that says what went wrong.
+	SilenceUsage: true,
 }
 
 func main() {

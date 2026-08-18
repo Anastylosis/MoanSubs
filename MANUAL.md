@@ -15,6 +15,8 @@ Runs the HTTP server. Reads:
 | `DATABASE_URL` | *(required)* | Postgres DSN, e.g. `postgres://moansubs:pw@host:5432/moansubs?sslmode=disable` |
 | `MOANSUBS_LISTEN` | `:8080` | Listen address |
 | `MOANSUBS_UPLOAD_RATE_PER_HOUR` | `30` | Upload budget per account token. The default assumes strangers on a public node; raise it (e.g. `10000`) when seeding your own node from a large library, then set it back. |
+| `MOANSUBS_OPEN_REGISTRATION` | `true` | Whether strangers may create their own upload accounts via `POST /api/v1/accounts`. Set `false` for an invite-only node, where accounts exist only through `moansubs account create`. |
+| `MOANSUBS_REGISTER_RATE_PER_HOUR` | `5` | Registration budget per IP. A person needs one account; anything much above this from a single address is name-minting, not signing up. |
 
 Startup applies any pending migrations, then serves. Shutdown is graceful
 on SIGINT/SIGTERM (in-flight requests get 10 seconds).
@@ -32,11 +34,23 @@ Applies pending migrations and exits. Useful for pre-flighting an upgrade;
 
 Creates an upload account and prints its API token **exactly once** — only
 the token's SHA-256 is stored, so a lost token means creating a new
-account. Paste the token into the plugin's settings. There is no
-self-registration: accounts exist only through this command.
+account. Paste the token into the plugin's settings.
 
-To disable an account, set `disabled = true` on its row; there is no CLI
-for this yet.
+This is the operator's route, and the only one on a node with
+`MOANSUBS_OPEN_REGISTRATION=false`. Otherwise people register themselves
+against `POST /api/v1/accounts` (API.md).
+
+### `moansubs account list`
+
+Every account, oldest first: id, name, active/disabled, creation time. The
+token is not shown — it is unrecoverable by construction.
+
+### `moansubs account disable <name>` / `enable <name>`
+
+Revokes or restores an account's ability to upload; the name matches
+case-insensitively. Uploads from a disabled account get `403 account
+disabled`. Revocation is a flag, not a delete, so existing uploads keep
+their attribution and the name cannot be re-registered by somebody else.
 
 ### `moansubs --version`
 
