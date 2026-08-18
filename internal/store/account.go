@@ -105,6 +105,25 @@ func (s *Store) SetAccountDisabled(ctx context.Context, name string, disabled bo
 	return nil
 }
 
+// GetAccountByName returns the account named name, matched
+// case-insensitively like SetAccountDisabled, or ErrNotFound. Needed
+// wherever a CLI command works from a name but a store call needs the
+// account's id — e.g. `account purge`'s WithdrawTracksByUploader (WP-A1).
+func (s *Store) GetAccountByName(ctx context.Context, name string) (*Account, error) {
+	var a Account
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, name, token_hash, disabled, created_at FROM accounts WHERE lower(name) = lower($1)`,
+		name,
+	).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Disabled, &a.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: GetAccountByName: %w", err)
+	}
+	return &a, nil
+}
+
 // HashToken returns the SHA-256 hex digest of an API token — the only form
 // ever persisted or looked up against accounts.token_hash. Exported so the
 // API layer's auth middleware and this package's own CreateAccount hash a

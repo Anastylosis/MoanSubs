@@ -30,9 +30,13 @@ type SubtitleTrack struct {
 	Source     *string
 	UploaderID *int64
 	CreatedAt  time.Time
+	// WithdrawnAt/WithdrawnReason are migration 0005's soft-delete columns
+	// (PLAN.md WP-A1). Nil means active.
+	WithdrawnAt     *time.Time
+	WithdrawnReason *string
 }
 
-const subtitleTrackColumns = `id, release_id, lang, body, generated, provenance, license, source, uploader_id, created_at`
+const subtitleTrackColumns = `id, release_id, lang, body, generated, provenance, license, source, uploader_id, created_at, withdrawn_at, withdrawn_reason`
 
 // CreateSubtitleTrack inserts t and returns its assigned id.
 // FindIdenticalTrack returns the id of an existing track with the same
@@ -80,7 +84,11 @@ func (s *Store) CreateSubtitleTrack(ctx context.Context, t SubtitleTrack) (int64
 }
 
 // GetSubtitleTrack returns the subtitle track with the given id, or
-// ErrNotFound if none exists.
+// ErrNotFound if none exists. Deliberately unfiltered on withdrawn_at: the
+// only caller that needs to distinguish "no such track" (404) from
+// "withdrawn" (410) — GET /api/v1/subtitles/{id} — has to find the row
+// first to inspect WithdrawnAt, and `track resanitize --id` must be able to
+// re-render a withdrawn track's stored body too.
 func (s *Store) GetSubtitleTrack(ctx context.Context, id int64) (*SubtitleTrack, error) {
 	row := s.pool.QueryRow(ctx, `SELECT `+subtitleTrackColumns+` FROM subtitle_tracks WHERE id = $1`, id)
 	t, err := scanSubtitleTrack(row)
@@ -121,7 +129,7 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, release_id, lang, generated, license, provenance IS NOT NULL, created_at
 		FROM subtitle_tracks
-		WHERE release_id = ANY($1)
+		WHERE release_id = ANY($1) AND withdrawn_at IS NULL
 		ORDER BY release_id, id`, releaseIDs)
 	if err != nil {
 		return nil, fmt.Errorf("store: TrackSummariesByReleaseIDs: %w", err)
@@ -157,13 +165,15 @@ type SubtitleTrackBody struct {
 // a full-table backfill never holds one long transaction or loads the whole
 // table into memory at once.
 //
-// Walks every track, non-withdrawn or not: withdrawn_at doesn't exist yet
-// (WP-A1 lands separately) — add `AND withdrawn_at IS NULL` here once it
-// does, matching every other read path.
+// Skips withdrawn tracks (WP-A1): nobody can download a withdrawn track, so
+// there is no reason to spend a backfill pass re-rendering its stored body.
+// A withdrawn track's body is still reachable and fixable via `track
+// resanitize --id` (GetSubtitleTrack is deliberately unfiltered) if it's
+// ever restored and needs it.
 func (s *Store) SubtitleTracksAfter(ctx context.Context, afterID int64, limit int) ([]SubtitleTrackBody, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, body FROM subtitle_tracks
-		WHERE id > $1
+		WHERE id > $1 AND withdrawn_at IS NULL
 		ORDER BY id
 		LIMIT $2`, afterID, limit)
 	if err != nil {
@@ -203,30 +213,128 @@ func (s *Store) UpdateSubtitleTrackBody(ctx context.Context, id int64, body stri
 
 func scanSubtitleTrack(row rowScanner) (*SubtitleTrack, error) {
 	var (
-		id         int64
-		releaseID  int64
-		lang       string
-		body       string
-		generated  bool
-		provenance []byte
-		license    string
-		source     *string
-		uploaderID *int64
-		createdAt  time.Time
+		id              int64
+		releaseID       int64
+		lang            string
+		body            string
+		generated       bool
+		provenance      []byte
+		license         string
+		source          *string
+		uploaderID      *int64
+		createdAt       time.Time
+		withdrawnAt     *time.Time
+		withdrawnReason *string
 	)
-	if err := row.Scan(&id, &releaseID, &lang, &body, &generated, &provenance, &license, &source, &uploaderID, &createdAt); err != nil {
+	if err := row.Scan(&id, &releaseID, &lang, &body, &generated, &provenance, &license, &source, &uploaderID, &createdAt,
+		&withdrawnAt, &withdrawnReason); err != nil {
 		return nil, err
 	}
 	return &SubtitleTrack{
-		ID:         id,
-		ReleaseID:  releaseID,
-		Lang:       lang,
-		Body:       body,
-		Generated:  generated,
-		Provenance: provenance,
-		License:    license,
-		Source:     source,
-		UploaderID: uploaderID,
-		CreatedAt:  createdAt,
+		ID:              id,
+		ReleaseID:       releaseID,
+		Lang:            lang,
+		Body:            body,
+		Generated:       generated,
+		Provenance:      provenance,
+		License:         license,
+		Source:          source,
+		UploaderID:      uploaderID,
+		CreatedAt:       createdAt,
+		WithdrawnAt:     withdrawnAt,
+		WithdrawnReason: withdrawnReason,
 	}, nil
+}
+
+// WithdrawTrack marks track id withdrawn with reason, hiding it from every
+// lookup/download read path without deleting the row (TAKEDOWN.md:
+// withdrawal is reversible). Returns ErrNotFound when no such track exists.
+func (s *Store) WithdrawTrack(ctx context.Context, id int64, reason string) error {
+	var r *string
+	if reason != "" {
+		r = &reason
+	}
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE subtitle_tracks SET withdrawn_at = now(), withdrawn_reason = $2 WHERE id = $1`, id, r)
+	if err != nil {
+		return fmt.Errorf("store: WithdrawTrack: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// RestoreTrack clears a track's withdrawn state. Returns ErrNotFound when no
+// such track exists.
+func (s *Store) RestoreTrack(ctx context.Context, id int64) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE subtitle_tracks SET withdrawn_at = NULL, withdrawn_reason = NULL WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("store: RestoreTrack: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// WithdrawTracksByUploader withdraws every currently-active track uploaded
+// by accountID, all under the same reason, and returns the number affected
+// — the bulk primitive behind `moansubs account purge`: a leaked or abusive
+// account's whole contribution taken down in one step.
+func (s *Store) WithdrawTracksByUploader(ctx context.Context, accountID int64, reason string) (int, error) {
+	var r *string
+	if reason != "" {
+		r = &reason
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE subtitle_tracks SET withdrawn_at = now(), withdrawn_reason = $2
+		WHERE uploader_id = $1 AND withdrawn_at IS NULL`, accountID, r)
+	if err != nil {
+		return 0, fmt.Errorf("store: WithdrawTracksByUploader: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+
+// TrackDetail is the metadata `moansubs track show` prints (id, release,
+// lang, generated, uploader, created, withdrawn) without the track's
+// potentially large body — a separate query rather than reusing
+// SubtitleTrack because it also resolves the uploader's name via a JOIN
+// (subtitle_tracks only stores uploader_id).
+type TrackDetail struct {
+	ID        int64
+	ReleaseID int64
+	Lang      string
+	Generated bool
+	// UploaderName is nil when the track has no uploader_id (e.g.
+	// permission-mirrored seed content), matching SubtitleTrack.UploaderID's
+	// own nilability.
+	UploaderName    *string
+	CreatedAt       time.Time
+	WithdrawnAt     *time.Time
+	WithdrawnReason *string
+}
+
+// GetTrackDetail returns id's TrackDetail, or ErrNotFound. Deliberately
+// unfiltered on withdrawn_at, same reasoning as GetSubtitleTrack: an
+// operator inspecting a track needs to see its withdrawn state, not have it
+// hidden.
+func (s *Store) GetTrackDetail(ctx context.Context, id int64) (*TrackDetail, error) {
+	row := s.pool.QueryRow(ctx, `
+		SELECT t.id, t.release_id, t.lang, t.generated, a.name, t.created_at, t.withdrawn_at, t.withdrawn_reason
+		FROM subtitle_tracks t
+		LEFT JOIN accounts a ON a.id = t.uploader_id
+		WHERE t.id = $1`, id)
+
+	var d TrackDetail
+	err := row.Scan(&d.ID, &d.ReleaseID, &d.Lang, &d.Generated, &d.UploaderName, &d.CreatedAt,
+		&d.WithdrawnAt, &d.WithdrawnReason)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: GetTrackDetail: %w", err)
+	}
+	return &d, nil
 }

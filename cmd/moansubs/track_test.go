@@ -251,3 +251,87 @@ func TestTrackResanitize_ParseFailureIsSkippedNotFatal(t *testing.T) {
 func itoa(id int64) string {
 	return strconv.FormatInt(id, 10)
 }
+
+// -- withdraw/restore/show (WP-A1) -----------------------------------------
+
+func TestTrackWithdrawRestoreShow(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, store.Release{OSHash: mustOSHash(t, "b0b0b0b0b0b0b0b0"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	uploaderID, _, err := s.CreateAccount(ctx, "track-show-uploader")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	trackID, err := s.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: canonicalBody, UploaderID: &uploaderID,
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	out := runTrack(t, "show", itoa(trackID))
+	if !strings.Contains(out, "withdrawn: no") {
+		t.Errorf("show output before withdraw = %q, want withdrawn: no", out)
+	}
+	if !strings.Contains(out, "track-show-uploader") {
+		t.Errorf("show output = %q, want the uploader's name", out)
+	}
+
+	out = runTrack(t, "withdraw", itoa(trackID), "--reason=test reason")
+	if !strings.Contains(out, "withdrawn") {
+		t.Errorf("withdraw output = %q, want confirmation", out)
+	}
+
+	track, err := s.GetSubtitleTrack(ctx, trackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if track.WithdrawnAt == nil {
+		t.Fatal("track was not withdrawn in the store")
+	}
+
+	out = runTrack(t, "show", itoa(trackID))
+	if !strings.Contains(out, "test reason") {
+		t.Errorf("show output after withdraw = %q, want the reason", out)
+	}
+
+	out = runTrack(t, "restore", itoa(trackID))
+	if !strings.Contains(out, "restored") {
+		t.Errorf("restore output = %q, want confirmation", out)
+	}
+	track, err = s.GetSubtitleTrack(ctx, trackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if track.WithdrawnAt != nil {
+		t.Error("track still withdrawn after restore")
+	}
+}
+
+func TestTrackWithdraw_UnknownID(t *testing.T) {
+	openTestStore(t) // starts from a clean slate
+
+	buf := &bytes.Buffer{}
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"track", "withdraw", "999999", "--reason="})
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatal("Execute(track withdraw 999999): want error, got nil")
+	}
+}
+
+func TestTrackShow_UnknownID(t *testing.T) {
+	openTestStore(t)
+
+	buf := &bytes.Buffer{}
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"track", "show", "999999"})
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatal("Execute(track show 999999): want error, got nil")
+	}
+}

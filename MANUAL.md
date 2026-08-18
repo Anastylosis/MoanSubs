@@ -80,10 +80,55 @@ with what a fresh upload would now produce. Always `--dry-run` first to see
 what would change.
 
 `--id N` limits the run to a single track. Without it, every track is
-walked in batches of 500 by id — no single run holds one long transaction.
-A track whose body fails to parse is printed and skipped, never modified or
-withdrawn: bodies are already sanitized SRT, so a parse failure there means
-something is wrong with the stored data, not the input.
+walked in batches of 500 by id, skipping withdrawn tracks (nobody can
+download one, so there's nothing to gain re-rendering it) — no single run
+holds one long transaction. A track whose body fails to parse is printed
+and skipped, never modified or withdrawn: bodies are already sanitized SRT,
+so a parse failure there means something is wrong with the stored data, not
+the input. `--id N` reaches a withdrawn track too, if it ever needs fixing
+before a restore.
+
+### `moansubs track withdraw <id> [--reason TEXT]`
+
+Withdraws (soft-deletes) a subtitle track: it stops appearing in lookups,
+match results, and `GET /api/v1/subtitles/{id}` (which starts returning
+`410`), but the row itself is kept, so the withdrawal is reversible and the
+track's attribution isn't lost. `--reason` is free text recorded for the
+operator's own record; it is never returned by the anonymous API.
+
+### `moansubs track restore <id>`
+
+Undoes `track withdraw`.
+
+### `moansubs track show <id>`
+
+Prints a track's metadata — release id, language, generated flag, uploader
+name (or none, for uploader-less seed content), creation time, and
+withdrawn status/reason — without its (potentially large) subtitle body.
+
+### `moansubs release withdraw <id> [--reason TEXT]`
+
+Withdraws a release **and every one of its tracks** — the release stops
+appearing in every lookup/match endpoint, hiding all its tracks along with
+it, and each track is individually marked withdrawn too. Use this for a
+whole encode that shouldn't have been fingerprinted at all, rather than
+withdrawing each of its tracks one by one.
+
+### `moansubs release restore <id>`
+
+Undoes `release withdraw`: restores the release and exactly the tracks
+that withdrawal took down. A track that had already been withdrawn on its
+own, for its own reason, before the release-level withdrawal stays
+withdrawn — a bogus claim against a release must not resurrect a track
+taken down as spam.
+
+### `moansubs account purge <name> [--reason TEXT]`
+
+The escalation past `account disable`: withdraws every track the named
+account ever uploaded, then disables the account, and prints how many
+tracks were withdrawn. Use this for a leaked or clearly abusive account,
+where taking down its whole contribution by hand (finding every track id)
+would be impractical.
 
 ### `moansubs --version`
 

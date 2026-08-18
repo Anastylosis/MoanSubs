@@ -29,7 +29,7 @@ func (s *Store) LookupByNameCandidates(ctx context.Context, tokens, codes []stri
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+releaseColumns+`
 		FROM releases
-		WHERE name_tokens && $1 OR name_codes && $2
+		WHERE (name_tokens && $1 OR name_codes && $2) AND withdrawn_at IS NULL
 		LIMIT $3`,
 		tokens, codes, nameCandidateLimit)
 	if err != nil {

@@ -395,6 +395,109 @@ func TestGetSubtitle_ReturnsMetadata(t *testing.T) {
 	}
 }
 
+// -- withdraw (WP-A1) -----------------------------------------------------
+
+func TestGetSubtitle_WithdrawnTrack_Returns410(t *testing.T) {
+	ts, st, token := newTestServer(t)
+	up := doUpload(t, ts, token, map[string]any{
+		"oshash": "a0a0a0a0a0a0a0a0", "duration_ms": 13000, "lang": "en", "body": basicSRT,
+	})
+	if up.StatusCode != http.StatusCreated {
+		t.Fatalf("upload status = %d, want 201", up.StatusCode)
+	}
+	created := decodeJSON[uploadResponse](t, up)
+
+	if err := st.WithdrawTrack(context.Background(), created.TrackID, "test"); err != nil {
+		t.Fatalf("WithdrawTrack: %v", err)
+	}
+
+	resp, err := http.Get(ts.URL + "/api/v1/subtitles/" + strconv.FormatInt(created.TrackID, 10))
+	if err != nil {
+		t.Fatalf("GET subtitle: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusGone {
+		t.Errorf("status = %d, want 410", resp.StatusCode)
+	}
+}
+
+func TestGetSubtitle_WithdrawnRelease_Returns410(t *testing.T) {
+	ts, st, token := newTestServer(t)
+	up := doUpload(t, ts, token, map[string]any{
+		"oshash": "a1a1a1a1a1a1a1a1", "duration_ms": 13000, "lang": "en", "body": basicSRT,
+	})
+	if up.StatusCode != http.StatusCreated {
+		t.Fatalf("upload status = %d, want 201", up.StatusCode)
+	}
+	created := decodeJSON[uploadResponse](t, up)
+
+	// Withdraw the release, not the track directly — the track itself is
+	// never individually marked, only reachable via the release.
+	if err := st.WithdrawRelease(context.Background(), created.ReleaseID, "test"); err != nil {
+		t.Fatalf("WithdrawRelease: %v", err)
+	}
+
+	resp, err := http.Get(ts.URL + "/api/v1/subtitles/" + strconv.FormatInt(created.TrackID, 10))
+	if err != nil {
+		t.Fatalf("GET subtitle: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusGone {
+		t.Errorf("status = %d, want 410", resp.StatusCode)
+	}
+}
+
+func TestUpload_ToWithdrawnRelease_Returns410(t *testing.T) {
+	ts, st, token := newTestServer(t)
+	up := doUpload(t, ts, token, map[string]any{
+		"oshash": "a2a2a2a2a2a2a2a2", "duration_ms": 13000, "lang": "en", "body": basicSRT,
+	})
+	if up.StatusCode != http.StatusCreated {
+		t.Fatalf("upload status = %d, want 201", up.StatusCode)
+	}
+	created := decodeJSON[uploadResponse](t, up)
+
+	if err := st.WithdrawRelease(context.Background(), created.ReleaseID, "test"); err != nil {
+		t.Fatalf("WithdrawRelease: %v", err)
+	}
+
+	// Same oshash, a different (new) language: GetOrCreateRelease must still
+	// find the withdrawn release rather than erroring, and the handler must
+	// refuse the upload with 410 rather than silently attaching a fresh
+	// track to withdrawn content.
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "a2a2a2a2a2a2a2a2", "duration_ms": 13000, "lang": "fr", "body": basicSRT,
+	})
+	if resp.StatusCode != http.StatusGone {
+		t.Errorf("status = %d, want 410", resp.StatusCode)
+	}
+}
+
+// Re-uploading the exact bytes of a withdrawn track must not resurrect it as
+// an ordinary "duplicate" — a takedown must not be undoable by re-pushing
+// the same file.
+func TestUpload_DuplicateOfWithdrawnTrack_Returns410(t *testing.T) {
+	ts, st, token := newTestServer(t)
+	up := doUpload(t, ts, token, map[string]any{
+		"oshash": "a3a3a3a3a3a3a3a3", "duration_ms": 13000, "lang": "en", "body": basicSRT,
+	})
+	if up.StatusCode != http.StatusCreated {
+		t.Fatalf("upload status = %d, want 201", up.StatusCode)
+	}
+	created := decodeJSON[uploadResponse](t, up)
+
+	if err := st.WithdrawTrack(context.Background(), created.TrackID, "test"); err != nil {
+		t.Fatalf("WithdrawTrack: %v", err)
+	}
+
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "a3a3a3a3a3a3a3a3", "duration_ms": 13000, "lang": "en", "body": basicSRT,
+	})
+	if resp.StatusCode != http.StatusGone {
+		t.Errorf("status = %d, want 410 (re-upload of a withdrawn track)", resp.StatusCode)
+	}
+}
+
 func TestGetSubtitle_NotFound(t *testing.T) {
 	ts, _, _ := newTestServer(t)
 	resp, err := http.Get(ts.URL + "/api/v1/subtitles/999999")

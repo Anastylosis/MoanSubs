@@ -139,6 +139,36 @@ func TestStore_RotateAccountToken_CaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestStore_GetAccountByName_CaseInsensitive(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	id, _, err := s.CreateAccount(ctx, "Erin")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	got, err := s.GetAccountByName(ctx, "erin")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+	if got.ID != id {
+		t.Errorf("got.ID = %d, want %d", got.ID, id)
+	}
+	if got.Name != "Erin" {
+		t.Errorf("got.Name = %q, want %q (original casing preserved)", got.Name, "Erin")
+	}
+}
+
+func TestStore_GetAccountByName_NotFound(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if _, err := s.GetAccountByName(ctx, "nonexistent"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetAccountByName for nonexistent account: got %v, want ErrNotFound", err)
+	}
+}
+
 func TestStore_RotateAccountToken_NotFound(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()

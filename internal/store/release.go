@@ -37,10 +37,15 @@ type Release struct {
 	Studio      *string
 	Performers  []string
 	CreatedAt   time.Time
+	// WithdrawnAt/WithdrawnReason are migration 0005's soft-delete columns
+	// (PLAN.md WP-A1). Nil means active. Set together, cleared together —
+	// never one without the other.
+	WithdrawnAt     *time.Time
+	WithdrawnReason *string
 }
 
 const releaseColumns = `id, work_id, oshash, phash, md5, duration_ms, width, height, video_codec,
-	title, stem, release_date, studio, performers, created_at`
+	title, stem, release_date, studio, performers, created_at, withdrawn_at, withdrawn_reason`
 
 // phashColumns computes the raw signed-bigint phash plus its 5 MIH block
 // values from r.PHash, all nil when r.PHash is nil — internal/hash is the
@@ -183,7 +188,11 @@ func (s *Store) GetOrCreateRelease(ctx context.Context, r Release) (*Release, er
 		}
 	}
 
-	got, err := s.GetReleaseByOshash(ctx, r.OSHash)
+	// Fetches via the unfiltered helper, not the public GetReleaseByOshash:
+	// GetOrCreateRelease must find the row it just confirmed exists even
+	// when it's withdrawn (WP-A1's upload path returns 410 for that case,
+	// which requires actually finding the release, not ErrNotFound).
+	got, err := s.getReleaseByOshashAny(ctx, r.OSHash)
 	if err != nil {
 		return nil, fmt.Errorf("store: GetOrCreateRelease: fetching: %w", err)
 	}
@@ -192,12 +201,16 @@ func (s *Store) GetOrCreateRelease(ctx context.Context, r Release) (*Release, er
 
 // GetReleaseByOshash returns the release with an exact oshash match
 // (PLAN.md "Matching" level 1: identical file), or ErrNotFound if none
-// exists. oshash is unique as of migration 0002, so at most one row can
-// ever match.
+// exists or it has been withdrawn (WP-A1: a withdrawn release must not
+// surface from lookup). oshash is unique as of migration 0002, so at most
+// one row can ever match. This is the public, filtered lookup used by
+// anonymous callers (POST /api/v1/lookup/exact); GetOrCreateRelease's
+// upload path uses the unfiltered getReleaseByOshashAny instead, since it
+// must be able to find a withdrawn release too.
 func (s *Store) GetReleaseByOshash(ctx context.Context, h hash.OSHash) (*Release, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT `+releaseColumns+`
-		FROM releases WHERE oshash = $1 ORDER BY id LIMIT 1`, string(h))
+		FROM releases WHERE oshash = $1 AND withdrawn_at IS NULL ORDER BY id LIMIT 1`, string(h))
 	r, err := scanRelease(row)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -208,6 +221,122 @@ func (s *Store) GetReleaseByOshash(ctx context.Context, h hash.OSHash) (*Release
 	return r, nil
 }
 
+// getReleaseByOshashAny is GetReleaseByOshash without the withdrawn_at
+// filter — see GetOrCreateRelease's use of it above.
+func (s *Store) getReleaseByOshashAny(ctx context.Context, h hash.OSHash) (*Release, error) {
+	row := s.pool.QueryRow(ctx, `
+		SELECT `+releaseColumns+`
+		FROM releases WHERE oshash = $1 ORDER BY id LIMIT 1`, string(h))
+	r, err := scanRelease(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: getReleaseByOshashAny: %w", err)
+	}
+	return r, nil
+}
+
+// GetReleaseByID returns the release with the given id, or ErrNotFound.
+// Deliberately unfiltered on withdrawn_at, unlike GetReleaseByOshash: a
+// caller that needs to distinguish "no such release" (404) from "withdrawn"
+// (410) — GET /api/v1/subtitles/{id}'s release check — has to find the row
+// first to inspect WithdrawnAt.
+func (s *Store) GetReleaseByID(ctx context.Context, id int64) (*Release, error) {
+	row := s.pool.QueryRow(ctx, `SELECT `+releaseColumns+` FROM releases WHERE id = $1`, id)
+	r, err := scanRelease(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: GetReleaseByID: %w", err)
+	}
+	return r, nil
+}
+
+// WithdrawRelease marks release id withdrawn with reason, and cascades the
+// same withdrawal onto every one of its currently-active tracks — so a
+// track-level check (GetSubtitleTrack, `track show`) reflects the takedown
+// directly, on top of the release-level filter every bucketed lookup below
+// already applies (PLAN.md WP-A1: "a withdrawn release hides all its
+// tracks even if the tracks themselves aren't marked" — this cascade marks
+// them too, belt-and-suspenders). Returns ErrNotFound when no such release
+// exists.
+func (s *Store) WithdrawRelease(ctx context.Context, id int64, reason string) error {
+	var r *string
+	if reason != "" {
+		r = &reason
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("store: WithdrawRelease: beginning tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+	tag, err := tx.Exec(ctx, `UPDATE releases SET withdrawn_at = now(), withdrawn_reason = $2 WHERE id = $1`, id, r)
+	if err != nil {
+		return fmt.Errorf("store: WithdrawRelease: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE subtitle_tracks SET withdrawn_at = now(), withdrawn_reason = $2
+		WHERE release_id = $1 AND withdrawn_at IS NULL`, id, r); err != nil {
+		return fmt.Errorf("store: WithdrawRelease: cascading to tracks: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("store: WithdrawRelease: %w", err)
+	}
+	return nil
+}
+
+// RestoreRelease undoes WithdrawRelease: clears the release's own
+// withdrawn_at/reason and restores exactly the tracks its cascade withdrew.
+// The cascade stamps release and tracks with the same transaction-time
+// now(), so "the tracks this withdrawal took down" is precisely those whose
+// withdrawn_at equals the release's — a track withdrawn on its own, earlier,
+// for its own reason (spam, wrong content) keeps its withdrawal instead of
+// riding back in on a release-level restore. Returns ErrNotFound when no
+// such release exists; restoring a release that isn't withdrawn is a no-op.
+func (s *Store) RestoreRelease(ctx context.Context, id int64) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("store: RestoreRelease: beginning tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+	// The release's own stamp is read and cleared in one statement so the
+	// track restore below matches against the value that was actually set.
+	var stamp *time.Time
+	err = tx.QueryRow(ctx, `
+		UPDATE releases SET withdrawn_at = NULL, withdrawn_reason = NULL
+		WHERE id = $1
+		RETURNING (SELECT withdrawn_at FROM releases WHERE id = $1)`, id).Scan(&stamp)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("store: RestoreRelease: %w", err)
+	}
+
+	if stamp != nil {
+		if _, err := tx.Exec(ctx, `
+			UPDATE subtitle_tracks SET withdrawn_at = NULL, withdrawn_reason = NULL
+			WHERE release_id = $1 AND withdrawn_at = $2`, id, *stamp); err != nil {
+			return fmt.Errorf("store: RestoreRelease: restoring tracks: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("store: RestoreRelease: %w", err)
+	}
+	return nil
+}
+
 // LookupByOshashPrefix returns every release whose oshash starts with
 // prefix — the bucketed oshash lookup (PLAN.md "Lookup: bucketed by
 // default"). Callers are expected to have derived prefix via
@@ -215,7 +344,7 @@ func (s *Store) GetReleaseByOshash(ctx context.Context, h hash.OSHash) (*Release
 func (s *Store) LookupByOshashPrefix(ctx context.Context, prefix string) ([]Release, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+releaseColumns+`
-		FROM releases WHERE left(oshash, 5) = $1`, prefix)
+		FROM releases WHERE left(oshash, 5) = $1 AND withdrawn_at IS NULL`, prefix)
 	if err != nil {
 		return nil, fmt.Errorf("store: LookupByOshashPrefix: %w", err)
 	}
@@ -256,7 +385,7 @@ func (s *Store) LookupByBlock(ctx context.Context, blockIndex int, value uint16)
 
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+releaseColumns+`
-		FROM releases WHERE `+column+` = $1`, int16(value))
+		FROM releases WHERE `+column+` = $1 AND withdrawn_at IS NULL`, int16(value))
 	if err != nil {
 		return nil, fmt.Errorf("store: LookupByBlock: %w", err)
 	}
@@ -295,6 +424,7 @@ func (s *Store) LookupByPHashFuzzy(ctx context.Context, target hash.PHash, maxDi
 		SELECT `+releaseColumns+`
 		FROM releases
 		WHERE phash IS NOT NULL
+		  AND withdrawn_at IS NULL
 		  AND bit_count(phash::bit(64) # $1::int8::bit(64)) <= $2`,
 		target.ToBigint(), maxDistance)
 	if err != nil {
@@ -316,42 +446,46 @@ type rowScanner interface {
 // conversion here is a single explicit step rather than implicit magic.
 func scanRelease(row rowScanner) (*Release, error) {
 	var (
-		id          int64
-		workID      *int64
-		oshashStr   string
-		phashBig    *int64
-		md5         *string
-		durationMs  int64
-		width       *int
-		height      *int
-		videoCodec  *string
-		title       *string
-		stem        *string
-		releaseDate *string
-		studio      *string
-		performers  []string
-		createdAt   time.Time
+		id              int64
+		workID          *int64
+		oshashStr       string
+		phashBig        *int64
+		md5             *string
+		durationMs      int64
+		width           *int
+		height          *int
+		videoCodec      *string
+		title           *string
+		stem            *string
+		releaseDate     *string
+		studio          *string
+		performers      []string
+		createdAt       time.Time
+		withdrawnAt     *time.Time
+		withdrawnReason *string
 	)
 	if err := row.Scan(&id, &workID, &oshashStr, &phashBig, &md5, &durationMs, &width, &height, &videoCodec,
-		&title, &stem, &releaseDate, &studio, &performers, &createdAt); err != nil {
+		&title, &stem, &releaseDate, &studio, &performers, &createdAt, &withdrawnAt, &withdrawnReason); err != nil {
 		return nil, err
 	}
 
 	r := &Release{
-		ID:          id,
-		WorkID:      workID,
-		OSHash:      hash.OSHash(oshashStr),
-		MD5:         md5,
-		DurationMs:  durationMs,
-		Width:       width,
-		Height:      height,
-		VideoCodec:  videoCodec,
-		Title:       title,
-		Stem:        stem,
-		ReleaseDate: releaseDate,
-		Studio:      studio,
-		Performers:  performers,
-		CreatedAt:   createdAt,
+		ID:              id,
+		WorkID:          workID,
+		OSHash:          hash.OSHash(oshashStr),
+		MD5:             md5,
+		DurationMs:      durationMs,
+		Width:           width,
+		Height:          height,
+		VideoCodec:      videoCodec,
+		Title:           title,
+		Stem:            stem,
+		ReleaseDate:     releaseDate,
+		Studio:          studio,
+		Performers:      performers,
+		CreatedAt:       createdAt,
+		WithdrawnAt:     withdrawnAt,
+		WithdrawnReason: withdrawnReason,
 	}
 	if phashBig != nil {
 		p := hash.PHashFromBigint(*phashBig)

@@ -167,7 +167,49 @@ var accountRotateTokenCmd = &cobra.Command{
 	},
 }
 
+var accountPurgeReason string
+
+// accountPurgeCmd is the escalation past `account disable`: withdraws every
+// track the account ever uploaded (store.WithdrawTracksByUploader), then
+// disables it, so a leaked/abusive account's whole contribution comes down
+// in one step instead of an operator hunting down each track id by hand.
+// Order matters: withdraw first, then disable — a failure between the two
+// steps should never leave a disabled account whose content is still live.
+var accountPurgeCmd = &cobra.Command{
+	Use:   "purge <name>",
+	Short: "Withdraw every track an account uploaded, then disable it",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		s, ctx, cancel, err := openStore(cmd, "account purge")
+		if err != nil {
+			return err
+		}
+		defer cancel()
+		defer s.Close()
+
+		account, err := s.GetAccountByName(ctx, args[0])
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return fmt.Errorf("moansubs account purge: no account named %q", args[0])
+			}
+			return fmt.Errorf("moansubs account purge: %w", err)
+		}
+
+		n, err := s.WithdrawTracksByUploader(ctx, account.ID, accountPurgeReason)
+		if err != nil {
+			return fmt.Errorf("moansubs account purge: withdrawing tracks: %w", err)
+		}
+		if err := s.SetAccountDisabled(ctx, args[0], true); err != nil {
+			return fmt.Errorf("moansubs account purge: disabling account: %w", err)
+		}
+
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Withdrew %d track(s) uploaded by %q and disabled the account.\n", n, args[0])
+		return nil
+	},
+}
+
 func init() {
-	accountCmd.AddCommand(accountCreateCmd, accountListCmd, accountDisableCmd, accountEnableCmd, accountRotateTokenCmd)
+	accountPurgeCmd.Flags().StringVar(&accountPurgeReason, "reason", "", "reason recorded for the withdrawal")
+	accountCmd.AddCommand(accountCreateCmd, accountListCmd, accountDisableCmd, accountEnableCmd, accountRotateTokenCmd, accountPurgeCmd)
 	rootCmd.AddCommand(accountCmd)
 }

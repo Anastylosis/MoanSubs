@@ -204,6 +204,15 @@ func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A withdrawn release stays findable by GetOrCreateRelease (it's still
+	// the row that oshash names) so this can tell the uploader why the
+	// upload didn't land, rather than silently accepting a new track under
+	// content that was taken down (WP-A1).
+	if release.WithdrawnAt != nil {
+		writeError(w, http.StatusGone, "release withdrawn")
+		return
+	}
+
 	// Idempotent upload: a byte-identical track for the same release and
 	// language returns the existing id (200, duplicate:true) instead of
 	// inserting again. Bulk seeding (the plugin's push task over a whole
@@ -213,6 +222,20 @@ func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	} else if existingID != 0 {
+		// FindIdenticalTrack deliberately finds withdrawn tracks too (WP-A1):
+		// a takedown must not be silently undone by re-uploading the same
+		// bytes, so check the existing track's own withdrawn state before
+		// treating this as an ordinary duplicate.
+		existing, err := s.Store.GetSubtitleTrack(ctx, existingID)
+		if err != nil {
+			log.Printf("api: GetSubtitleTrack (duplicate check): %v", err)
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if existing.WithdrawnAt != nil {
+			writeError(w, http.StatusGone, "track withdrawn")
+			return
+		}
 		writeJSON(w, http.StatusOK, uploadResponse{
 			TrackID:   existingID,
 			ReleaseID: release.ID,
@@ -270,7 +293,8 @@ func (s *Server) handleGetSubtitle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	track, err := s.Store.GetSubtitleTrack(r.Context(), id)
+	ctx := r.Context()
+	track, err := s.Store.GetSubtitleTrack(ctx, id)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "no such subtitle track")
 		return
@@ -278,6 +302,24 @@ func (s *Server) handleGetSubtitle(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("api: GetSubtitleTrack: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if track.WithdrawnAt != nil {
+		writeError(w, http.StatusGone, "track withdrawn")
+		return
+	}
+
+	// A withdrawn release hides all its tracks even when the track itself
+	// isn't individually marked (WP-A1) — GetReleaseByID is deliberately
+	// unfiltered so this check can see that.
+	release, err := s.Store.GetReleaseByID(ctx, track.ReleaseID)
+	if err != nil {
+		log.Printf("api: GetReleaseByID: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if release.WithdrawnAt != nil {
+		writeError(w, http.StatusGone, "release withdrawn")
 		return
 	}
 
