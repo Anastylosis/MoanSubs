@@ -63,6 +63,7 @@
 {{end}}
 
 <h2>Invite others</h2>
+<p class="hint" style="margin:0 0 .75rem">Every account gets five single-use codes; give someone the share link and they register on it. Disable a code you no longer want out there.{{if roleAtLeast "admin"}} As an admin you can mint multi-use or unlimited codes on <a href="/admin/invites">the invites page</a>.{{end}}</p>
 {{if not .Invites}}
 <p class="empty">No invite codes yet.</p>
 {{else}}

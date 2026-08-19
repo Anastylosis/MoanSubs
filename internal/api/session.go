@@ -394,17 +394,22 @@ func (s *Server) handleDisableInvite(w http.ResponseWriter, r *http.Request) {
 // them, so an absence looks like a cross-origin tool, not a browser.
 func sameOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
-	if origin == "" {
+	if origin == "" || origin == "null" {
 		origin = r.Header.Get("Referer")
 	}
 	if origin == "" {
+		log.Printf("api: origin check: %s %s from %s sent neither Origin nor Referer", r.Method, r.URL.Path, r.RemoteAddr)
 		return false
 	}
 	u, err := url.Parse(origin)
 	if err != nil {
 		return false
 	}
-	return u.Host == r.Host
+	if u.Host != r.Host {
+		log.Printf("api: origin check: %s %s: origin host %q != request host %q", r.Method, r.URL.Path, u.Host, r.Host)
+		return false
+	}
+	return true
 }
 
 // checkOrigin is WP-C1's CSRF guard for a state-changing route that

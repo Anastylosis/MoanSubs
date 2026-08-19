@@ -123,7 +123,10 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 		csp = uploadCSP
 	}
 	w.Header().Set("Content-Security-Policy", csp)
-	w.Header().Set("Referrer-Policy", "no-referrer")
+	// same-origin, not no-referrer: the CSRF check (sameOrigin) falls back
+	// to Referer when a browser omits Origin on a same-origin POST, and a
+	// Referer that only ever reaches this node leaks nothing.
+	w.Header().Set("Referrer-Policy", "same-origin")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if noStore {
 		w.Header().Set("Cache-Control", "no-store")
