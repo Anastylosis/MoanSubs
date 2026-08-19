@@ -19,6 +19,13 @@
     <label for="file">Subtitle file (.srt or .vtt)</label>
     <input type="file" id="file" name="file" accept=".srt,.vtt" required>
 
+    <label for="video">Video file (stays on your computer — only its fingerprint is computed here)</label>
+    <input type="file" id="video" accept="video/*">
+    <p class="hint" id="video-status">Picking a video file fills in oshash,
+    duration and the filename stem below — the video itself is never sent
+    anywhere. Requires JavaScript; without it, copy the fields from Stash by
+    hand as before.</p>
+
     <label for="oshash">oshash</label>
     <input type="text" id="oshash" name="oshash" value="{{.Values.OSHash}}" required
            autocomplete="off" pattern="[0-9a-fA-F]{16}" maxlength="16">
@@ -67,5 +74,6 @@
 
     <button type="submit">Upload</button>
   </form>
+  <script src="/static/upload.js" defer></script>
 {{end}}
 {{end}}

@@ -192,6 +192,56 @@ func TestUploadForm_SharesDedupWithTheJSONAPI(t *testing.T) {
 	}
 }
 
+// /upload is the only page that loads a script (WP-D2), and only for the
+// reason it needs one — this pins that the looser CSP doesn't leak onto
+// pages that don't need it, and that it's actually looser where it does.
+func TestUploadForm_CSPAllowsItsOwnScriptOnly(t *testing.T) {
+	ts, _, client, _ := sessionServer(t)
+
+	resp, err := client.Get(ts.URL + "/upload")
+	if err != nil {
+		t.Fatalf("GET /upload: %v", err)
+	}
+	_ = resp.Body.Close()
+	csp := resp.Header.Get("Content-Security-Policy")
+	if !strings.Contains(csp, "script-src 'self'") {
+		t.Errorf("/upload CSP = %q, want script-src 'self'", csp)
+	}
+	if !strings.Contains(csp, "media-src blob:") {
+		t.Errorf("/upload CSP = %q, want media-src blob: (the duration probe)", csp)
+	}
+
+	other, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	_ = other.Body.Close()
+	if otherCSP := other.Header.Get("Content-Security-Policy"); strings.Contains(otherCSP, "script-src") {
+		t.Errorf("/ CSP = %q, should not carry script-src", otherCSP)
+	}
+}
+
+// GET /static/upload.js is what /upload's CSP (script-src 'self', no
+// inline scripts) actually loads — a wrong Content-Type or a 404 here
+// would silently strand the whole in-browser fingerprinter.
+func TestStaticUploadJS_Served(t *testing.T) {
+	ts, _ := webServer(t, true)
+
+	resp, body := getBody(t, ts.URL+"/static/upload.js")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /static/upload.js = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "text/javascript; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want text/javascript; charset=utf-8", ct)
+	}
+	if cc := resp.Header.Get("Cache-Control"); cc != "public, max-age=3600" {
+		t.Errorf("Cache-Control = %q, want public, max-age=3600", cc)
+	}
+	if !strings.Contains(body, "oshashOf") {
+		t.Error("served script does not look like upload.js")
+	}
+}
+
 // A release with no title or stem never gets a catalogue page
 // (store.CatalogueRelease 404s it), so the result page must not link to
 // one it knows will 404.

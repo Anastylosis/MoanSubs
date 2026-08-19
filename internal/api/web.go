@@ -8,12 +8,30 @@ import (
 )
 
 // The node's human-facing surface: a front door, a registration form, and
-// (WP-C2) a small public catalogue. It is deliberately tiny — no assets, no
-// JavaScript — because this is a JSON API server that happens to greet
-// people, not a web app.
+// (WP-C2) a small public catalogue. It is deliberately tiny — almost no
+// assets, almost no JavaScript — because this is a JSON API server that
+// happens to greet people, not a web app. The one exception is
+// static/upload.js (WP-D2), the in-browser oshash/duration fingerprinter.
 //
 //go:embed templates/*.html
 var templateFS embed.FS
+
+//go:embed static/upload.js
+var uploadJS []byte
+
+// defaultCSP is every page's Content-Security-Policy except /upload: the
+// page is entirely self-contained, so the strictest useful policy applies
+// — nothing loads from anywhere, and the only form target is this node
+// itself.
+const defaultCSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+
+// uploadCSP is /upload's policy: script-src 'self' allows static/upload.js
+// (served from this node, not inlined — CSP has no clean way to allow an
+// inline <script> without a nonce, and a nonce per request would mean this
+// page can never be cached), and media-src blob: allows the detached
+// <video> element upload.js creates to probe duration from
+// URL.createObjectURL(file).
+const uploadCSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; media-src blob:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
 // Parsed once at startup: a template parse error is a build-time mistake, so
 // failing here is better than discovering it on someone's first visit.
@@ -54,11 +72,13 @@ func (s *Server) renderPage(w http.ResponseWriter, status int, body string, data
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// The page is entirely self-contained, so the strictest useful policy
-	// applies: nothing loads from anywhere, and the only form target is this
-	// node itself.
-	w.Header().Set("Content-Security-Policy",
-		"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+	// /upload is the only page that loads a script, so it is the only page
+	// with a looser policy — everything else stays on defaultCSP.
+	csp := defaultCSP
+	if body == "upload.html" {
+		csp = uploadCSP
+	}
+	w.Header().Set("Content-Security-Policy", csp)
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if noStore {
@@ -70,6 +90,18 @@ func (s *Server) renderPage(w http.ResponseWriter, status int, body string, data
 		// Too late for a status code — the header is already out.
 		log.Printf("api: rendering %q: %v", body, err)
 	}
+}
+
+// handleUploadJS serves static/upload.js (WP-D2) at GET /static/upload.js —
+// this node's one static asset, hence a dedicated route rather than a
+// generic file server. Cached for an hour: the file only changes on a
+// deploy, and it exists at all only because /upload's CSP (script-src
+// 'self', no inline scripts, no nonce — see uploadCSP) requires the script
+// to be same-origin rather than embedded in the page.
+func (s *Server) handleUploadJS(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = w.Write(uploadJS)
 }
 
 // indexPageData is the front page's data: catalogue stats read through the

@@ -63,9 +63,14 @@ recover it. Log in at `/login` with that token to reach `/me`: your upload
 count, total downloads, your own tracks, a "rotate token" button for if it
 ever leaks, and a link to `/upload` — a browser upload form for when the
 plugin isn't handy, going through the exact same checks as the API upload
-path below. `oshash`/`duration_ms`/optional `phash` still have to be typed
-in by hand for now, copied from Stash (scene → File info) — in-browser
-fingerprinting to fill them in automatically is planned but not yet built.
+path below. Picking the *video* file (a second, separate file picker —
+never the subtitle) computes `oshash` and probes duration right there in
+the browser and fills both fields in; the video itself is never uploaded
+or even read in full, just its first and last 64KiB. `phash` still has to
+be copied from Stash by hand (scene → File info) — Stash's phash isn't
+something a browser can derive from the file alone. Without JavaScript, or
+if the browser can't decode the video's container, all three fields are
+still plain text you fill in yourself, exactly as before.
 Operators can mint an account directly, which is also the only route on a
 node running with `MOANSUBS_OPEN_REGISTRATION=false`:
 

@@ -38,10 +38,20 @@ the new token once, and a link to `/upload`. `/upload` (session required,
 redirects to `/login` otherwise) is a multipart form for the same
 `POST /api/v1/subtitles` upload — same fields, same rate limit
 (`MOANSUBS_UPLOAD_RATE_PER_HOUR`), same validation, same dedup — for a
-person without the Stash plugin handy; `oshash`/`duration_ms`/`phash` are
-still plain text fields copied from Stash (scene → File info) rather than
-filled in automatically. All are self-contained — no assets, no
-JavaScript. The catalogue pages (`/browse`, `/search`, `/release/*`,
+person without the Stash plugin handy. `oshash`, `duration_ms` and the
+filename stem stay plain text fields, but `/upload` alone loads one script
+(`GET /static/upload.js`, same-origin, `script-src 'self'` on that page
+only) that fills them in when a second file picker is given the *video*
+file: `oshash` from the same algorithm as `internal/hash.ComputeOSHash`
+(size plus the little-endian uint64 sum of the first and last 64KiB, read
+with `File.slice(...).arrayBuffer()` — the video is never uploaded, never
+read past those two windows), duration from a detached
+`<video preload="metadata">` element's `loadedmetadata` event. A file too
+small to fingerprint, or a container the browser can't decode, leaves the
+field for the uploader to type — same as with JavaScript disabled, which
+leaves every field exactly as WP-D1 had it. `phash` is always a plain text
+field: it isn't derivable from the file alone. Every other page is
+self-contained — no assets, no JavaScript. The catalogue pages (`/browse`, `/search`, `/release/*`,
 `/u/*`) send `X-Robots-Tag: noindex, nofollow`, and `/robots.txt`
 disallows the whole site — this is a subtitle mirror, not something to
 optimize for search engines. Everything else 404s.
