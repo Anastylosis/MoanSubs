@@ -234,18 +234,21 @@ var ErrNoMatchEndpoint = errors.New("msclient: server has no /api/v1/match endpo
 type MatchRequest struct {
 	Stem       string   `json:"stem,omitempty"`
 	Title      string   `json:"title,omitempty"`
+	Date       string   `json:"date,omitempty"`
 	Studio     string   `json:"studio,omitempty"`
 	Performers []string `json:"performers,omitempty"`
 	DurationMs int64    `json:"duration_ms"`
 }
 
 // MatchCandidate is one scored possibility, mirroring the server's
-// matchCandidate. Title/Stem are the stored release's own name metadata,
-// echoed back so a caller can show what the score was computed against.
+// matchCandidate. Title/Stem/Date are the stored release's own name
+// metadata, echoed back so a caller can show what the score was computed
+// against — Date is null when the release has none.
 type MatchCandidate struct {
 	Release Release  `json:"release"`
 	Title   *string  `json:"title"`
 	Stem    *string  `json:"stem"`
+	Date    *string  `json:"date"`
 	Score   float64  `json:"score"`
 	NameSim float64  `json:"name_sim"`
 	DeltaMs int64    `json:"delta_ms"`

@@ -132,3 +132,30 @@ func TestNameCandidates_OfferOnly(t *testing.T) {
 		t.Errorf("hamming_distance = %d, want -1 (not applicable)", c.HammingDistance)
 	}
 }
+
+// TestNameCandidates_CarriesDate covers WP-A7: the server's per-candidate
+// date (matchCandidate.Date, the stored release's own date) must reach the
+// UI so a date mismatch reason can be shown next to the date it disagrees
+// with — and a candidate with no stored date must come through as "", not
+// a nil-pointer panic, since the JS side only ever checks a JSON string.
+func TestNameCandidates_CarriesDate(t *testing.T) {
+	date := "2023-05-25"
+	result := &msclient.MatchResult{
+		Verdict: "LIKELY",
+		Candidates: []msclient.MatchCandidate{
+			{Release: msclient.Release{ID: 1}, Date: &date, Reasons: []string{"date mismatch 2023-05-23 vs 2023-05-25"}},
+			{Release: msclient.Release{ID: 2}, Date: nil},
+		},
+	}
+
+	got := nameCandidates(result)
+	if len(got) != 2 {
+		t.Fatalf("got %d candidates, want 2", len(got))
+	}
+	if got[0].Date != date {
+		t.Errorf("candidate 0 date = %q, want %q", got[0].Date, date)
+	}
+	if got[1].Date != "" {
+		t.Errorf("candidate 1 date = %q, want empty (no stored date)", got[1].Date)
+	}
+}

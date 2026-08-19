@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -239,6 +241,76 @@ func TestMatch_OldServer404(t *testing.T) {
 	_, err := c.Match(context.Background(), MatchRequest{Stem: "x", DurationMs: 1000})
 	if !errors.Is(err, ErrNoMatchEndpoint) {
 		t.Fatalf("Match against a route-less server: err = %v, want ErrNoMatchEndpoint", err)
+	}
+}
+
+// TestMatch_SendsAndReceivesDate pins the WP-A7 wire contract with a fake
+// server rather than newTestServer's real internal/api: the date field
+// (matchRequest.Date / matchCandidate.Date) lands there in a separate
+// package and commit, so this only has to prove the client sends and
+// decodes it correctly, not that the server scores it.
+func TestMatch_SendsAndReceivesDate(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/match", func(w http.ResponseWriter, r *http.Request) {
+		var req MatchRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decoding request: %v", err)
+		}
+		if req.Date != "2023-05-23" {
+			t.Errorf("request date = %q, want 2023-05-23", req.Date)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"verdict": "LIKELY",
+			"candidates": []map[string]any{
+				{
+					"release":  map[string]any{"id": 1, "oshash": "1111111111111111", "duration_ms": 600_000},
+					"score":    90,
+					"name_sim": 0.9,
+					"delta_ms": 0,
+					"reasons":  []string{"date mismatch 2023-05-23 vs 2023-05-25"},
+					"date":     "2023-05-25",
+				},
+			},
+		})
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	c := New(ts.URL, "")
+	res, err := c.Match(context.Background(), MatchRequest{Stem: "x", Date: "2023-05-23", DurationMs: 600_000})
+	if err != nil {
+		t.Fatalf("Match: %v", err)
+	}
+	if len(res.Candidates) != 1 {
+		t.Fatalf("candidates = %+v, want 1", res.Candidates)
+	}
+	got := res.Candidates[0]
+	if got.Date == nil || *got.Date != "2023-05-25" {
+		t.Errorf("candidate date = %v, want 2023-05-25", got.Date)
+	}
+}
+
+// TestMatchRequest_OmitsEmptyDate covers a scene Stash reports no date
+// for: the request must carry no "date" field at all, the same
+// omitempty convention as the upload path (a missing field means "no
+// evidence", an empty string would mean something else).
+func TestMatchRequest_OmitsEmptyDate(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/match", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), `"date"`) {
+			t.Errorf("request body has a date field with no date set: %s", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"verdict": "UNMATCHED", "candidates": []any{}})
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	c := New(ts.URL, "")
+	if _, err := c.Match(context.Background(), MatchRequest{Stem: "x", DurationMs: 600_000}); err != nil {
+		t.Fatalf("Match: %v", err)
 	}
 }
 

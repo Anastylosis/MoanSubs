@@ -44,11 +44,14 @@ type Candidate struct {
 	// encode than the local file — sync may be off (PLAN.md data model:
 	// allowed but flagged).
 	CrossRelease bool `json:"cross_release"`
-	// Score and Reasons are populated only for ConfidenceName candidates —
-	// the server scorer's score and its human-readable justification, so
-	// the panel can show why a name-only candidate was offered.
+	// Score, Reasons and Date are populated only for ConfidenceName
+	// candidates — the server scorer's score, its human-readable
+	// justification, and the stored release's own date (empty when the
+	// release has none), so the panel can show why a name-only candidate
+	// was offered and whether its date agrees with the scene's.
 	Score   float64  `json:"score,omitempty"`
 	Reasons []string `json:"reasons,omitempty"`
+	Date    string   `json:"date,omitempty"`
 }
 
 // rankCandidates filters bucket results down to real matches, client-side.
@@ -125,7 +128,7 @@ func confidenceRank(c string) int {
 func nameCandidates(result *msclient.MatchResult) []Candidate {
 	out := make([]Candidate, 0, len(result.Candidates))
 	for _, c := range result.Candidates {
-		out = append(out, Candidate{
+		cand := Candidate{
 			Release:         c.Release,
 			Confidence:      ConfidenceName,
 			HammingDistance: -1, // not applicable — no fingerprint involved
@@ -135,7 +138,11 @@ func nameCandidates(result *msclient.MatchResult) []Candidate {
 			DurationDeltaMs: -c.DeltaMs,
 			Score:           c.Score,
 			Reasons:         c.Reasons,
-		})
+		}
+		if c.Date != nil {
+			cand.Date = *c.Date
+		}
+		out = append(out, cand)
 	}
 	return out
 }

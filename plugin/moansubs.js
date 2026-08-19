@@ -292,12 +292,24 @@
       const sync = c.cross_release
         ? ' <span class="badge badge-warning" title="Timed against a different release of this scene — sync may be off by a few seconds.">sync?</span>'
         : "";
+      // Date is only present on name-match candidates — the release's own
+      // stored date, so a mismatch with the scene's date is visible
+      // alongside the score-based reasons below.
+      const dated =
+        c.confidence === "name" && c.date
+          ? ' <span class="text-muted small">dated ' + esc(c.date) + "</span>"
+          : "";
       // Reasons are only present on name-match candidates — the server
       // scorer's justification, shown so a user can judge the offer
-      // instead of trusting a bare label.
+      // instead of trusting a bare label. A "date mismatch" reason gets a
+      // visible ⚠ marker since it's the one reason that argues against the
+      // candidate rather than for it.
+      const reasonsText = (c.reasons || [])
+        .map((r) => (r.indexOf("date mismatch") === 0 ? "⚠ " + r : r))
+        .join(", ");
       const reasons =
         c.reasons && c.reasons.length
-          ? '<div class="text-muted small">' + esc(c.reasons.join(", ")) + "</div>"
+          ? '<div class="text-muted small">' + esc(reasonsText) + "</div>"
           : "";
       const tracks = (c.release.tracks || [])
         .map((t) => {
@@ -324,7 +336,7 @@
         .join("");
       out.push(
         '<div class="card p-2 mb-2">' +
-          '<div class="mb-1">' + confidenceBadge(c.confidence) + sync +
+          '<div class="mb-1">' + confidenceBadge(c.confidence) + dated + sync +
           ' <span class="text-muted small">' + esc(meta) + "</span></div>" +
           reasons +
           tracks +

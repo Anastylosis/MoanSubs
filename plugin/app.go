@@ -278,6 +278,7 @@ func (a *app) nameMatchFallback(ctx context.Context, scene *stash.Scene, path st
 	result, err := a.ms.Match(ctx, msclient.MatchRequest{
 		Stem:       stem,
 		Title:      title,
+		Date:       scene.Date,
 		Studio:     scene.StudioName(),
 		Performers: scene.PerformerNames(),
 		DurationMs: durationMs,

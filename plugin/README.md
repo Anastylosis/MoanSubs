@@ -67,9 +67,12 @@ across different people's libraries is nearly never.
   scene's title/filename was pushed with name metadata, a **Name match**
   candidate may appear instead — a title/filename score from the server,
   always offer-only regardless of how confident the server is, shown with
-  its reasons so you can judge it yourself. Tracks show their language,
-  license, and an **AI** badge when the subtitle was machine-generated
-  (auto-detected server-side, not self-declared).
+  its reasons so you can judge it yourself. The scene's date is sent along
+  with a name-match query and, when the server has one on file for a
+  candidate, shown as "dated YYYY-MM-DD" with a disagreement flagged among
+  the reasons. Tracks show their language, license, and an **AI** badge
+  when the subtitle was machine-generated (auto-detected server-side, not
+  self-declared).
 - **Votes**: each track row shows its tallies — `↓<downloads> ▲<up>
   ▼<down>` — plus ▲/▼ buttons, shown whenever the server advertises the
   `votes` feature. ▲ casts an up-vote immediately; ▼ opens an inline

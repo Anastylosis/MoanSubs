@@ -75,6 +75,34 @@ func TestNameMatchFallback_CachesVersionAcrossCalls(t *testing.T) {
 	}
 }
 
+// TestNameMatchFallback_SendsSceneDate covers WP-A7: the scene's date
+// (Stash's release date) must reach the server as matchRequest.Date, the
+// only date evidence the fallback has beyond a filename regex the server
+// applies on its own side.
+func TestNameMatchFallback_SendsSceneDate(t *testing.T) {
+	var versionHits atomic.Int64
+	var gotReq msclient.MatchRequest
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/version", versionHandler(&versionHits, []string{"lookup", "match"}))
+	mux.HandleFunc("POST /api/v1/match", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotReq); err != nil {
+			t.Fatalf("decoding request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"verdict": "UNMATCHED", "candidates": []any{}})
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	a := &app{ms: msclient.New(ts.URL, "")}
+	scene := &stash.Scene{ID: "1", Title: "Some Scene", Date: "2023-05-23"}
+	a.nameMatchFallback(context.Background(), scene, "/videos/some-scene.mp4", 60_000)
+
+	if gotReq.Date != "2023-05-23" {
+		t.Errorf("request date = %q, want %q", gotReq.Date, "2023-05-23")
+	}
+}
+
 // TestProbe_ReportsServerVersionAndFeatures covers probe mode surfacing
 // what the server advertised.
 func TestProbe_ReportsServerVersionAndFeatures(t *testing.T) {
