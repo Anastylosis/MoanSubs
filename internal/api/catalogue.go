@@ -207,7 +207,7 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		data.NextAfter = releases[len(releases)-1].ID
 	}
 
-	s.renderPage(w, http.StatusOK, "browse.html", data, false)
+	s.renderPage(w, r, http.StatusOK, "browse.html", data, false)
 }
 
 // -- GET /search --------------------------------------------------------
@@ -238,12 +238,12 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if q == "" {
 		// Empty query: show the bare form. No DB hit and no rate-limit
 		// spend for a page load that hasn't asked for anything yet.
-		s.renderPage(w, http.StatusOK, "search.html", searchPageData{Title: "Search", Lang: lang}, false)
+		s.renderPage(w, r, http.StatusOK, "search.html", searchPageData{Title: "Search", Lang: lang}, false)
 		return
 	}
 
 	if !s.SearchLimiter.Allow(s.clientIP(r)) {
-		s.renderPage(w, http.StatusTooManyRequests, "search.html", searchPageData{
+		s.renderPage(w, r, http.StatusTooManyRequests, "search.html", searchPageData{
 			Title: "Search", Q: q, Lang: lang, Error: "too many searches — try again in a minute",
 		}, false)
 		return
@@ -280,7 +280,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.renderPage(w, http.StatusOK, "search.html", searchPageData{
+	s.renderPage(w, r, http.StatusOK, "search.html", searchPageData{
 		Title:     "Search",
 		Q:         q,
 		Lang:      lang,
@@ -362,7 +362,7 @@ func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id in
 		}
 	}
 
-	s.renderPage(w, status, "release.html", data, false)
+	s.renderPage(w, r, status, "release.html", data, false)
 }
 
 // applyViewerVoteState fills in rel's tracks' IsOwn/MyVote for a logged-in
@@ -518,7 +518,7 @@ func (s *Server) handleUploaderPage(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	s.renderPage(w, http.StatusOK, "u.html", uploaderPageData{
+	s.renderPage(w, r, http.StatusOK, "u.html", uploaderPageData{
 		Title:       account.Name,
 		Name:        account.Name,
 		UploadCount: len(rendered),

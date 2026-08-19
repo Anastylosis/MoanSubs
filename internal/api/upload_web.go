@@ -68,7 +68,7 @@ func (s *Server) handleUploadForm(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	s.renderPage(w, http.StatusOK, "upload.html", uploadPageData{
+	s.renderPage(w, r, http.StatusOK, "upload.html", uploadPageData{
 		Title: "Upload a subtitle",
 		Langs: uploadLangs,
 	}, false)
@@ -101,7 +101,7 @@ func (s *Server) handleUploadSubmit(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &maxErr) {
 			status, msg = http.StatusRequestEntityTooLarge, "upload is too large"
 		}
-		s.renderUploadForm(w, status, msg, uploadFormValues{})
+		s.renderUploadForm(w, r, status, msg, uploadFormValues{})
 		return
 	}
 	values := formValuesFromRequest(r)
@@ -114,16 +114,16 @@ func (s *Server) handleUploadSubmit(w http.ResponseWriter, r *http.Request) {
 		data, rerr := io.ReadAll(io.LimitReader(file, subtitle.MaxBytes+1))
 		if rerr != nil {
 			log.Printf("api: reading uploaded file: %v", rerr)
-			s.renderUploadForm(w, http.StatusInternalServerError, "internal error", values)
+			s.renderUploadForm(w, r, http.StatusInternalServerError, "internal error", values)
 			return
 		}
 		if int64(len(data)) > subtitle.MaxBytes {
-			s.renderUploadForm(w, http.StatusRequestEntityTooLarge, "subtitle file is too large", values)
+			s.renderUploadForm(w, r, http.StatusRequestEntityTooLarge, "subtitle file is too large", values)
 			return
 		}
 		body = string(data)
 	} else if !errors.Is(ferr, http.ErrMissingFile) {
-		s.renderUploadForm(w, http.StatusBadRequest, "could not read the uploaded file", values)
+		s.renderUploadForm(w, r, http.StatusBadRequest, "could not read the uploaded file", values)
 		return
 	}
 	// A missing file falls through with body == "": ingest's own "body is
@@ -133,13 +133,13 @@ func (s *Server) handleUploadSubmit(w http.ResponseWriter, r *http.Request) {
 
 	req, ferr := uploadRequestFromForm(r, body)
 	if ferr != nil {
-		s.renderUploadForm(w, ferr.status, ferr.msg, values)
+		s.renderUploadForm(w, r, ferr.status, ferr.msg, values)
 		return
 	}
 
 	resp, aerr := s.ingest(r.Context(), ares.Account, req)
 	if aerr != nil {
-		s.renderUploadForm(w, aerr.status, aerr.msg, values)
+		s.renderUploadForm(w, r, aerr.status, aerr.msg, values)
 		return
 	}
 
@@ -147,7 +147,7 @@ func (s *Server) handleUploadSubmit(w http.ResponseWriter, r *http.Request) {
 	if resp.Duplicate {
 		status = http.StatusOK
 	}
-	s.renderPage(w, status, "upload.html", uploadPageData{
+	s.renderPage(w, r, status, "upload.html", uploadPageData{
 		Title: "Upload complete",
 		Langs: uploadLangs,
 		Result: &uploadResultData{
@@ -164,8 +164,8 @@ func (s *Server) handleUploadSubmit(w http.ResponseWriter, r *http.Request) {
 // previously-submitted values (minus the file, which a browser never
 // refills into a file input) — the same shape a failed /register submission
 // re-shows its Name.
-func (s *Server) renderUploadForm(w http.ResponseWriter, status int, msg string, values uploadFormValues) {
-	s.renderPage(w, status, "upload.html", uploadPageData{
+func (s *Server) renderUploadForm(w http.ResponseWriter, r *http.Request, status int, msg string, values uploadFormValues) {
+	s.renderPage(w, r, status, "upload.html", uploadPageData{
 		Title:  "Upload a subtitle",
 		Langs:  uploadLangs,
 		Error:  msg,

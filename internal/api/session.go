@@ -47,8 +47,8 @@ type meData struct {
 }
 
 // handleLoginForm serves the login form.
-func (s *Server) handleLoginForm(w http.ResponseWriter, _ *http.Request) {
-	s.renderPage(w, http.StatusOK, "login.html", loginData{Title: "Log in"}, true)
+func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
+	s.renderPage(w, r, http.StatusOK, "login.html", loginData{Title: "Log in"}, true)
 }
 
 // handleLogin implements POST /login: verify the posted token exactly as
@@ -56,14 +56,14 @@ func (s *Server) handleLoginForm(w http.ResponseWriter, _ *http.Request) {
 // session cookie (WP-C1 spec).
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		s.renderPage(w, http.StatusBadRequest, "login.html", loginData{
+		s.renderPage(w, r, http.StatusBadRequest, "login.html", loginData{
 			Title: "Log in", Error: "could not read the submitted form",
 		}, true)
 		return
 	}
 
 	if !s.LoginLimiter.Allow(s.clientIP(r)) {
-		s.renderPage(w, http.StatusTooManyRequests, "login.html", loginData{
+		s.renderPage(w, r, http.StatusTooManyRequests, "login.html", loginData{
 			Title: "Log in", Error: "too many login attempts, try again later",
 		}, true)
 		return
@@ -75,7 +75,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, errAccountDisabled) {
 			status, msg = http.StatusForbidden, "account disabled"
 		}
-		s.renderPage(w, status, "login.html", loginData{Title: "Log in", Error: msg}, true)
+		s.renderPage(w, r, status, "login.html", loginData{Title: "Log in", Error: msg}, true)
 		return
 	}
 
@@ -86,7 +86,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	id, expiresAt, err := s.Store.CreateSession(r.Context(), account.ID, ttl)
 	if err != nil {
 		log.Printf("api: CreateSession: %v", err)
-		s.renderPage(w, http.StatusInternalServerError, "login.html", loginData{Title: "Log in", Error: "internal error"}, true)
+		s.renderPage(w, r, http.StatusInternalServerError, "login.html", loginData{Title: "Log in", Error: "internal error"}, true)
 		return
 	}
 
@@ -137,7 +137,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	s.renderPage(w, http.StatusOK, "me.html", data, true)
+	s.renderPage(w, r, http.StatusOK, "me.html", data, true)
 }
 
 // handleRotateToken implements POST /me/rotate-token: mints a fresh upload
@@ -167,7 +167,7 @@ func (s *Server) handleRotateToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	s.renderPage(w, http.StatusOK, "me.html", data, true)
+	s.renderPage(w, r, http.StatusOK, "me.html", data, true)
 }
 
 // meDataFor builds /me's page data, shared by handleMe and

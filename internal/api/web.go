@@ -44,6 +44,9 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	// words turns a closed-vocabulary key ("out_of_sync") into its label
 	// ("out of sync") — the keys are API contract, the labels are not.
 	"words": func(s string) string { return strings.ReplaceAll(s, "_", " ") },
+	// loggedIn is rebound per request in renderPage; this is the
+	// parse-time placeholder.
+	"loggedIn": func() bool { return false },
 }).ParseFS(templateFS, "templates/*.html"))
 
 // registerData is /register's data (both the form and its result). Name is
@@ -69,8 +72,17 @@ type registerData struct {
 // data is any per-page struct with a Title field — the layout depends on
 // nothing else. noStore is explicit rather than inferred from data because
 // the login page needs it without ever carrying a secret.
-func (s *Server) renderPage(w http.ResponseWriter, status int, body string, data any, noStore bool) {
+func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, body string, data any, noStore bool) {
 	tpl, err := pages.Clone()
+	if err == nil {
+		// The layout's one piece of session awareness: "Log in" vs
+		// "Account" in the nav. Cookie presence, not validity — a stale
+		// cookie just means /me bounces to /login, which is fine for a
+		// signpost and costs no query per page.
+		_, cerr := r.Cookie(sessionCookieName)
+		loggedIn := cerr == nil
+		tpl = tpl.Funcs(template.FuncMap{"loggedIn": func() bool { return loggedIn }})
+	}
 	if err == nil {
 		_, err = tpl.AddParseTree("body", pages.Lookup(body).Tree)
 	}
@@ -155,16 +167,16 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		data.Stats = &body
 	}
 
-	s.renderPage(w, http.StatusOK, "index.html", data, false)
+	s.renderPage(w, r, http.StatusOK, "index.html", data, false)
 }
 
 // handleRegisterForm serves the registration form (or the closed notice).
-func (s *Server) handleRegisterForm(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleRegisterForm(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
 	if !s.OpenRegistration {
 		status = http.StatusForbidden
 	}
-	s.renderPage(w, status, "register.html", registerData{Title: "Register", Open: s.OpenRegistration}, false)
+	s.renderPage(w, r, status, "register.html", registerData{Title: "Register", Open: s.OpenRegistration}, false)
 }
 
 // handleRegisterSubmit handles the form POST. Deliberately a form post
@@ -172,7 +184,7 @@ func (s *Server) handleRegisterForm(w http.ResponseWriter, _ *http.Request) {
 // comes back in a response body rather than anywhere it could be logged.
 func (s *Server) handleRegisterSubmit(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		s.renderPage(w, http.StatusBadRequest, "register.html", registerData{
+		s.renderPage(w, r, http.StatusBadRequest, "register.html", registerData{
 			Title: "Register", Open: s.OpenRegistration, Error: "could not read the submitted form",
 		}, false)
 		return
@@ -181,7 +193,7 @@ func (s *Server) handleRegisterSubmit(w http.ResponseWriter, r *http.Request) {
 
 	got, rerr := s.register(r.Context(), s.clientIP(r), name)
 	if rerr != nil {
-		s.renderPage(w, rerr.status, "register.html", registerData{
+		s.renderPage(w, r, rerr.status, "register.html", registerData{
 			Title: "Register", Open: s.OpenRegistration, Name: name, Error: rerr.msg,
 		}, false)
 		return
@@ -189,7 +201,7 @@ func (s *Server) handleRegisterSubmit(w http.ResponseWriter, r *http.Request) {
 
 	// The only registerData render that carries a secret: no-store here,
 	// nowhere else on this page.
-	s.renderPage(w, http.StatusOK, "register.html", registerData{
+	s.renderPage(w, r, http.StatusOK, "register.html", registerData{
 		Title: "Account created", Open: true, Name: got.Name, Token: got.Token,
 	}, true)
 }
