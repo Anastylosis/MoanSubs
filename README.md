@@ -87,10 +87,12 @@ note. The resulting score (shown as `up`/`down` everywhere a track
 appears) is the server's default within-release ordering: human before
 machine-generated, then by score, then by downloads, then id — so the
 best-regarded human subtitle for a release surfaces first without anyone
-having to curate it by hand. A track that collects three or more net
-downvotes, or even a single `spam` vote, shows up in
-`moansubs track list --flagged` for an operator to review; see
-[API.md](API.md) and [MANUAL.md](MANUAL.md) for the endpoints and CLI.
+having to curate it by hand. A logged-in account can cast the same vote
+straight from a track's `/release/{id}` page, no plugin or API client
+needed. A track that collects three or more net downvotes, or even a
+single `spam` vote, shows up in `moansubs track list --flagged` for an
+operator to review; see [API.md](API.md) and [MANUAL.md](MANUAL.md) for
+the endpoints and CLI.
 
 The server also carries a small public catalogue for browsers: `/browse`
 and `/search` list releases that have name metadata (title, studio,

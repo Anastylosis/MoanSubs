@@ -27,6 +27,20 @@ type catalogueTrack struct {
 	// release page next to each track.
 	Up   int
 	Down int
+	// IsOwn and MyVote are the release page's per-track viewer state
+	// (WP-C5): populated only by renderReleasePage, for a logged-in
+	// viewer, after buildCatalogueRelease returns — browse and search
+	// never show vote controls, so their callers leave both at their zero
+	// value and release.html is the only template that reads them.
+	IsOwn  bool
+	MyVote *ownVote
+}
+
+// ownVote is a logged-in viewer's own existing vote on one track, as shown
+// by the release page's "your vote: ▲/▼ (reason)" (WP-C5 spec).
+type ownVote struct {
+	Up     bool // true for +1, false for -1
+	Reason string
 }
 
 // catalogueRelease is one release as rendered on a catalogue page.
@@ -282,6 +296,13 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 type releasePageData struct {
 	Title   string
 	Release catalogueRelease
+	// LoggedIn gates the vote controls: logged out sees counts and a "log
+	// in to vote" link (WP-C5 spec), never the forms.
+	LoggedIn bool
+	// Error is a failed POST /release/{id}/vote's message, re-rendered at
+	// the top of this same page (WP-C5 spec) rather than a separate error
+	// page — empty on a plain GET.
+	Error string
 }
 
 // handleReleasePage implements GET /release/{id} (WP-C2): title/stem/
@@ -291,13 +312,22 @@ type releasePageData struct {
 // with no name metadata, or one with no visible track (store.
 // CatalogueRelease is the single gate for all four).
 func (s *Server) handleReleasePage(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
-
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
+	s.renderReleasePage(w, r, id, http.StatusOK, "")
+}
+
+// renderReleasePage builds and renders /release/{id}'s full page,
+// including a logged-in viewer's own per-track vote state. Shared between
+// the plain GET above and POST /release/{id}/vote's failure path (WP-C5
+// spec: "re-render the release page with the error message at the top"),
+// so a rejected vote lands back on the same page rather than a bare error
+// response.
+func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id int64, status int, formError string) {
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 
 	ctx := r.Context()
 	release, err := s.Store.CatalogueRelease(ctx, id)
@@ -319,10 +349,113 @@ func (s *Server) handleReleasePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rendered := buildCatalogueRelease(*release, tracksByRelease[release.ID])
-	s.renderPage(w, http.StatusOK, "release.html", releasePageData{
-		Title:   rendered.Title,
-		Release: rendered,
-	}, false)
+	data := releasePageData{Title: rendered.Title, Release: rendered, Error: formError}
+
+	if ares, err := authenticate(ctx, s.Store, r); err == nil {
+		data.LoggedIn = true
+		if err := s.applyViewerVoteState(ctx, &data.Release, ares.Account.ID); err != nil {
+			// The page still renders without "your vote" state — an
+			// aggregate query hiccup here shouldn't take down the whole
+			// release page, only degrade it to what a logged-out visitor
+			// already sees.
+			log.Printf("api: applyViewerVoteState: %v", err)
+		}
+	}
+
+	s.renderPage(w, status, "release.html", data, false)
+}
+
+// applyViewerVoteState fills in rel's tracks' IsOwn/MyVote for a logged-in
+// release-page viewer (WP-C5): own uploads via TracksByAccount (the same
+// query /me uses), and the viewer's own votes via
+// store.VotesByAccountForTracks, both one query regardless of how many
+// tracks the release has.
+func (s *Server) applyViewerVoteState(ctx context.Context, rel *catalogueRelease, accountID int64) error {
+	ownTracks, err := s.Store.TracksByAccount(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("TracksByAccount: %w", err)
+	}
+	own := make(map[int64]bool, len(ownTracks))
+	for _, t := range ownTracks {
+		own[t.TrackID] = true
+	}
+
+	ids := make([]int64, len(rel.Tracks))
+	for i, t := range rel.Tracks {
+		ids[i] = t.ID
+	}
+	votes, err := s.Store.VotesByAccountForTracks(ctx, accountID, ids)
+	if err != nil {
+		return fmt.Errorf("VotesByAccountForTracks: %w", err)
+	}
+
+	for i := range rel.Tracks {
+		t := &rel.Tracks[i]
+		t.IsOwn = own[t.ID]
+		if v, ok := votes[t.ID]; ok {
+			reason := ""
+			if v.Reason != nil {
+				reason = *v.Reason
+			}
+			t.MyVote = &ownVote{Up: v.Value == 1, Reason: reason}
+		}
+	}
+	return nil
+}
+
+// handleReleaseVote implements POST /release/{id}/vote (WP-C5): the
+// plain-forms front end onto castVote/retractVote, so a vote cast from the
+// release page runs exactly the same auth, Origin check, validation and
+// rules as PUT/DELETE /api/v1/subtitles/{id}/vote — never a second,
+// divergent implementation. track_id and value come from the submitted
+// form; value=0 means "retract" rather than a distinct button, since a
+// plain form has no DELETE method to send.
+func (s *Server) handleReleaseVote(w http.ResponseWriter, r *http.Request) {
+	releaseID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	ares, err := authenticate(r.Context(), s.Store, r)
+	if err != nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	if !checkOrigin(w, r) {
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		s.renderReleasePage(w, r, releaseID, http.StatusBadRequest, "could not read the submitted form")
+		return
+	}
+
+	trackID, err := strconv.ParseInt(r.PostFormValue("track_id"), 10, 64)
+	if err != nil {
+		s.renderReleasePage(w, r, releaseID, http.StatusBadRequest, "invalid track_id")
+		return
+	}
+	value, err := strconv.Atoi(r.PostFormValue("value"))
+	if err != nil {
+		s.renderReleasePage(w, r, releaseID, http.StatusBadRequest, "invalid value")
+		return
+	}
+
+	ctx := r.Context()
+	var aerr *apiError
+	if value == 0 {
+		aerr = s.retractVote(ctx, ares.Account, trackID)
+	} else {
+		req := voteRequest{Value: value, Reason: r.PostFormValue("reason"), Note: r.PostFormValue("note")}
+		_, aerr = s.castVote(ctx, ares.Account, trackID, req)
+	}
+	if aerr != nil {
+		s.renderReleasePage(w, r, releaseID, aerr.status, aerr.msg)
+		return
+	}
+
+	http.Redirect(w, r, "/release/"+strconv.FormatInt(releaseID, 10), http.StatusSeeOther)
 }
 
 // -- GET /u/{name} -------------------------------------------------------

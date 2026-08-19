@@ -30,8 +30,11 @@ Pages served for humans, none of them needing an account to read:
 `/register` (the registration form, showing the new token once, exactly
 like the API does), `/browse` and `/search` (the subtitle catalogue,
 keyset-paginated and optionally filtered by `lang`), `/release/{id}` (one
-release's tracks, each linking to its `format=srt` download), and
-`/u/{name}` (an uploader's credited contributions). `/login` and `/me`
+release's tracks, each linking to its `format=srt` download — a logged-in
+visitor also gets up/down-vote forms per track, `POST /release/{id}/vote`,
+the same validation and rules as the API's `PUT`/`DELETE
+/api/v1/subtitles/{id}/vote`), and `/u/{name}` (an uploader's credited
+contributions). `/login` and `/me`
 are the logged-in account's own view — upload count, total downloads,
 own tracks including withdrawn ones, a "rotate token" button that shows
 the new token once, and a link to `/upload`. `/upload` (session required,

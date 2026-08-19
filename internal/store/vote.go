@@ -146,6 +146,39 @@ func (s *Store) VotesForTrack(ctx context.Context, trackID int64) ([]Vote, error
 	return out, nil
 }
 
+// VotesByAccountForTracks returns accountID's own vote on each of
+// trackIDs that has one, keyed by track id — the release page's per-track
+// "your vote: ▲/▼" state (WP-C5), fetched in one query rather than one per
+// track on a page that can list several.
+func (s *Store) VotesByAccountForTracks(ctx context.Context, accountID int64, trackIDs []int64) (map[int64]Vote, error) {
+	out := make(map[int64]Vote, len(trackIDs))
+	if len(trackIDs) == 0 {
+		return out, nil
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT v.track_id, v.account_id, a.name, v.value, v.reason, v.note, v.created_at, v.updated_at
+		FROM track_votes v
+		JOIN accounts a ON a.id = v.account_id
+		WHERE v.account_id = $1 AND v.track_id = ANY($2)`, accountID, trackIDs)
+	if err != nil {
+		return nil, fmt.Errorf("store: VotesByAccountForTracks: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var v Vote
+		if err := rows.Scan(&v.TrackID, &v.AccountID, &v.Voter, &v.Value, &v.Reason, &v.Note, &v.CreatedAt, &v.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("store: VotesByAccountForTracks: scanning: %w", err)
+		}
+		out[v.TrackID] = v
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: VotesByAccountForTracks: %w", err)
+	}
+	return out, nil
+}
+
 // FlaggedTrack is one row of `moansubs track list --flagged`: enough to
 // triage without opening the track individually.
 type FlaggedTrack struct {

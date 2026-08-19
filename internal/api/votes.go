@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -105,43 +106,95 @@ func validateVoteRequest(req voteRequest) (value int16, reason, note *string, er
 // rules GET /api/v1/subtitles/{id} does: a nonexistent, withdrawn, or
 // under-a-withdrawn-release track is not something a vote budget should be
 // spent on, or something a stranger should learn anything about via the
-// public votes listing. Writes the error response itself; ok is false iff
-// it did.
-func (s *Server) trackForVote(w http.ResponseWriter, r *http.Request, id int64) (*store.SubtitleTrack, bool) {
-	ctx := r.Context()
+// public votes listing. Returns the apiError to report rather than writing
+// one directly, so it works from castVote/retractVote too (WP-C5), which
+// have no ResponseWriter of their own — a JSON handler renders it as a
+// body, the web vote form as a re-rendered page.
+func (s *Server) trackForVote(ctx context.Context, id int64) (*store.SubtitleTrack, *apiError) {
 	track, err := s.Store.GetSubtitleTrack(ctx, id)
 	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "no such subtitle track")
-		return nil, false
+		return nil, &apiError{http.StatusNotFound, "no such subtitle track"}
 	}
 	if err != nil {
 		log.Printf("api: GetSubtitleTrack (vote): %v", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return nil, false
+		return nil, &apiError{http.StatusInternalServerError, "internal error"}
 	}
 	if track.WithdrawnAt != nil {
-		writeError(w, http.StatusGone, "track withdrawn")
-		return nil, false
+		return nil, &apiError{http.StatusGone, "track withdrawn"}
 	}
 
 	release, err := s.Store.GetReleaseByID(ctx, track.ReleaseID)
 	if err != nil {
 		log.Printf("api: GetReleaseByID (vote): %v", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return nil, false
+		return nil, &apiError{http.StatusInternalServerError, "internal error"}
 	}
 	if release.WithdrawnAt != nil {
-		writeError(w, http.StatusGone, "release withdrawn")
-		return nil, false
+		return nil, &apiError{http.StatusGone, "release withdrawn"}
 	}
-	return track, true
+	return track, nil
+}
+
+// castVote is PUT /api/v1/subtitles/{id}/vote's whole core — rate limit,
+// validate, look up the track, refuse a self-vote, upsert — pulled out so
+// the web vote form's up/down path (WP-C5, POST /release/{id}/vote) runs
+// exactly the same rules rather than a second copy of them, the same shape
+// subtitles.go's ingest is shared between the JSON and web upload paths.
+func (s *Server) castVote(ctx context.Context, account *store.Account, trackID int64, req voteRequest) (*voteResponse, *apiError) {
+	if !s.VoteLimiter.Allow(strconv.FormatInt(account.ID, 10)) {
+		return nil, &apiError{http.StatusTooManyRequests, "vote rate limit exceeded"}
+	}
+
+	value, reason, note, err := validateVoteRequest(req)
+	if err != nil {
+		return nil, &apiError{http.StatusBadRequest, err.Error()}
+	}
+
+	track, aerr := s.trackForVote(ctx, trackID)
+	if aerr != nil {
+		return nil, aerr
+	}
+	// A mirror-imported track (uploader_id NULL) has no uploader to protect
+	// from itself — anyone may vote on it (WP-C3 spec).
+	if track.UploaderID != nil && *track.UploaderID == account.ID {
+		return nil, &apiError{http.StatusBadRequest, "cannot vote on your own upload"}
+	}
+
+	up, down, err := s.Store.UpsertVote(ctx, trackID, account.ID, value, reason, note)
+	if err != nil {
+		log.Printf("api: UpsertVote: %v", err)
+		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+	}
+
+	return &voteResponse{
+		Up: up, Down: down,
+		Mine: &myVoteView{Value: int(value), Reason: reason, Note: note},
+	}, nil
+}
+
+// retractVote is DELETE /api/v1/subtitles/{id}/vote's whole core, shared
+// with the web vote form's retract path (a submitted value=0, WP-C5) the
+// same way castVote is shared with the up/down path. Idempotent like the
+// DELETE it backs: no existing vote is not an error.
+func (s *Server) retractVote(ctx context.Context, account *store.Account, trackID int64) *apiError {
+	if !s.VoteLimiter.Allow(strconv.FormatInt(account.ID, 10)) {
+		return &apiError{http.StatusTooManyRequests, "vote rate limit exceeded"}
+	}
+
+	if _, aerr := s.trackForVote(ctx, trackID); aerr != nil {
+		return aerr
+	}
+
+	if _, _, err := s.Store.RetractVote(ctx, trackID, account.ID); err != nil {
+		log.Printf("api: RetractVote: %v", err)
+		return &apiError{http.StatusInternalServerError, "internal error"}
+	}
+	return nil
 }
 
 // handleVotePut implements PUT /api/v1/subtitles/{id}/vote (WP-C3): Bearer
 // or session auth (Origin-checked for a session, via
-// authenticateStateChange, shared with POST /api/v1/subtitles), rate
-// limited per account, upserting one vote and returning the track's
-// refreshed up/down counts.
+// authenticateStateChange, shared with POST /api/v1/subtitles), decode ->
+// castVote -> write the response.
 func (s *Server) handleVotePut(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -153,10 +206,6 @@ func (s *Server) handleVotePut(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !s.VoteLimiter.Allow(strconv.FormatInt(account.ID, 10)) {
-		writeError(w, http.StatusTooManyRequests, "vote rate limit exceeded")
-		return
-	}
 
 	var req voteRequest
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4*1024))
@@ -164,34 +213,13 @@ func (s *Server) handleVotePut(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
 		return
 	}
-	value, reason, note, err := validateVoteRequest(req)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
 
-	track, ok := s.trackForVote(w, r, id)
-	if !ok {
+	resp, aerr := s.castVote(r.Context(), account, id, req)
+	if aerr != nil {
+		writeError(w, aerr.status, aerr.msg)
 		return
 	}
-	// A mirror-imported track (uploader_id NULL) has no uploader to protect
-	// from itself — anyone may vote on it (WP-C3 spec).
-	if track.UploaderID != nil && *track.UploaderID == account.ID {
-		writeError(w, http.StatusBadRequest, "cannot vote on your own upload")
-		return
-	}
-
-	up, down, err := s.Store.UpsertVote(r.Context(), id, account.ID, value, reason, note)
-	if err != nil {
-		log.Printf("api: UpsertVote: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, voteResponse{
-		Up: up, Down: down,
-		Mine: &myVoteView{Value: int(value), Reason: reason, Note: note},
-	})
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // handleVoteDelete implements DELETE /api/v1/subtitles/{id}/vote (WP-C3):
@@ -208,18 +236,9 @@ func (s *Server) handleVoteDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !s.VoteLimiter.Allow(strconv.FormatInt(account.ID, 10)) {
-		writeError(w, http.StatusTooManyRequests, "vote rate limit exceeded")
-		return
-	}
 
-	if _, ok := s.trackForVote(w, r, id); !ok {
-		return
-	}
-
-	if _, _, err := s.Store.RetractVote(r.Context(), id, account.ID); err != nil {
-		log.Printf("api: RetractVote: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+	if aerr := s.retractVote(r.Context(), account, id); aerr != nil {
+		writeError(w, aerr.status, aerr.msg)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -258,8 +277,9 @@ func (s *Server) handleListVotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	track, ok := s.trackForVote(w, r, id)
-	if !ok {
+	track, aerr := s.trackForVote(r.Context(), id)
+	if aerr != nil {
+		writeError(w, aerr.status, aerr.msg)
 		return
 	}
 

@@ -133,6 +133,7 @@ func NewMux(s *Server) *http.ServeMux {
 	mux.HandleFunc("GET /browse", s.handleBrowse)
 	mux.HandleFunc("GET /search", s.handleSearch)
 	mux.HandleFunc("GET /release/{id}", s.handleReleasePage)
+	mux.HandleFunc("POST /release/{id}/vote", s.handleReleaseVote)
 	mux.HandleFunc("GET /u/{name}", s.handleUploaderPage)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /api/v1/version", s.handleVersion)
