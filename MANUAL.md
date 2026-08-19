@@ -17,12 +17,16 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_UPLOAD_RATE_PER_HOUR` | `30` | Upload budget per account token. The default assumes strangers on a public node; raise it (e.g. `10000`) when seeding your own node from a large library, then set it back. |
 | `MOANSUBS_OPEN_REGISTRATION` | `true` | Whether strangers may create their own upload accounts via `POST /api/v1/accounts`. Set `false` for an invite-only node, where accounts exist only through `moansubs account create`. |
 | `MOANSUBS_REGISTER_RATE_PER_HOUR` | `5` | Registration budget per IP. A person needs one account; anything much above this from a single address is name-minting, not signing up. |
-| `MOANSUBS_TRUSTED_PROXY_CIDRS` | *(unset)* | Comma-separated CIDRs (e.g. `172.28.0.0/24,10.0.0.0/8`). The rate limiters' `X-Forwarded-For` handling only trusts the header when the request's direct peer address falls inside one of these — see "Reverse proxies" below. Unset means none are trusted. |
+| `MOANSUBS_LOGIN_RATE_PER_HOUR` | `20` | Login budget per IP, same shape as `MOANSUBS_REGISTER_RATE_PER_HOUR` — the abuse case is a stranger guessing tokens against `POST /login`. |
+| `MOANSUBS_SESSION_TTL` | `720h` | How long a browser session (the `moansubs_session` cookie from `POST /login`) stays valid, parsed with Go's `time.ParseDuration`. |
+| `MOANSUBS_TRUSTED_PROXY_CIDRS` | *(unset)* | Comma-separated CIDRs (e.g. `172.28.0.0/24,10.0.0.0/8`). The rate limiters' `X-Forwarded-For` handling only trusts the header when the request's direct peer address falls inside one of these — see "Reverse proxies" below. It also gates whether `X-Forwarded-Proto: https` is believed for the session cookie's `Secure` flag. Unset means none are trusted. |
 
-Two pages are served for humans: `/` (what this node is) and `/register`
-(the registration form). They are self-contained — no assets, no
-JavaScript — and `/register` shows the new token once, exactly like the API
-does. Everything else 404s.
+Pages served for humans: `/` (what this node is), `/register` (the
+registration form), `/login`, and `/me` (the logged-in account's own
+summary — upload count, total downloads, own tracks including withdrawn
+ones, and a "rotate token" button). They are self-contained — no assets,
+no JavaScript — and `/register` and `/me`'s rotate-token action show a new
+token once, exactly like the API does. Everything else 404s.
 
 Startup applies any pending migrations, then serves. Shutdown is graceful
 on SIGINT/SIGTERM (in-flight requests get 10 seconds).
@@ -57,6 +61,9 @@ Revokes or restores an account's ability to upload; the name matches
 case-insensitively. Uploads from a disabled account get `403 account
 disabled`. Revocation is a flag, not a delete, so existing uploads keep
 their attribution and the name cannot be re-registered by somebody else.
+Disabling also deletes every browser session (`sessions` rows) belonging to
+the account, so a revoked account cannot stay logged in at `/me` until its
+cookie happens to expire; enabling does not recreate anything.
 
 ### `moansubs account rotate-token <name>`
 
@@ -64,8 +71,8 @@ Generates a new API token for an account. Use this when a token has leaked.
 The old token becomes invalid immediately — anything still presenting it
 gets `401` — and the new token is printed once and must be stored. Existing
 uploads keep their attribution and the account stays enabled. Rotation is
-"my token leaked", not "log me out": browser sessions, once the web UI has
-them, are unaffected.
+"my token leaked", not "log me out": browser sessions are unaffected — use
+`POST /logout` (or `/me`'s "log out" button) for that.
 
 ### `moansubs track resanitize [--dry-run] [--id N]`
 

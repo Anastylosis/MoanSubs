@@ -101,6 +101,12 @@ var accountListCmd = &cobra.Command{
 // setDisabled backs both `account disable` and `account enable`: revocation
 // is a flag flip, not a delete, so the account's uploads keep their
 // attribution and the name cannot be re-registered by someone else.
+//
+// Disabling also kills any live browser sessions (WP-C1,
+// DeleteSessionsForAccount) — a revoked account should not still be logged
+// in somewhere until its session cookie happens to expire. Enabling
+// deliberately does not recreate anything: `enable` undoes the upload
+// block, not "log the account back in everywhere".
 func setDisabled(disabled bool, verb string) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		s, ctx, cancel, err := openStore(cmd, "account "+verb)
@@ -115,6 +121,15 @@ func setDisabled(disabled bool, verb string) func(*cobra.Command, []string) erro
 				return fmt.Errorf("moansubs account %s: no account named %q", verb, args[0])
 			}
 			return fmt.Errorf("moansubs account %s: %w", verb, err)
+		}
+		if disabled {
+			account, err := s.GetAccountByName(ctx, args[0])
+			if err != nil {
+				return fmt.Errorf("moansubs account %s: %w", verb, err)
+			}
+			if err := s.DeleteSessionsForAccount(ctx, account.ID); err != nil {
+				return fmt.Errorf("moansubs account %s: deleting sessions: %w", verb, err)
+			}
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Account %q %sd.\n", args[0], verb)
 		return nil
@@ -201,6 +216,11 @@ var accountPurgeCmd = &cobra.Command{
 		}
 		if err := s.SetAccountDisabled(ctx, args[0], true); err != nil {
 			return fmt.Errorf("moansubs account purge: disabling account: %w", err)
+		}
+		// Same reasoning as `account disable` (WP-C1): a purged account
+		// should not still be logged in anywhere.
+		if err := s.DeleteSessionsForAccount(ctx, account.ID); err != nil {
+			return fmt.Errorf("moansubs account purge: deleting sessions: %w", err)
 		}
 
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Withdrew %d track(s) uploaded by %q and disabled the account.\n", n, args[0])

@@ -1,4 +1,4 @@
-{{define "body"}}
+{{define "register.html"}}
 {{if .Token}}
   <h2>Account created</h2>
   <p>Your upload token for <strong>{{.Name}}</strong>:</p>
@@ -17,6 +17,10 @@
   {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
   <p>No email, no password. You pick a name and get a token — the token
   <em>is</em> the account.</p>
+  <p class="hint">Your name is public — it appears on every track you
+  upload and in mirrors of this node. If your account is later purged,
+  old dumps that already carried your name elsewhere still do; a purge
+  only stops new ones from picking it up.</p>
   <form method="post" action="/register">
     <label for="name">Name</label>
     <input type="text" id="name" name="name" value="{{.Name}}" autofocus

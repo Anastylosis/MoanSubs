@@ -1,0 +1,39 @@
+{{define "me.html"}}
+<h2>{{.Name}}</h2>
+
+{{if .RotatedToken}}
+<div class="warn"><strong>New upload token — copy it now.</strong> Only a
+hash of this token is stored, so it cannot be shown again. Your old token
+stopped working immediately.</div>
+<code class="token">{{.RotatedToken}}</code>
+{{end}}
+
+<p>{{.UploadCount}} upload(s), {{.TotalDownloads}} download(s) across all of them.</p>
+
+<form method="post" action="/me/rotate-token">
+  <button type="submit">Rotate token</button>
+</form>
+<p class="hint">Use this if your token leaked. The old one stops working immediately.</p>
+
+<form method="post" action="/logout">
+  <button type="submit">Log out</button>
+</form>
+
+{{if .Tracks}}
+<h3>Your uploads</h3>
+<table>
+<tr><th>Lang</th><th>Release</th><th>Created</th><th>Downloads</th><th>Status</th></tr>
+{{range .Tracks}}
+<tr>
+  <td>{{.Lang}}</td>
+  <td>{{if .ReleaseTitle}}{{.ReleaseTitle}}{{else if .ReleaseStem}}{{.ReleaseStem}}{{else}}#{{.ReleaseID}}{{end}}</td>
+  <td>{{.CreatedAt.Format "2006-01-02"}}</td>
+  <td>{{.Downloads}}</td>
+  <td>{{if .Withdrawn}}withdrawn{{else}}active{{end}}</td>
+</tr>
+{{end}}
+</table>
+{{else}}
+<p>No uploads yet.</p>
+{{end}}
+{{end}}

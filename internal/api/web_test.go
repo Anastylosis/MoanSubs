@@ -76,6 +76,17 @@ func TestIndex_UnknownPathIsStillA404(t *testing.T) {
 	}
 }
 
+// The front page links to /login (WP-C1) regardless of registration state
+// — logging in never depends on whether the node accepts new accounts.
+func TestIndex_LinksToLogin(t *testing.T) {
+	ts, _ := webServer(t, true)
+
+	_, body := getBody(t, ts.URL+"/")
+	if !strings.Contains(body, `href="/login"`) {
+		t.Error("front page does not link to /login")
+	}
+}
+
 func TestRegisterPage_ShowsAForm(t *testing.T) {
 	ts, _ := webServer(t, true)
 

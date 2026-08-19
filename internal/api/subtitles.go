@@ -62,14 +62,15 @@ func optString(s string) *string {
 	return &s
 }
 
-// handleUploadSubtitle implements POST /api/v1/subtitles (PLAN.md "Upload
-// safety" + "Data model"). Flow: authenticate -> rate limit -> validate ->
-// parse/re-render/sanitize -> detect provenance on the raw bytes -> runtime
-// sanity check -> get-or-create the release -> store the track.
-func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	account, err := authenticate(ctx, s.Store, r)
+// authenticateUpload is handleUploadSubtitle's auth step, split out to
+// keep that function under gocyclo's limit: it runs authenticate, and for
+// a session-cookie-authenticated caller only, the Origin check (WP-C1) —
+// a Bearer token is never sent by a browser following a cross-site form or
+// script, so it has nothing to defend against and is exempt, same as
+// every other Bearer-authenticated API route. Writes the error response
+// itself; ok is false iff it did.
+func (s *Server) authenticateUpload(w http.ResponseWriter, r *http.Request) (account *store.Account, ok bool) {
+	ares, err := authenticate(r.Context(), s.Store, r)
 	if err != nil {
 		switch {
 		case errors.Is(err, errAccountDisabled):
@@ -80,6 +81,24 @@ func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 			log.Printf("api: authenticate: %v", err)
 			writeError(w, http.StatusInternalServerError, "internal error")
 		}
+		return nil, false
+	}
+	if ares.ViaCookie && !sameOrigin(r) {
+		writeError(w, http.StatusForbidden, "cross-origin request refused")
+		return nil, false
+	}
+	return ares.Account, true
+}
+
+// handleUploadSubtitle implements POST /api/v1/subtitles (PLAN.md "Upload
+// safety" + "Data model"). Flow: authenticate -> rate limit -> validate ->
+// parse/re-render/sanitize -> detect provenance on the raw bytes -> runtime
+// sanity check -> get-or-create the release -> store the track.
+func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	account, ok := s.authenticateUpload(w, r)
+	if !ok {
 		return
 	}
 

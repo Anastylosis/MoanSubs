@@ -28,12 +28,41 @@ name — no email, no password — so the token *is* the account, and an
 operator's remedy for abuse is `account disable`, not a password reset.
 Run with `MOANSUBS_OPEN_REGISTRATION=false` for an invite-only node.
 
-**Web pages.** The node serves two HTML pages (`/` and `/register`), built
-with `html/template` so anything reflected back into the form is escaped.
-They carry a strict `Content-Security-Policy` (nothing loads from anywhere,
-forms post only to this node), `Referrer-Policy: no-referrer`, and
-`Cache-Control: no-store` on the page that displays a token. There is no
-login, no session and no cookie anywhere in moansubs.
+**Web pages.** The node serves HTML pages (`/`, `/register`, `/login`,
+`/me`), built with `html/template` so anything reflected back into the
+form is escaped. They carry a strict `Content-Security-Policy` (nothing
+loads from anywhere, forms post only to this node), `Referrer-Policy:
+no-referrer`, and `Cache-Control: no-store` on any page that displays a
+token or reflects an account's own data.
+
+**Sessions.** `POST /login` verifies a token exactly like Bearer auth
+(same hash-and-compare, same disabled check) and issues a session cookie
+(`moansubs_session`): `HttpOnly` (no JavaScript can read it), `SameSite=Lax`,
+`Path=/`, and `Secure` whenever the connection is TLS or a *trusted* proxy
+(`MOANSUBS_TRUSTED_PROXY_CIDRS`) reports `X-Forwarded-Proto: https` — an
+untrusted peer's claim is ignored, the same trust boundary the rate
+limiters use for `X-Forwarded-For`. The cookie value is a 256-bit
+`crypto/rand` id, stored in the `sessions` table **as-is, not hashed**
+(unlike account tokens): it is already random and non-guessable, so a
+hash would buy nothing but a lookup cost — but it does mean a database
+read exposes live sessions, the same way it exposes token hashes. Default
+lifetime is `MOANSUBS_SESSION_TTL` (720h); expired rows are swept on the
+next login.
+
+CSRF is stopped by an Origin/Referer check, not a token: every
+state-changing route that accepts the session cookie (`POST /logout`,
+`POST /me/rotate-token`, and `POST /api/v1/subtitles` when it authenticated
+via cookie rather than Bearer) requires the request's `Origin` (or
+`Referer` as fallback) to name this node's own host, or it's refused with
+`403`. A Bearer-authenticated call is exempt — a script sending its own
+token is not the cross-site-browser case this defends against.
+
+Revocation is immediate and three-pronged: `POST /logout` deletes the
+caller's own session; `moansubs account disable <name>` and
+`moansubs account purge <name>` delete *every* session belonging to that
+account, so a revoked account cannot stay logged in anywhere until a
+cookie happens to expire on its own. `moansubs account enable` does not
+recreate anything — a re-enabled account logs in fresh.
 
 **Anonymous surface.** Lookups and downloads need no auth and are
 rate-limited per IP. Bucketed lookups are designed so clients don't send

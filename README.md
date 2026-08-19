@@ -59,8 +59,10 @@ curl -X POST https://your-node/api/v1/accounts \
 ```
 
 Either way the token is shown once — no email, no password, and no way to
-recover it. Operators can mint one directly, which is also the only route
-on a node running with `MOANSUBS_OPEN_REGISTRATION=false`:
+recover it. Log in at `/login` with that token to reach `/me`: your upload
+count, total downloads, your own tracks, and a "rotate token" button for
+if it ever leaks. Operators can mint an account directly, which is also
+the only route on a node running with `MOANSUBS_OPEN_REGISTRATION=false`:
 
 ```sh
 docker compose exec moansubs moansubs account create <name>

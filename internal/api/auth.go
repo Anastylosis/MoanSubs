@@ -16,9 +16,62 @@ var (
 	errAccountDisabled = errors.New("account disabled")
 )
 
-// authenticate extracts a Bearer token from r's Authorization header,
-// hashes it, and looks up the matching account (PLAN.md "Upload safety":
-// upload requires an account token).
+// authResult is what authenticate found: the account, and whether it came
+// from the session cookie rather than a Bearer token. State-changing
+// handlers that accept both (WP-C1: POST /api/v1/subtitles) need ViaCookie
+// to decide whether the Origin check applies — a Bearer caller is never a
+// browser with a cookie jar, so the check is meaningless for it.
+type authResult struct {
+	Account   *store.Account
+	ViaCookie bool
+}
+
+// authenticate identifies the caller behind r: a Bearer token if present,
+// else the moansubs_session cookie (PLAN.md "Upload safety" + WP-C1).
+// Bearer takes precedence when both are sent — a cookie is additive, not a
+// way to override an explicit token.
+//
+// An invalid, expired, or absent cookie with no Bearer header is reported
+// exactly like a missing token (errMissingToken), never a distinct error:
+// a stale cookie must stay invisible to an anonymous route that never calls
+// authenticate, and a route that does call it should not be able to tell
+// "no cookie" from "bad cookie" — both mean "not logged in" (WP-C1 spec).
+func authenticate(ctx context.Context, s *store.Store, r *http.Request) (*authResult, error) {
+	auth := r.Header.Get("Authorization")
+	const prefix = "Bearer "
+	if strings.HasPrefix(auth, prefix) {
+		token := strings.TrimPrefix(auth, prefix)
+		if token == "" {
+			return nil, errMissingToken
+		}
+		account, err := lookupByToken(ctx, s, token)
+		if err != nil {
+			return nil, err
+		}
+		return &authResult{Account: account}, nil
+	}
+
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil {
+		return nil, errMissingToken
+	}
+	account, err := s.GetSessionAccount(ctx, cookie.Value)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, errMissingToken
+	}
+	if err != nil {
+		return nil, err
+	}
+	if account.Disabled {
+		return nil, errAccountDisabled
+	}
+	return &authResult{Account: account, ViaCookie: true}, nil
+}
+
+// lookupByToken is the Bearer half of authenticate, and POST /login's own
+// verification — WP-C1 spec: login "verifies exactly as Bearer auth does".
+// Sharing this rather than duplicating the hash/compare/disabled logic
+// keeps the two from ever drifting on what a valid token is.
 //
 // The plaintext token is only ever used to compute its SHA-256 hash; that
 // hash is what gets looked up (via store.GetAccountByTokenHash's indexed
@@ -27,17 +80,7 @@ var (
 // practice, but makes the comparison itself immune to any future change in
 // GetAccountByTokenHash's implementation (e.g. a prefix-based lookup) that
 // might otherwise reintroduce a timing side-channel.
-func authenticate(ctx context.Context, s *store.Store, r *http.Request) (*store.Account, error) {
-	auth := r.Header.Get("Authorization")
-	const prefix = "Bearer "
-	if !strings.HasPrefix(auth, prefix) {
-		return nil, errMissingToken
-	}
-	token := strings.TrimPrefix(auth, prefix)
-	if token == "" {
-		return nil, errMissingToken
-	}
-
+func lookupByToken(ctx context.Context, s *store.Store, token string) (*store.Account, error) {
 	tokenHash := store.HashToken(token)
 	account, err := s.GetAccountByTokenHash(ctx, tokenHash)
 	if errors.Is(err, store.ErrNotFound) {

@@ -1,4 +1,4 @@
-{{define "body"}}
+{{define "index.html"}}
 <p>This node stores subtitles keyed to video fingerprints, so a subtitle
 made for one copy of a scene can be found from a different encode of it.</p>
 
@@ -9,4 +9,6 @@ for you from the scene page, and needs nothing but this node's address.</p>
 <p>Uploading needs an account.
 {{if .Open}}<a href="/register">Register one here</a>.{{else}}This node is
 invite-only; ask the operator.{{end}}</p>
+
+<p>Already have an account? <a href="/login">Log in</a>.</p>
 {{end}}

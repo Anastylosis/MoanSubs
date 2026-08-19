@@ -19,10 +19,17 @@ var templateFS embed.FS
 // failing here is better than discovering it on someone's first visit.
 var pages = template.Must(template.ParseFS(templateFS, "templates/*.html"))
 
-// pageData is every field the templates can reference. Name is echoed back
-// into the form after a failed submission; html/template escapes it, which
-// is the reason this is a template rather than string concatenation.
-type pageData struct {
+// indexData is GET /'s data.
+type indexData struct {
+	Title string
+	Open  bool
+}
+
+// registerData is /register's data (both the form and its result). Name is
+// echoed back into the form after a failed submission; html/template
+// escapes it, which is the reason this is a template rather than string
+// concatenation.
+type registerData struct {
 	Title string
 	Open  bool
 	Name  string
@@ -31,8 +38,17 @@ type pageData struct {
 }
 
 // renderPage writes one page, composing the named body template into the
-// shared layout.
-func (s *Server) renderPage(w http.ResponseWriter, status int, body string, data pageData) {
+// shared layout. body is the template's filename ("index.html"): each body
+// file defines a template named after itself rather than a shared "body",
+// because every file defining the same name would collide in the one
+// parsed namespace and the last one parsed would silently render for every
+// page. AddParseTree re-homes the chosen file under the "body" name the
+// layout expects.
+//
+// data is any per-page struct with a Title field — the layout depends on
+// nothing else. noStore is explicit rather than inferred from data because
+// the login page needs it without ever carrying a secret.
+func (s *Server) renderPage(w http.ResponseWriter, status int, body string, data any, noStore bool) {
 	tpl, err := pages.Clone()
 	if err == nil {
 		_, err = tpl.AddParseTree("body", pages.Lookup(body).Tree)
@@ -51,7 +67,7 @@ func (s *Server) renderPage(w http.ResponseWriter, status int, body string, data
 		"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if data.Token != "" {
+	if noStore {
 		w.Header().Set("Cache-Control", "no-store")
 	}
 	w.WriteHeader(status)
@@ -71,7 +87,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.renderPage(w, http.StatusOK, "index.html", pageData{Title: "Home", Open: s.OpenRegistration})
+	s.renderPage(w, http.StatusOK, "index.html", indexData{Title: "Home", Open: s.OpenRegistration}, false)
 }
 
 // handleRegisterForm serves the registration form (or the closed notice).
@@ -80,7 +96,7 @@ func (s *Server) handleRegisterForm(w http.ResponseWriter, _ *http.Request) {
 	if !s.OpenRegistration {
 		status = http.StatusForbidden
 	}
-	s.renderPage(w, status, "register.html", pageData{Title: "Register", Open: s.OpenRegistration})
+	s.renderPage(w, status, "register.html", registerData{Title: "Register", Open: s.OpenRegistration}, false)
 }
 
 // handleRegisterSubmit handles the form POST. Deliberately a form post
@@ -88,22 +104,24 @@ func (s *Server) handleRegisterForm(w http.ResponseWriter, _ *http.Request) {
 // comes back in a response body rather than anywhere it could be logged.
 func (s *Server) handleRegisterSubmit(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		s.renderPage(w, http.StatusBadRequest, "register.html", pageData{
+		s.renderPage(w, http.StatusBadRequest, "register.html", registerData{
 			Title: "Register", Open: s.OpenRegistration, Error: "could not read the submitted form",
-		})
+		}, false)
 		return
 	}
 	name := r.PostFormValue("name")
 
 	got, rerr := s.register(r.Context(), s.clientIP(r), name)
 	if rerr != nil {
-		s.renderPage(w, rerr.status, "register.html", pageData{
+		s.renderPage(w, rerr.status, "register.html", registerData{
 			Title: "Register", Open: s.OpenRegistration, Name: name, Error: rerr.msg,
-		})
+		}, false)
 		return
 	}
 
-	s.renderPage(w, http.StatusOK, "register.html", pageData{
+	// The only registerData render that carries a secret: no-store here,
+	// nowhere else on this page.
+	s.renderPage(w, http.StatusOK, "register.html", registerData{
 		Title: "Account created", Open: true, Name: got.Name, Token: got.Token,
-	})
+	}, true)
 }

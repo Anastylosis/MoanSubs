@@ -8,6 +8,14 @@ Uploads require `Authorization: Bearer <account token>` (rate-limited per
 token, default 30/hour — see MANUAL.md). Get a token by registering
 (below) or, on an invite-only node, from the operator.
 
+State-changing routes also accept the `moansubs_session` cookie a browser
+gets from `POST /login`, as an alternative to `Authorization: Bearer`.
+Bearer wins when both are sent. A cookie-authenticated call additionally
+requires `Origin` (or `Referer`) to name this node's own host — a Bearer
+call is exempt, since a script sending its own token is not the
+cross-site-browser case that check defends against. See SECURITY.md for
+the full session/CSRF model.
+
 ## The bucket contract
 
 Client and server MUST agree bit-for-bit on these definitions; they are
@@ -230,6 +238,27 @@ like somebody else's. Uniqueness is case-insensitive.
 
 Nothing else is collected: no email, no password. The token *is* the
 account, and a lost one means registering again under a new name.
+
+### `POST /login`
+
+Form-encoded (`token=<account token>`), not `/api/v1` — this is the
+browser login path, not a JSON endpoint. Verifies exactly like Bearer
+auth (same hash-and-compare, same disabled check) and, on success, sets
+the `moansubs_session` cookie and redirects (`303`) to `/me`.
+
+- `303` → `/me` — logged in; cookie set.
+- `401` — invalid token.
+- `403` — the account is disabled.
+- `429` — over the per-IP login budget (`MOANSUBS_LOGIN_RATE_PER_HOUR`,
+  default 20).
+
+### `POST /logout`
+
+Session-cookie only, no Bearer equivalent. Requires the Origin/Referer
+check (see above). Deletes the session row (if any) and clears the
+cookie regardless, then redirects (`303`) to `/`.
+
+- `403` — Origin/Referer does not match this node's host.
 
 ### `POST /api/v1/subtitles` *(auth required)*
 

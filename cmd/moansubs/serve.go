@@ -70,6 +70,24 @@ var serveCmd = &cobra.Command{
 			registerRate = n
 		}
 
+		loginRate := api.LoginRateLimitPerHour
+		if v := os.Getenv("MOANSUBS_LOGIN_RATE_PER_HOUR"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_LOGIN_RATE_PER_HOUR %q", v)
+			}
+			loginRate = n
+		}
+
+		sessionTTL := api.DefaultSessionTTL
+		if v := os.Getenv("MOANSUBS_SESSION_TTL"); v != "" {
+			d, err := time.ParseDuration(v)
+			if err != nil || d <= 0 {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_SESSION_TTL %q", v)
+			}
+			sessionTTL = d
+		}
+
 		// Unset trusts no proxy, so clientIP ignores X-Forwarded-For and
 		// always uses RemoteAddr -- see internal/api/ratelimit.go.
 		var trustedProxyCIDRs []*net.IPNet
@@ -105,6 +123,8 @@ var serveCmd = &cobra.Command{
 		apiSrv := api.NewServer(s)
 		apiSrv.Limiter = api.NewRateLimiter(uploadRate)
 		apiSrv.RegisterLimiter = api.NewRateLimiter(registerRate)
+		apiSrv.LoginLimiter = api.NewRateLimiter(loginRate)
+		apiSrv.SessionTTL = sessionTTL
 		apiSrv.OpenRegistration = openRegistration
 		// version is main.go's ldflags-stamped build var ("dev" when built
 		// without them); GET /api/v1/version reports whatever this process

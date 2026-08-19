@@ -1,0 +1,12 @@
+{{define "login.html"}}
+<h2>Log in</h2>
+{{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+<p>Log in with your upload token to manage your account and see what
+you've uploaded.</p>
+<form method="post" action="/login">
+  <label for="token">Upload token</label>
+  <input type="password" id="token" name="token" autofocus required autocomplete="off">
+  <button type="submit">Log in</button>
+</form>
+<p class="hint">No account? <a href="/register">Register one</a>.</p>
+{{end}}

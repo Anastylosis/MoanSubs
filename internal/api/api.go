@@ -9,6 +9,7 @@ package api
 import (
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/Anastylosis/MoanSubs/internal/store"
 )
@@ -41,6 +42,14 @@ type Server struct {
 	LookupLimiter *RateLimiter
 	// RegisterLimiter is the per-IP limiter for self-registration.
 	RegisterLimiter *RateLimiter
+	// LoginLimiter is the per-IP limiter for POST /login (WP-C1), the same
+	// shape as RegisterLimiter.
+	LoginLimiter *RateLimiter
+	// SessionTTL is how long a session cookie (WP-C1, MOANSUBS_SESSION_TTL)
+	// stays valid after login. Zero is treated as DefaultSessionTTL by the
+	// login handler, so a Server built without setting this explicitly
+	// (e.g. in tests) still works.
+	SessionTTL time.Duration
 	// OpenRegistration allows strangers to create their own upload accounts
 	// (POST /api/v1/accounts). A node that leaves this off is invite-only:
 	// the operator mints accounts with `moansubs account create`.
@@ -69,6 +78,8 @@ func NewServer(s *store.Store) *Server {
 		Limiter:         NewRateLimiter(UploadRateLimitPerHour),
 		LookupLimiter:   NewRateLimiterPerMinute(LookupRateLimitPerMinute),
 		RegisterLimiter: NewRateLimiter(RegisterRateLimitPerHour),
+		LoginLimiter:    NewRateLimiter(LoginRateLimitPerHour),
+		SessionTTL:      DefaultSessionTTL,
 		// Open by default: a subtitle database with no contributors is a
 		// mirror. Operators running a private node close it with
 		// MOANSUBS_OPEN_REGISTRATION=false.
@@ -84,6 +95,11 @@ func NewMux(s *Server) *http.ServeMux {
 	mux.HandleFunc("GET /", s.handleIndex)
 	mux.HandleFunc("GET /register", s.handleRegisterForm)
 	mux.HandleFunc("POST /register", s.handleRegisterSubmit)
+	mux.HandleFunc("GET /login", s.handleLoginForm)
+	mux.HandleFunc("POST /login", s.handleLogin)
+	mux.HandleFunc("POST /logout", s.handleLogout)
+	mux.HandleFunc("GET /me", s.handleMe)
+	mux.HandleFunc("POST /me/rotate-token", s.handleRotateToken)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /api/v1/version", s.handleVersion)
 	mux.HandleFunc("GET /api/v1/stats", s.handleStats)
