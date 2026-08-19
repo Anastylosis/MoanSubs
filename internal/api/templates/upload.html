@@ -43,7 +43,7 @@
       <div>
         <label for="phash">phash <span class="hint" style="display:inline;font-weight:400">optional</span></label>
         <input type="text" id="phash" name="phash" class="hash" value="{{.Values.PHash}}" autocomplete="off">
-        <p class="hint" id="phash-hint">Stash's own value (File info → Phash) is exact; the one computed here is approximate but close enough to match. A pasted value is never overwritten.</p>
+        <p class="hint" id="phash-hint">Computed here from the video the same way Stash computes it, but with your browser's decoder standing in for ffmpeg's — so it usually lands a few bits (up to 4 of 64) away from the value Stash shows. Matching tolerates exactly that distance, so it still finds the scene. If you have Stash's own value (scene → File info → Phash), paste it: it is exact, and a pasted value is never overwritten.</p>
       </div>
       <div>
         <label for="md5">md5 <span class="hint" style="display:inline;font-weight:400">optional</span></label>

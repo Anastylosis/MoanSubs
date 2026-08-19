@@ -102,8 +102,12 @@ grayscale, DCT-II, top-left 8×8, median threshold), ported bit-for-bit
 for the sprite→hash half (the Go test `TestPhashJS_MatchesGoimagehash`
 proves it against goimagehash's own output) while the browser's decoder,
 seek and scaler stand in for ffmpeg's for the file→sprite half, so the
-result is labelled approximate: expect a few bits of Hamming distance from
-Stash's stored value, which the server's distance-based matching absorbs.
+result is labelled approximate: expect up to ~4 bits of Hamming distance
+from Stash's stored value (measured on real files), which matching
+absorbs — `POST /api/v1/lookup/exact` defaults to `max_distance` 4 (the
+bar Stash's duplicate finder uses) and the MIH bucket lookup still hits
+when ≤4 bits differ, since at least one of the five blocks is then
+unchanged. The upload page says the same in its own words.
 A pasted value is never overwritten. A file too small to fingerprint, or a
 container the browser can't decode, leaves the field for the uploader to
 type — same as with JavaScript disabled, which leaves every field plain.

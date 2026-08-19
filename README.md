@@ -77,10 +77,14 @@ the browser and fills both fields in; the video itself is never uploaded
 or even read in full — oshash needs just its first and last 64KiB. If the
 browser can decode the video it also computes an *approximate* `phash`
 the way Stash does (25 frames, a 5×5 sprite, the same perceptual hash):
-the browser's decoder and scaler stand in for ffmpeg's, so a few bits may
-differ from what Stash stores, which the distance-based matching absorbs;
-Stash's own value (scene → File info) is still better when you have it and
-overrides the computed one if you paste it. Without JavaScript, or if the
+the browser's decoder and scaler stand in for ffmpeg's, so the result
+typically differs from Stash's stored value by a few bits — up to 4 of
+64 in testing. That is inside what matching tolerates (the server's exact
+lookup defaults to a Hamming distance of 4, the same bar Stash's own
+duplicate finder uses, and the bucketed lookup still finds a hash that
+is ≤4 bits off), so a web upload is found from Stash. Stash's own value
+(scene → File info → Phash) is exact and is still better when you have it;
+pasting it overrides the computed one. Without JavaScript, or if the
 browser can't decode the container, all the fields are plain text you fill
 in yourself, exactly as before.
 Operators can mint an account directly, which is also the only route on a
