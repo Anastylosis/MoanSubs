@@ -142,6 +142,140 @@
     return '<span class="badge badge-warning">Possible match</span>';
   }
 
+  // -- Votes -----------------------------------------------------------
+
+  // The five closed-vocabulary down-vote reasons (API.md "Votes"), with
+  // readable labels for the <select>.
+  const VOTE_REASONS = [
+    ["out_of_sync", "Out of sync"],
+    ["wrong_content", "Wrong content"],
+    ["wrong_language", "Wrong language"],
+    ["low_quality", "Low quality"],
+    ["spam", "Spam"],
+  ];
+
+  function setCounts(row) {
+    row.querySelector(".moansubs-counts").textContent =
+      "↓" + row.dataset.downloads + " ▲" + row.dataset.up + " ▼" + row.dataset.down;
+  }
+
+  function clearRowError(row) {
+    const err = row.querySelector(".moansubs-vote-error");
+    if (err) err.remove();
+  }
+
+  function showRowError(row, message) {
+    let err = row.querySelector(".moansubs-vote-error");
+    if (!err) {
+      err = document.createElement("div");
+      err.className = "moansubs-vote-error alert alert-danger py-1 px-2 mt-1 w-100";
+      row.appendChild(err);
+    }
+    err.textContent = message;
+  }
+
+  // castVote runs the "vote" mode and updates the row's counts in place;
+  // value 0 retracts. Errors surface next to the row, the same place
+  // download() puts its own note.
+  async function castVote(row, value, reason, note) {
+    clearRowError(row);
+    try {
+      const res = await runOp({
+        mode: "vote",
+        track_id: row.dataset.track,
+        value: value,
+        reason: reason || "",
+        note: note || "",
+      });
+      row.dataset.up = res.up;
+      row.dataset.down = res.down;
+      setCounts(row);
+    } catch (err) {
+      showRowError(row, err.message);
+    }
+  }
+
+  // buildDownvoteForm creates the inline reason-picker: a <select> of the
+  // five reasons, an optional note, and confirm/cancel buttons — built
+  // with createElement throughout, since the note field carries a value
+  // the user typed, not just server data run through esc().
+  function buildDownvoteForm(row) {
+    const form = document.createElement("div");
+    form.className = "moansubs-vote-form d-flex align-items-center mt-1 w-100";
+
+    const select = document.createElement("select");
+    select.className = "form-control form-control-sm mr-1";
+    select.style.maxWidth = "10rem";
+    VOTE_REASONS.forEach(([value, label]) => {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = label;
+      select.appendChild(opt);
+    });
+
+    const note = document.createElement("input");
+    note.type = "text";
+    note.maxLength = 300;
+    note.placeholder = "Optional note";
+    note.className = "form-control form-control-sm mr-1";
+
+    const confirm = document.createElement("button");
+    confirm.className = "btn btn-sm btn-outline-danger";
+    confirm.textContent = "Confirm";
+    confirm.onclick = () => {
+      form.remove();
+      castVote(row, -1, select.value, note.value);
+    };
+
+    const cancel = document.createElement("button");
+    cancel.className = "btn btn-sm btn-outline-secondary ml-1";
+    cancel.textContent = "Cancel";
+    cancel.onclick = () => form.remove();
+
+    form.appendChild(select);
+    form.appendChild(note);
+    form.appendChild(confirm);
+    form.appendChild(cancel);
+    return form;
+  }
+
+  // decorateTrackRows fills in each track row's counts and, when the
+  // server advertises "votes", its two vote buttons — hidden entirely
+  // when the feature isn't there, disabled with a tooltip when it is but
+  // no upload token is configured (WP-C4 spec).
+  function decorateTrackRows(panel, votesEnabled, hasToken) {
+    panel.querySelectorAll(".moansubs-track-row").forEach((row) => {
+      setCounts(row);
+      if (!votesEnabled) return;
+
+      const controls = row.querySelector(".moansubs-vote-controls");
+      const up = document.createElement("button");
+      up.className = "btn btn-sm btn-outline-success mr-1";
+      up.textContent = "▲";
+      const down = document.createElement("button");
+      down.className = "btn btn-sm btn-outline-danger";
+      down.textContent = "▼";
+
+      if (!hasToken) {
+        up.disabled = true;
+        down.disabled = true;
+        up.title = down.title = "set an upload token to vote";
+      } else {
+        up.onclick = () => castVote(row, 1, "", "");
+        down.onclick = () => {
+          const existing = row.querySelector(".moansubs-vote-form");
+          if (existing) {
+            existing.remove();
+            return;
+          }
+          row.appendChild(buildDownvoteForm(row));
+        };
+      }
+      controls.appendChild(up);
+      controls.appendChild(down);
+    });
+  }
+
   function renderCandidates(panel, sceneId, result) {
     const out = [];
     if (result.note) {
@@ -170,10 +304,18 @@
           const ai = t.generated
             ? ' <span class="badge badge-secondary" title="Machine-generated — quality varies more than human-written subtitles.">AI</span>'
             : "";
+          // Counts and vote buttons are filled in by decorateTrackRows
+          // once this markup is in the DOM — via createElement, not
+          // string concatenation, since the note field takes free-text
+          // user input that must never round-trip through innerHTML.
           return (
-            '<div class="d-flex align-items-center mb-1">' +
+            '<div class="d-flex align-items-center flex-wrap mb-1 moansubs-track-row" data-track="' +
+            esc(t.id) + '" data-up="' + esc(t.up || 0) + '" data-down="' + esc(t.down || 0) +
+            '" data-downloads="' + esc(t.downloads || 0) + '">' +
             "<span>" + esc(t.lang) + "</span>" + ai +
             ' <span class="text-muted small ml-2">' + esc(t.license) + "</span>" +
+            ' <span class="moansubs-counts text-muted small ml-2"></span>' +
+            ' <span class="moansubs-vote-controls ml-2"></span>' +
             ' <button class="btn btn-sm btn-primary ml-auto moansubs-dl" data-track="' +
             esc(t.id) + '">Download</button>' +
             "</div>"
@@ -190,6 +332,8 @@
       );
     });
     panel.querySelector(".moansubs-body").innerHTML = out.join("");
+    const votesEnabled = !!(result.features && result.features.indexOf("votes") !== -1);
+    decorateTrackRows(panel, votesEnabled, !!result.has_token);
   }
 
   async function download(panel, sceneId, trackId, overwrite) {

@@ -102,9 +102,9 @@ func (r *runner) Stop(_ struct{}, output *bool) error {
 func dispatch(ctx context.Context, input PluginInput) (any, error) {
 	mode, _ := input.Args["mode"].(string)
 	switch mode {
-	case "probe", "search", "download", "badge", "push", "push_all":
+	case "probe", "search", "download", "vote", "badge", "push", "push_all":
 	default:
-		return nil, fmt.Errorf("unknown mode %q (want probe, search, download, badge, push or push_all)", mode)
+		return nil, fmt.Errorf("unknown mode %q (want probe, search, download, vote, badge, push or push_all)", mode)
 	}
 
 	app, err := newApp(ctx, input)
@@ -117,6 +117,13 @@ func dispatch(ctx context.Context, input PluginInput) (any, error) {
 		return app.probe(ctx)
 	case "search":
 		return app.search(ctx, argString(input.Args, "scene_id"))
+	case "vote":
+		return app.vote(ctx, voteArgs{
+			TrackID: argString(input.Args, "track_id"),
+			Value:   argString(input.Args, "value"),
+			Reason:  argString(input.Args, "reason"),
+			Note:    argString(input.Args, "note"),
+		})
 	case "badge":
 		return app.badge(ctx, argStrings(input.Args, "scene_ids"))
 	case "push":

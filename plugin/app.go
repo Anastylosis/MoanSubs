@@ -177,6 +177,16 @@ type searchResult struct {
 	Candidates []Candidate `json:"candidates"`
 	// Note carries user-facing caveats (e.g. missing phash guidance).
 	Note string `json:"note,omitempty"`
+	// Features is the server's advertised feature list (GET
+	// /api/v1/version), carried on every search result so the UI half
+	// learns whether "votes" is supported without a separate probe round
+	// trip per search (WP-C4). Best-effort: left nil if the version fetch
+	// fails, same degrade as probe.
+	Features []string `json:"features,omitempty"`
+	// HasToken reports whether an upload token is configured — the vote
+	// buttons need one, and unlike Features this isn't something the
+	// server can tell the client.
+	HasToken bool `json:"has_token"`
 }
 
 func (a *app) search(ctx context.Context, sceneID string) (any, error) {
@@ -208,6 +218,12 @@ func (a *app) search(ctx context.Context, sceneID string) (any, error) {
 		SceneID:    sceneID,
 		PHashKnown: ph != nil,
 		Candidates: rankCandidates(releases, oh, ph, durationMs, fromExact),
+		HasToken:   a.ms.Token != "",
+	}
+	if v, verr := a.serverVersion(ctx); verr == nil {
+		res.Features = v.Features
+	} else {
+		logInfo("search scene %s: could not read server version for feature flags: %v", sceneID, verr)
 	}
 	if ph == nil {
 		// Across strangers' libraries oshash almost never matches; phash is
@@ -354,4 +370,55 @@ func (a *app) download(ctx context.Context, args downloadArgs) (any, error) {
 
 	logProgress(1)
 	return res, nil
+}
+
+// voteArgs is the "vote" mode's raw args (WP-C4). TrackID and Value arrive
+// as strings — argString already normalizes a Stash-passed JSON number to
+// its decimal string form, same trick download's TrackID relies on.
+type voteArgs struct {
+	TrackID string
+	Value   string
+	Reason  string
+	Note    string
+}
+
+// voteResult is the "vote" mode's output: the track's refreshed up/down
+// tallies. A retract (Value 0) has no counts of its own to report — the
+// server's DELETE answers 204 with nothing — so vote fetches them
+// separately; either way the UI half only ever sees this one shape.
+type voteResult struct {
+	Up   int `json:"up"`
+	Down int `json:"down"`
+}
+
+func (a *app) vote(ctx context.Context, args voteArgs) (any, error) {
+	if a.ms.Token == "" {
+		return nil, fmt.Errorf("set an upload token in the plugin settings to vote")
+	}
+
+	var trackID int64
+	if _, err := fmt.Sscan(args.TrackID, &trackID); err != nil || trackID <= 0 {
+		return nil, fmt.Errorf("vote: bad track_id %q", args.TrackID)
+	}
+	var value int
+	if _, err := fmt.Sscan(args.Value, &value); err != nil || (value != 1 && value != -1 && value != 0) {
+		return nil, fmt.Errorf("vote: bad value %q (want 1, -1 or 0)", args.Value)
+	}
+
+	if value == 0 {
+		if err := a.ms.Unvote(ctx, trackID); err != nil {
+			return nil, err
+		}
+		up, down, err := a.ms.VoteCounts(ctx, trackID)
+		if err != nil {
+			return nil, err
+		}
+		return voteResult{Up: up, Down: down}, nil
+	}
+
+	up, down, err := a.ms.Vote(ctx, trackID, value, args.Reason, args.Note)
+	if err != nil {
+		return nil, err
+	}
+	return voteResult{Up: up, Down: down}, nil
 }

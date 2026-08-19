@@ -32,7 +32,7 @@ subtitle reaches another person's library even though their files differ.
   auto-applied.
 - **Plugin**: adds a "Subtitles" panel to every scene page, "CC" badges to
   scene cards, and library-wide push tasks. Downloads are anonymous;
-  uploads need an account token.
+  uploads and voting need an account token.
 - **Lookups are bucketed by default**: the client sends short hash prefixes
   and 13-bit hash blocks, receives candidate buckets, and does all real
   matching locally. See [API.md](API.md) for the exact contract and its

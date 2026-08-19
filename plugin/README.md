@@ -70,6 +70,16 @@ across different people's libraries is nearly never.
   its reasons so you can judge it yourself. Tracks show their language,
   license, and an **AI** badge when the subtitle was machine-generated
   (auto-detected server-side, not self-declared).
+- **Votes**: each track row shows its tallies — `↓<downloads> ▲<up>
+  ▼<down>` — plus ▲/▼ buttons, shown whenever the server advertises the
+  `votes` feature. ▲ casts an up-vote immediately; ▼ opens an inline
+  reason picker (one of the five closed-vocabulary reasons, plus an
+  optional 300-character note) with a confirm button. Re-voting on the
+  same track replaces your previous vote rather than adding a second one.
+  Needs an upload token (Settings above); without one the buttons are
+  disabled with a "set an upload token to vote" tooltip. You cannot vote
+  on your own upload — a mirror-imported track (no uploader) has no such
+  restriction.
 - **Download** writes `<video stem>.<lang>.srt` next to the scene file and
   triggers a metadata scan when needed. Regional language tags lose their
   region in the filename (`pt-BR` → `.pt.srt`) because Stash only attaches

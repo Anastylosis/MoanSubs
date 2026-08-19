@@ -49,6 +49,13 @@ type TrackSummary struct {
 	License       string `json:"license"`
 	HasProvenance bool   `json:"has_provenance"`
 	CreatedAt     string `json:"created_at"`
+	// Downloads/Up/Down are migration 0006/0008's counters (WP-A2/WP-C3),
+	// present on every track summary in lookup responses — this is what
+	// lets the plugin panel show a candidate's tallies without a second
+	// round trip per track.
+	Downloads int64 `json:"downloads"`
+	Up        int   `json:"up"`
+	Down      int   `json:"down"`
 }
 
 // Release mirrors the lookup API's per-release shape.
@@ -73,6 +80,14 @@ type Track struct {
 	License    string          `json:"license"`
 	Source     *string         `json:"source"`
 	Provenance json.RawMessage `json:"provenance"`
+	// Downloads/Up/Down mirror TrackSummary's counters — API.md documents
+	// them on this response too, but note that fetching this endpoint
+	// itself increments Downloads by one (API.md "Every successful (200)
+	// call here increments the track's downloads counter"), so this is a
+	// snapshot from *before* the current call, not after.
+	Downloads int64 `json:"downloads"`
+	Up        int   `json:"up"`
+	Down      int   `json:"down"`
 }
 
 type batchRequest struct {
@@ -358,6 +373,93 @@ func (c *Client) GetTrack(ctx context.Context, id int64) (*Track, error) {
 	return &t, nil
 }
 
+// voteRequest is PUT /api/v1/subtitles/{id}/vote's JSON body (API.md
+// "Votes"). Reason/note are omitempty so an up-vote — which never carries
+// a reason — sends a clean body instead of empty strings.
+type voteRequest struct {
+	Value  int    `json:"value"`
+	Reason string `json:"reason,omitempty"`
+	Note   string `json:"note,omitempty"`
+}
+
+// voteResponse is the PUT's 200 body. "mine" (the caller's own vote as
+// recorded) isn't needed here — the plugin UI only ever redraws the two
+// counts, never echoes the vote back to the voter.
+type voteResponse struct {
+	Up   int `json:"up"`
+	Down int `json:"down"`
+}
+
+// Vote casts, or replaces, the caller's vote on trackID: value is 1 or -1;
+// reason (one of the five WP-C3 reasons) is required by the server on a
+// down-vote and ignored on an up-vote. Requires the upload token, same
+// Bearer auth as Upload. The server's rejection text (e.g. "cannot vote on
+// your own upload") comes back verbatim rather than wrapped, since the
+// plugin panel shows it straight to the user next to the track row.
+func (c *Client) Vote(ctx context.Context, trackID int64, value int, reason, note string) (up, down int, err error) {
+	if c.Token == "" {
+		return 0, 0, fmt.Errorf("msclient: no upload token configured — create an account on the server and paste its token into the plugin settings")
+	}
+	b, err := json.Marshal(voteRequest{Value: value, Reason: reason, Note: note})
+	if err != nil {
+		return 0, 0, fmt.Errorf("msclient: marshalling vote: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPut,
+		fmt.Sprintf("%s/api/v1/subtitles/%d/vote", c.BaseURL, trackID), bytes.NewReader(b))
+	if err != nil {
+		return 0, 0, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+	var res voteResponse
+	if err := c.doJSONError(httpReq, &res); err != nil {
+		return 0, 0, err
+	}
+	return res.Up, res.Down, nil
+}
+
+// Unvote retracts the caller's own vote on trackID, if any — idempotent,
+// same as the server's DELETE. Requires the upload token.
+func (c *Client) Unvote(ctx context.Context, trackID int64) error {
+	if c.Token == "" {
+		return fmt.Errorf("msclient: no upload token configured — create an account on the server and paste its token into the plugin settings")
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete,
+		fmt.Sprintf("%s/api/v1/subtitles/%d/vote", c.BaseURL, trackID), nil)
+	if err != nil {
+		return err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+	return c.doJSONError(httpReq, nil)
+}
+
+// voteCountsResponse decodes only the top-level counters out of GET
+// /api/v1/subtitles/{id}/votes — the reasons/notes detail isn't needed
+// here.
+type voteCountsResponse struct {
+	Up   int `json:"up"`
+	Down int `json:"down"`
+}
+
+// VoteCounts fetches a track's current up/down tally via the public GET
+// /api/v1/subtitles/{id}/votes endpoint. It exists because DELETE
+// .../vote answers 204 with no body: after Unvote, this is how a caller
+// learns the post-retract counts without going through GetTrack, whose GET
+// /api/v1/subtitles/{id} would silently bump the download counter as a
+// side effect (API.md).
+func (c *Client) VoteCounts(ctx context.Context, trackID int64) (up, down int, err error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		fmt.Sprintf("%s/api/v1/subtitles/%d/votes", c.BaseURL, trackID), nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	var res voteCountsResponse
+	if err := c.do(httpReq, &res); err != nil {
+		return 0, 0, err
+	}
+	return res.Up, res.Down, nil
+}
+
 func (c *Client) post(ctx context.Context, path string, body, out any) error {
 	b, err := json.Marshal(body)
 	if err != nil {
@@ -384,6 +486,19 @@ func (e *httpStatusError) Error() string { return e.err.Error() }
 func (e *httpStatusError) Unwrap() error { return e.err }
 
 func (c *Client) do(req *http.Request, out any) error {
+	return c.doRaw(req, out, false)
+}
+
+// doJSONError is like do, but on a non-2xx response prefers the server's
+// {"error":"..."} JSON field as the returned error's message verbatim,
+// instead of do's generic HTTP-status-and-body dump — used by the vote
+// endpoints, whose rejection text (e.g. "cannot vote on your own upload")
+// is meant to reach the user as-is.
+func (c *Client) doJSONError(req *http.Request, out any) error {
+	return c.doRaw(req, out, true)
+}
+
+func (c *Client) doRaw(req *http.Request, out any, preferJSONError bool) error {
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return fmt.Errorf("msclient: %w", err)
@@ -391,6 +506,14 @@ func (c *Client) do(req *http.Request, out any) error {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if preferJSONError {
+			var body struct {
+				Error string `json:"error"`
+			}
+			if json.Unmarshal(b, &body) == nil && body.Error != "" {
+				return &httpStatusError{status: resp.StatusCode, err: errors.New(body.Error)}
+			}
+		}
 		return &httpStatusError{
 			status: resp.StatusCode,
 			err:    fmt.Errorf("msclient: %s: HTTP %d: %s", req.URL.Path, resp.StatusCode, strings.TrimSpace(string(b))),

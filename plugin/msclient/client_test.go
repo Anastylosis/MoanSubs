@@ -270,6 +270,123 @@ func TestVersion_ParsesVersionAndFeatures(t *testing.T) {
 // predates GET /api/v1/version entirely must degrade to an empty feature
 // list, not an error — that's what lets a caller treat "no version
 // endpoint" and "version endpoint says nothing" identically.
+// newAccountToken registers a token-authenticated account directly in the
+// store, mirroring TestUpload_IdempotentOnRepush's approach — the vote
+// tests need two distinct accounts (an uploader and a voter), which a
+// full self-service registration round trip would only complicate.
+func newAccountToken(t *testing.T, s *store.Store, name string) string {
+	t.Helper()
+	token := name + "-token"
+	sum := sha256.Sum256([]byte(token))
+	if _, err := s.Pool().Exec(context.Background(),
+		`INSERT INTO accounts (name, token_hash) VALUES ($1, $2)`,
+		name, hex.EncodeToString(sum[:])); err != nil {
+		t.Fatalf("creating account %s: %v", name, err)
+	}
+	return token
+}
+
+func TestVote_CastChangeAndRetract(t *testing.T) {
+	c, s := newTestServer(t)
+	ctx := context.Background()
+
+	uploader := New(c.BaseURL, newAccountToken(t, s, "vote-uploader"))
+	up, err := uploader.Upload(ctx, UploadRequest{
+		OSHash: "d0d0d0d0d0d0d0d0", DurationMs: 60_000, Lang: "en",
+		Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n",
+	})
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+
+	voter := New(c.BaseURL, newAccountToken(t, s, "vote-voter"))
+
+	gotUp, gotDown, err := voter.Vote(ctx, up.TrackID, 1, "", "")
+	if err != nil {
+		t.Fatalf("Vote(up): %v", err)
+	}
+	if gotUp != 1 || gotDown != 0 {
+		t.Errorf("up/down = %d/%d, want 1/0", gotUp, gotDown)
+	}
+
+	// Re-voting replaces the caller's previous vote rather than adding a
+	// second one (API.md "Votes").
+	gotUp, gotDown, err = voter.Vote(ctx, up.TrackID, -1, "out_of_sync", "drifts a bit")
+	if err != nil {
+		t.Fatalf("Vote(down): %v", err)
+	}
+	if gotUp != 0 || gotDown != 1 {
+		t.Errorf("up/down after re-vote = %d/%d, want 0/1", gotUp, gotDown)
+	}
+
+	if err := voter.Unvote(ctx, up.TrackID); err != nil {
+		t.Fatalf("Unvote: %v", err)
+	}
+	gotUp, gotDown, err = voter.VoteCounts(ctx, up.TrackID)
+	if err != nil {
+		t.Fatalf("VoteCounts: %v", err)
+	}
+	if gotUp != 0 || gotDown != 0 {
+		t.Errorf("up/down after retract = %d/%d, want 0/0", gotUp, gotDown)
+	}
+
+	// A second retract in a row is idempotent, not an error (API.md).
+	if err := voter.Unvote(ctx, up.TrackID); err != nil {
+		t.Fatalf("second Unvote: %v", err)
+	}
+}
+
+func TestVote_DownvoteRequiresReason(t *testing.T) {
+	c, s := newTestServer(t)
+	ctx := context.Background()
+
+	uploader := New(c.BaseURL, newAccountToken(t, s, "vote-uploader-2"))
+	up, err := uploader.Upload(ctx, UploadRequest{
+		OSHash: "d1d1d1d1d1d1d1d1", DurationMs: 60_000, Lang: "en",
+		Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n",
+	})
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+
+	voter := New(c.BaseURL, newAccountToken(t, s, "vote-voter-2"))
+	if _, _, err := voter.Vote(ctx, up.TrackID, -1, "", ""); err == nil {
+		t.Fatal("Vote(down, no reason) succeeded, want an error")
+	}
+}
+
+// TestVote_CannotVoteOwnUpload covers the server's self-vote refusal
+// reaching the client's error verbatim, unwrapped — the plugin UI shows
+// it straight to the user.
+func TestVote_CannotVoteOwnUpload(t *testing.T) {
+	c, s := newTestServer(t)
+	ctx := context.Background()
+
+	client := New(c.BaseURL, newAccountToken(t, s, "vote-self"))
+	up, err := client.Upload(ctx, UploadRequest{
+		OSHash: "d2d2d2d2d2d2d2d2", DurationMs: 60_000, Lang: "en",
+		Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n",
+	})
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+
+	_, _, err = client.Vote(ctx, up.TrackID, 1, "", "")
+	if err == nil || !strings.Contains(err.Error(), "cannot vote on your own upload") {
+		t.Fatalf("Vote on own upload: err = %v, want the server's message verbatim", err)
+	}
+}
+
+func TestVote_RequiresToken(t *testing.T) {
+	c := New("http://localhost:1", "")
+	if _, _, err := c.Vote(context.Background(), 1, 1, "", ""); err == nil || !strings.Contains(err.Error(), "token") {
+		t.Fatalf("Vote without a token: err = %v, want clear no-token error", err)
+	}
+	if err := c.Unvote(context.Background(), 1); err == nil || !strings.Contains(err.Error(), "token") {
+		t.Fatalf("Unvote without a token: err = %v, want clear no-token error", err)
+	}
+}
+
 func TestVersion_OldServer404(t *testing.T) {
 	ts := httptest.NewServer(http.NewServeMux())
 	defer ts.Close()
