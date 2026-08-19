@@ -46,6 +46,10 @@ func newTestServer(t *testing.T) (*httptest.Server, *store.Store, string) {
 	t.Helper()
 	st := openTestStore(t)
 	srv := NewServer(st)
+	// WP-C10's age gate defaults on in production but is irrelevant to the
+	// vast majority of tests built on this helper (web_test.go's webServer
+	// carries the same reasoning).
+	srv.AgeGate = false
 	ts := httptest.NewServer(NewMux(srv))
 	t.Cleanup(ts.Close)
 

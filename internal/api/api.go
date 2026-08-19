@@ -144,6 +144,13 @@ type Server struct {
 	// /api/v1/subtitles/{id}/vote (WP-C3), also exported for the same
 	// reason as Limiter.
 	VoteLimiter *RateLimiter
+	// AgeGate governs whether s.page-wrapped human routes show the 18+
+	// click-through interstitial (WP-C10, MOANSUBS_AGE_GATE) before a
+	// visitor without the moansubs_age cookie reaches them. On by default
+	// (adult-focused site); tests that don't care about the gate turn it
+	// off so the ~100 existing page tests don't all need to carry the
+	// cookie.
+	AgeGate bool
 }
 
 // NewServer builds a Server backed by s, with its own rate limiters.
@@ -166,6 +173,10 @@ func NewServer(s *store.Store) *Server {
 		Version:           "dev",
 		Stats:             NewStats(s),
 		VoteLimiter:       NewRateLimiter(VoteRateLimitPerHour),
+		// Production default: an adult-focused node gates every human page
+		// behind the click-through until an operator opts out
+		// (MOANSUBS_AGE_GATE=false).
+		AgeGate: true,
 	}
 }
 
@@ -179,30 +190,37 @@ func (s *Server) OpenForStrangers() bool {
 	return s.Registration == RegistrationOpen || s.Registration == RegistrationInvite
 }
 
-// NewMux builds the moansubs HTTP mux.
+// NewMux builds the moansubs HTTP mux. Every human page route is wrapped in
+// s.page (WP-C10, agegate.go), which shows the 18+ click-through before the
+// handler ever runs when Server.AgeGate is on and the visitor has no
+// moansubs_age cookie yet. The API, health, robots, static asset and /age
+// routes itself are left bare — a script or crawler must never be asked to
+// click through an HTML interstitial, and /age is how the cookie gets set
+// in the first place.
 func NewMux(s *Server) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", s.handleIndex)
-	mux.HandleFunc("GET /register", s.handleRegisterForm)
-	mux.HandleFunc("POST /register", s.handleRegisterSubmit)
-	mux.HandleFunc("GET /login", s.handleLoginForm)
-	mux.HandleFunc("POST /login", s.handleLogin)
-	mux.HandleFunc("POST /logout", s.handleLogout)
-	mux.HandleFunc("GET /me", s.handleMe)
-	mux.HandleFunc("POST /me/rotate-token", s.handleRotateToken)
-	mux.HandleFunc("POST /me/password", s.handleChangePassword)
-	mux.HandleFunc("POST /me/invites", s.handleCreateInvite)
-	mux.HandleFunc("POST /me/invites/{code}/disable", s.handleDisableInvite)
-	mux.HandleFunc("GET /upload", s.handleUploadForm)
-	mux.HandleFunc("POST /upload", s.handleUploadSubmit)
+	mux.HandleFunc("GET /", s.page(s.handleIndex))
+	mux.HandleFunc("GET /register", s.page(s.handleRegisterForm))
+	mux.HandleFunc("POST /register", s.page(s.handleRegisterSubmit))
+	mux.HandleFunc("GET /login", s.page(s.handleLoginForm))
+	mux.HandleFunc("POST /login", s.page(s.handleLogin))
+	mux.HandleFunc("POST /logout", s.page(s.handleLogout))
+	mux.HandleFunc("GET /me", s.page(s.handleMe))
+	mux.HandleFunc("POST /me/rotate-token", s.page(s.handleRotateToken))
+	mux.HandleFunc("POST /me/password", s.page(s.handleChangePassword))
+	mux.HandleFunc("POST /me/invites", s.page(s.handleCreateInvite))
+	mux.HandleFunc("POST /me/invites/{code}/disable", s.page(s.handleDisableInvite))
+	mux.HandleFunc("GET /upload", s.page(s.handleUploadForm))
+	mux.HandleFunc("POST /upload", s.page(s.handleUploadSubmit))
 	mux.HandleFunc("GET /static/upload.js", s.handleUploadJS)
 	mux.HandleFunc("GET /static/phash.js", s.handlePhashJS)
 	mux.HandleFunc("GET /robots.txt", s.handleRobotsTxt)
-	mux.HandleFunc("GET /browse", s.handleBrowse)
-	mux.HandleFunc("GET /search", s.handleSearch)
-	mux.HandleFunc("GET /release/{id}", s.handleReleasePage)
-	mux.HandleFunc("POST /release/{id}/vote", s.handleReleaseVote)
-	mux.HandleFunc("GET /u/{name}", s.handleUploaderPage)
+	mux.HandleFunc("GET /browse", s.page(s.handleBrowse))
+	mux.HandleFunc("GET /search", s.page(s.handleSearch))
+	mux.HandleFunc("GET /release/{id}", s.page(s.handleReleasePage))
+	mux.HandleFunc("POST /release/{id}/vote", s.page(s.handleReleaseVote))
+	mux.HandleFunc("GET /u/{name}", s.page(s.handleUploaderPage))
+	mux.HandleFunc("POST /age", s.handleAgeConfirm)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /api/v1/version", s.handleVersion)
 	mux.HandleFunc("GET /api/v1/stats", s.handleStats)
@@ -217,22 +235,22 @@ func NewMux(s *Server) *http.ServeMux {
 	mux.HandleFunc("POST /api/v1/lookup/batch", s.handleLookupBatch)
 	mux.HandleFunc("POST /api/v1/lookup/exact", s.handleLookupExact)
 	mux.HandleFunc("POST /api/v1/match", s.handleMatch)
-	mux.HandleFunc("GET /mod/flagged", s.handleModFlagged)
-	mux.HandleFunc("GET /mod/track/{id}", s.handleModTrack)
-	mux.HandleFunc("POST /mod/track/{id}/withdraw", s.handleModTrackWithdraw)
-	mux.HandleFunc("POST /mod/track/{id}/restore", s.handleModTrackRestore)
-	mux.HandleFunc("GET /mod/release/{id}", s.handleModRelease)
-	mux.HandleFunc("POST /mod/release/{id}/withdraw", s.handleModReleaseWithdraw)
-	mux.HandleFunc("POST /mod/release/{id}/restore", s.handleModReleaseRestore)
-	mux.HandleFunc("GET /admin", s.handleAdminIndex)
-	mux.HandleFunc("GET /admin/accounts", s.handleAdminAccounts)
-	mux.HandleFunc("POST /admin/accounts/{name}/disable", s.handleAdminAccountDisable)
-	mux.HandleFunc("POST /admin/accounts/{name}/enable", s.handleAdminAccountEnable)
-	mux.HandleFunc("POST /admin/accounts/{name}/purge", s.handleAdminAccountPurge)
-	mux.HandleFunc("POST /admin/accounts/{name}/role", s.handleAdminAccountRole)
-	mux.HandleFunc("GET /admin/invites", s.handleAdminInvites)
-	mux.HandleFunc("POST /admin/invites", s.handleAdminInviteCreate)
-	mux.HandleFunc("POST /admin/invites/{code}/disable", s.handleAdminInviteDisable)
+	mux.HandleFunc("GET /mod/flagged", s.page(s.handleModFlagged))
+	mux.HandleFunc("GET /mod/track/{id}", s.page(s.handleModTrack))
+	mux.HandleFunc("POST /mod/track/{id}/withdraw", s.page(s.handleModTrackWithdraw))
+	mux.HandleFunc("POST /mod/track/{id}/restore", s.page(s.handleModTrackRestore))
+	mux.HandleFunc("GET /mod/release/{id}", s.page(s.handleModRelease))
+	mux.HandleFunc("POST /mod/release/{id}/withdraw", s.page(s.handleModReleaseWithdraw))
+	mux.HandleFunc("POST /mod/release/{id}/restore", s.page(s.handleModReleaseRestore))
+	mux.HandleFunc("GET /admin", s.page(s.handleAdminIndex))
+	mux.HandleFunc("GET /admin/accounts", s.page(s.handleAdminAccounts))
+	mux.HandleFunc("POST /admin/accounts/{name}/disable", s.page(s.handleAdminAccountDisable))
+	mux.HandleFunc("POST /admin/accounts/{name}/enable", s.page(s.handleAdminAccountEnable))
+	mux.HandleFunc("POST /admin/accounts/{name}/purge", s.page(s.handleAdminAccountPurge))
+	mux.HandleFunc("POST /admin/accounts/{name}/role", s.page(s.handleAdminAccountRole))
+	mux.HandleFunc("GET /admin/invites", s.page(s.handleAdminInvites))
+	mux.HandleFunc("POST /admin/invites", s.page(s.handleAdminInviteCreate))
+	mux.HandleFunc("POST /admin/invites/{code}/disable", s.page(s.handleAdminInviteDisable))
 	return mux
 }
 

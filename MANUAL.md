@@ -31,6 +31,7 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_TOKEN_KEY` | *(unset)* | 64 hex characters (32 bytes; generate with `openssl rand -hex 32`) — the AES-256-GCM key `/me` needs to show an account's API token again after this process restarts (it's stored encrypted, alongside the one-way hash every lookup actually uses). Unset: tokens are never re-displayable — `/me` says so and offers "Rotate" instead. An invalid value (wrong length, not hex) refuses to start rather than silently running without encryption. |
 | `MOANSUBS_ADMIN_NAME` | `admin` | The name the first-run admin bootstrap (below) creates, when one runs at all. |
 | `MOANSUBS_BOOTSTRAP_ADMIN` | `true` | Set to `false` to disable the automatic first-run admin creation below — for an operator who'd rather keep credentials out of container logs entirely and mint the account by hand with `moansubs admin bootstrap` (via `docker compose exec`) instead. |
+| `MOANSUBS_AGE_GATE` | `true` | Shows an 18+ click-through interstitial (`GET`/`POST /age`) in front of every human page until a visitor accepts it — a plain "I am 18 or older" button, **not** age or identity verification (no ID, no face check). `false` disables it entirely, for an operator who satisfies a jurisdiction's real verification requirement some other way (a dedicated third-party provider, or a reverse proxy gating the whole node) rather than through this server. Never gates `/api/*`, `/healthz`, `/robots.txt`, or `/static/*`. |
 
 **Invite economy (WP-C7c).** An account's invite budget is `earned =
 MOANSUBS_INVITES_INITIAL + floor(visible uploads / MOANSUBS_INVITES_PER_UPLOADS)`
@@ -66,6 +67,13 @@ pointing at `moansubs account role NAME admin` instead — it never silently
 takes over or promotes someone else's account. See `moansubs admin
 bootstrap` and `MOANSUBS_BOOTSTRAP_ADMIN` above for doing this on demand
 instead of automatically at every `serve` startup.
+
+Every page below sits behind the `MOANSUBS_AGE_GATE` interstitial (above)
+until a visitor `POST`s `/age` and gets `moansubs_age` set — the API,
+`/healthz`, `/robots.txt`, and the static assets never do. `page.html`'s
+`<head>` also carries `<meta name="rating" content="RTA-5042-1996-1400-1577-RTA">`
+on every page, gate included, so filters that key off the RTA label work
+without needing to run JavaScript or inspect a cookie.
 
 Pages served for humans, none of them needing an account to read:
 `/` (what this node is, with catalogue stats and a search box),

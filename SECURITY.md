@@ -120,6 +120,19 @@ loads from anywhere, forms post only to this node), `Referrer-Policy:
 no-referrer`, and `Cache-Control: no-store` on any page that displays a
 token or reflects an account's own data.
 
+**Age gate.** Every human page (not the API) sits behind an 18+
+click-through by default, `MOANSUBS_AGE_GATE` (MANUAL.md): accepting sets
+`moansubs_age=1`, `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` under the
+same rule as the session cookie, valid about a year. The cookie carries no
+identity and nothing is logged about who clicked through — one bit,
+nothing else. This is explicitly **not** age or identity verification: no
+ID, no face check, just a self-declared click-through, the same baseline
+most adult sites use; `page.html` additionally carries an RTA
+(`<meta name="rating" content="RTA-5042-1996-1400-1577-RTA">`) label so
+parental-control filters can block the site without needing to inspect a
+cookie. An operator in a jurisdiction that requires real verification needs
+a dedicated third-party provider in front of this node — out of scope here.
+
 **Sessions.** `POST /login` verifies name + password (see "Two
 credentials" above — there is no token-based web login) and issues a
 session cookie (`moansubs_session`): `HttpOnly` (no JavaScript can read it), `SameSite=Lax`,

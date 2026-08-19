@@ -102,6 +102,7 @@ func TestMod_RoleGating(t *testing.T) {
 func TestMod_NoSessionRedirectsToLogin(t *testing.T) {
 	st := openTestStore(t)
 	srv := NewServer(st)
+	srv.AgeGate = false // WP-C10: irrelevant here, see web_test.go's webServer
 	ts := httptest.NewServer(NewMux(srv))
 	t.Cleanup(ts.Close)
 

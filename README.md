@@ -128,6 +128,17 @@ credits an uploader's contributions. These pages are deliberately kept out
 of search engines (`/robots.txt`, `X-Robots-Tag: noindex`) — they're for
 people who already know this node exists, not for driving traffic to it.
 
+Every human page (not the API, not a download) sits behind a one-click 18+
+interstitial by default: "I am 18 or older — enter", plus an RTA label
+(`<meta name="rating" content="RTA-5042-1996-1400-1577-RTA">`) in the page's
+head so parental-control filters can block the site directly. This is a
+click-through baseline, **not** age or identity verification — no ID, no
+face check, nothing collected beyond a plain `moansubs_age` cookie recording
+that someone clicked through. An operator in a jurisdiction that requires
+real verification needs a dedicated third-party provider in front of this
+node; `MOANSUBS_AGE_GATE=false` (MANUAL.md) turns the interstitial off
+entirely for an operator handling that some other way.
+
 Server configuration is environment-only — see [MANUAL.md](MANUAL.md) for
 every variable, CLI command, and operational note (backups, rate limits,
 reverse proxies).

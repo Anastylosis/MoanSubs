@@ -140,6 +140,7 @@ func TestSearch_RateLimitExceeded(t *testing.T) {
 	st := openTestStore(t)
 	srv := NewServer(st)
 	srv.SearchLimiter = NewRateLimiterPerMinute(1) // tight limit so the test doesn't wait a minute
+	srv.AgeGate = false                            // WP-C10: irrelevant here, see web_test.go's webServer
 	ts := httptest.NewServer(NewMux(srv))
 	t.Cleanup(ts.Close)
 

@@ -94,6 +94,7 @@ func sessionServer(t *testing.T) (*httptest.Server, *store.Store, *http.Client, 
 	t.Helper()
 	st := openTestStore(t)
 	srv := NewServer(st)
+	srv.AgeGate = false // WP-C10: irrelevant here, see web_test.go's webServer
 	ts := httptest.NewServer(NewMux(srv))
 	t.Cleanup(ts.Close)
 
@@ -133,6 +134,7 @@ func TestLogin_SetsCookieAndReachesMe(t *testing.T) {
 func TestLogin_WrongPasswordRejected(t *testing.T) {
 	st := openTestStore(t)
 	srv := NewServer(st)
+	srv.AgeGate = false // WP-C10: irrelevant here, see web_test.go's webServer
 	ts := httptest.NewServer(NewMux(srv))
 	t.Cleanup(ts.Close)
 
@@ -150,6 +152,7 @@ func TestLogin_WrongPasswordRejected(t *testing.T) {
 func TestLogin_UnknownNameRejected(t *testing.T) {
 	st := openTestStore(t)
 	srv := NewServer(st)
+	srv.AgeGate = false // WP-C10: irrelevant here, see web_test.go's webServer
 	ts := httptest.NewServer(NewMux(srv))
 	t.Cleanup(ts.Close)
 
@@ -166,6 +169,7 @@ func TestLogin_UnknownNameRejected(t *testing.T) {
 func TestLogin_NoPasswordAccountCannotLogIn(t *testing.T) {
 	st := openTestStore(t)
 	srv := NewServer(st)
+	srv.AgeGate = false // WP-C10: irrelevant here, see web_test.go's webServer
 	ts := httptest.NewServer(NewMux(srv))
 	t.Cleanup(ts.Close)
 
@@ -183,6 +187,7 @@ func TestLogin_NoPasswordAccountCannotLogIn(t *testing.T) {
 func TestLogin_DisabledAccountCannotLogIn(t *testing.T) {
 	st := openTestStore(t)
 	srv := NewServer(st)
+	srv.AgeGate = false // WP-C10: irrelevant here, see web_test.go's webServer
 	ts := httptest.NewServer(NewMux(srv))
 	t.Cleanup(ts.Close)
 
@@ -241,6 +246,7 @@ func TestSession_DiesOnAccountDisable(t *testing.T) {
 func TestMe_NoCookieRedirectsToLogin(t *testing.T) {
 	st := openTestStore(t)
 	srv := NewServer(st)
+	srv.AgeGate = false // WP-C10: irrelevant here, see web_test.go's webServer
 	ts := httptest.NewServer(NewMux(srv))
 	t.Cleanup(ts.Close)
 
@@ -263,6 +269,7 @@ func TestMe_NoCookieRedirectsToLogin(t *testing.T) {
 func TestMe_InvalidCookieRedirectsToLogin(t *testing.T) {
 	st := openTestStore(t)
 	srv := NewServer(st)
+	srv.AgeGate = false // WP-C10: irrelevant here, see web_test.go's webServer
 	ts := httptest.NewServer(NewMux(srv))
 	t.Cleanup(ts.Close)
 

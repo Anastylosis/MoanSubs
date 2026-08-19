@@ -23,6 +23,12 @@ func webServer(t *testing.T, open bool) (*httptest.Server, *store.Store) {
 	if open {
 		srv.Registration = RegistrationOpen
 	}
+	// The age gate (WP-C10) is production's default, but almost none of
+	// the ~100 page tests built on this helper care about it — they'd all
+	// otherwise need to carry moansubs_age just to reach the page under
+	// test. Dedicated agegate_test.go tests build their own Server with it
+	// left on.
+	srv.AgeGate = false
 	ts := httptest.NewServer(NewMux(srv))
 	t.Cleanup(ts.Close)
 	return ts, st

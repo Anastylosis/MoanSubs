@@ -19,6 +19,7 @@ func inviteModeServer(t *testing.T) (*httptest.Server, *Server) {
 	st := openTestStore(t)
 	srv := NewServer(st)
 	srv.Registration = RegistrationInvite
+	srv.AgeGate = false // WP-C10: irrelevant here, see web_test.go's webServer
 	ts := httptest.NewServer(NewMux(srv))
 	t.Cleanup(ts.Close)
 	return ts, srv

@@ -221,6 +221,19 @@ var serveCmd = &cobra.Command{
 			bootstrapAdminEnabled = b
 		}
 
+		// The 18+ click-through (WP-C10) is on by default for an
+		// adult-focused node; MOANSUBS_AGE_GATE=false is for an operator
+		// who handles that requirement some other way (e.g. a reverse
+		// proxy already gating the whole node).
+		ageGate := true
+		if v := os.Getenv("MOANSUBS_AGE_GATE"); v != "" {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_AGE_GATE %q", v)
+			}
+			ageGate = b
+		}
+
 		// Cancelled on SIGINT/SIGTERM, which also starts the graceful
 		// shutdown below.
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
@@ -261,6 +274,7 @@ var serveCmd = &cobra.Command{
 		// actually is, the same source --version already uses.
 		apiSrv.Version = version
 		apiSrv.TrustedProxyCIDRs = trustedProxyCIDRs
+		apiSrv.AgeGate = ageGate
 		srv := &http.Server{
 			Addr:    listen,
 			Handler: api.NewMux(apiSrv),
