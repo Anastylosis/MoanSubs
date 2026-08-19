@@ -27,6 +27,32 @@ func TestVersion_ReturnsVersionAndFeatures(t *testing.T) {
 	if !reflect.DeepEqual(got.Features, want) {
 		t.Errorf("Features = %v, want %v", got.Features, want)
 	}
+	if !reflect.DeepEqual(got.StashEndpoints, DefaultStashEndpoints) {
+		t.Errorf("StashEndpoints = %v, want %v (NewServer's default)", got.StashEndpoints, DefaultStashEndpoints)
+	}
+}
+
+// TestVersion_ReportsTheConfiguredStashEndpoints covers WP-R6: a node's
+// GET /api/v1/version advertises whatever Server.StashEndpoints was set
+// to, verbatim — that's how the plugin learns what to filter a push
+// against without parsing a 400's message.
+func TestVersion_ReportsTheConfiguredStashEndpoints(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	srv.StashEndpoints = []string{"*"}
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	resp, err := http.Get(ts.URL + "/api/v1/version")
+	if err != nil {
+		t.Fatalf("GET /api/v1/version: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	got := decodeJSON[versionResponse](t, resp)
+	if !reflect.DeepEqual(got.StashEndpoints, []string{"*"}) {
+		t.Errorf("StashEndpoints = %v, want [*]", got.StashEndpoints)
+	}
 }
 
 func TestVersion_ReportsTheConfiguredVersion(t *testing.T) {

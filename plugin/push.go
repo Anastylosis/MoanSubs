@@ -137,7 +137,7 @@ func (a *app) pushScene(ctx context.Context, scene *stash.Scene, dryRun bool, st
 			// The scene's stash-box ids (WP-C9a) — sent with every upload so
 			// the server can attach them to the release, additive like the
 			// name metadata above.
-			StashIDs: msclientStashIDs(scene.StashIDs, scene.ID),
+			StashIDs: a.msclientStashIDs(ctx, scene.StashIDs, scene.ID),
 		})
 		if err != nil {
 			st.Errors++

@@ -32,6 +32,7 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_ADMIN_NAME` | `admin` | The name the first-run admin bootstrap (below) creates, when one runs at all. |
 | `MOANSUBS_BOOTSTRAP_ADMIN` | `true` | Set to `false` to disable the automatic first-run admin creation below — for an operator who'd rather keep credentials out of container logs entirely and mint the account by hand with `moansubs admin bootstrap` (via `docker compose exec`) instead. |
 | `MOANSUBS_AGE_GATE` | `true` | Shows an 18+ click-through interstitial (`GET`/`POST /age`) in front of every human page until a visitor accepts it — a plain "I am 18 or older" button, **not** age or identity verification (no ID, no face check). `false` disables it entirely, for an operator who satisfies a jurisdiction's real verification requirement some other way (a dedicated third-party provider, or a reverse proxy gating the whole node) rather than through this server. Never gates `/api/*`, `/healthz`, `/robots.txt`, or `/static/*`. |
+| `MOANSUBS_STASH_ENDPOINTS` | `https://stashdb.org/graphql,https://fansdb.cc/graphql` | Comma-separated allow-list of stash-box GraphQL endpoints an upload's `stash_ids` may name (WP-R6, defense in depth against a rogue uploader attaching an arbitrary URL the UI would render as a link — API.md "`POST /api/v1/subtitles`"). An endpoint outside it is rejected with `400 stash_ids: endpoint not accepted by this node`. The single value `*` accepts any http(s) endpoint. `GET /api/v1/version` advertises the resolved list as `stash_endpoints`, so the plugin filters what it pushes against it rather than racing the 400 one id at a time; the `/upload` form's endpoint `<select>` lists exactly this set too (plus "other" only when it's `*`). |
 
 **Invite economy (WP-C7c).** An account's invite budget is `earned =
 MOANSUBS_INVITES_INITIAL + floor(visible uploads / MOANSUBS_INVITES_PER_UPLOADS)`
@@ -138,11 +139,14 @@ A pasted value is never overwritten. A file too small to fingerprint, or a
 container the browser can't decode, leaves the field for the uploader to
 type — same as with JavaScript disabled, which leaves every field plain.
 "About the scene" also carries a `stash_id` text field and a
-`stash_endpoint` select (stashdb.org, fansdb.cc, or "other" with its own
-free-text `stash_endpoint_other`) — migration 0011's WP-C9a stash-box scene
-id, one per submission (the JSON API accepts up to 5; the form is for a
-person filling this in by hand, so one is what fits the UI), stored the
-same additive way an ordinary upload's `stash_ids` is.
+`stash_endpoint` select — migration 0011's WP-C9a stash-box scene id, one
+per submission (the JSON API accepts up to 5; the form is for a person
+filling this in by hand, so one is what fits the UI), stored the same
+additive way an ordinary upload's `stash_ids` is. The select's options are
+exactly `MOANSUBS_STASH_ENDPOINTS` (below) — stashdb.org and fansdb.cc by
+default — with an "other" free-text `stash_endpoint_other` offered only
+when that's set to `*`, since anything else would just be rejected
+server-side.
 Every other page is self-contained — no assets, no JavaScript. The
 catalogue pages (`/browse`, `/search`, `/release/*`,
 `/u/*`) send `X-Robots-Tag: noindex, nofollow`, and `/robots.txt`

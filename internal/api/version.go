@@ -13,6 +13,13 @@ var features = []string{"lookup", "match", "withdraw", "stats", "srt", "votes", 
 type versionResponse struct {
 	Version  string   `json:"version"`
 	Features []string `json:"features"`
+	// StashEndpoints is the node's stash-box endpoint allow-list (WP-R6,
+	// Server.StashEndpoints) verbatim — a single "*" entry means any
+	// http(s) endpoint. The plugin's msclientStashIDs filters what it
+	// sends on a push against this, rather than racing the server's own
+	// 400 one id at a time; a node predating this field (nil here) is
+	// read by the plugin as "send everything, as before".
+	StashEndpoints []string `json:"stash_endpoints"`
 }
 
 // handleVersion implements GET /api/v1/version: lets the plugin discover
@@ -22,7 +29,8 @@ type versionResponse struct {
 // never touches the database, so it costs nothing to poll once per task.
 func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, versionResponse{
-		Version:  s.Version,
-		Features: features,
+		Version:        s.Version,
+		Features:       features,
+		StashEndpoints: s.StashEndpoints,
 	})
 }

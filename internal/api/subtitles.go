@@ -84,8 +84,14 @@ func optString(s string) *string {
 // parseUploadStashIDs validates and normalizes an upload's stash_ids
 // (migration 0011, WP-C9a), pulled out of ingest as its own function so
 // that function's cyclomatic complexity stays under the lint threshold —
-// this is pure validation with no dependency on ingest's other state.
-func parseUploadStashIDs(ids []stashIDInput) ([]store.ReleaseStashID, *apiError) {
+// this is pure validation, taking the node's endpoint allow-list as a
+// parameter rather than reaching for server state itself. allowedEndpoints
+// is a Server.StashEndpoints value (WP-R6): an endpoint outside it (and not
+// the wildcard "*") rejects the whole upload, the same defense-in-depth
+// the plugin already applies before sending (msclientStashIDs, WP-R3)
+// against a rogue uploader attaching an arbitrary URL the UI would later
+// render as a link.
+func parseUploadStashIDs(ids []stashIDInput, allowedEndpoints []string) ([]store.ReleaseStashID, *apiError) {
 	if len(ids) > maxUploadStashIDs {
 		return nil, &apiError{http.StatusBadRequest,
 			fmt.Sprintf("stash_ids: at most %d per request", maxUploadStashIDs)}
@@ -95,6 +101,9 @@ func parseUploadStashIDs(ids []stashIDInput) ([]store.ReleaseStashID, *apiError)
 		endpoint, err := hash.NormalizeStashEndpoint(sid.Endpoint)
 		if err != nil {
 			return nil, &apiError{http.StatusBadRequest, "stash_ids: " + err.Error()}
+		}
+		if !stashEndpointAllowed(allowedEndpoints, endpoint) {
+			return nil, &apiError{http.StatusBadRequest, "stash_ids: endpoint not accepted by this node"}
 		}
 		id, err := hash.ParseStashID(sid.StashID)
 		if err != nil {
@@ -265,7 +274,7 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	if req.Date != "" && !datePattern.MatchString(req.Date) {
 		return nil, &apiError{http.StatusBadRequest, "date: want YYYY-MM-DD"}
 	}
-	stashIDs, aerr := parseUploadStashIDs(req.StashIDs)
+	stashIDs, aerr := parseUploadStashIDs(req.StashIDs, s.StashEndpoints)
 	if aerr != nil {
 		return nil, aerr
 	}

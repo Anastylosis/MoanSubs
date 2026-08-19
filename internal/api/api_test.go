@@ -646,6 +646,50 @@ func TestUpload_StashIDs_RejectsOverCap(t *testing.T) {
 	}
 }
 
+// TestUpload_StashIDs_RejectsUnlistedEndpoint covers WP-R6: an endpoint
+// outside the node's default allow-list (stashdb.org, fansdb.cc) is
+// rejected with 400, even though it's a syntactically valid http(s) URL —
+// the defense-in-depth this work package adds against a rogue uploader
+// attaching an arbitrary endpoint the UI would later render as a link.
+func TestUpload_StashIDs_RejectsUnlistedEndpoint(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "e4e4e4e4e4e4e4e4", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"stash_ids": []map[string]string{{"endpoint": "https://evil.example/graphql", "stash_id": "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"}},
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (endpoint outside the allow-list)", resp.StatusCode)
+	}
+	body := decodeJSON[map[string]string](t, resp)
+	if body["error"] != "stash_ids: endpoint not accepted by this node" {
+		t.Errorf("error = %q, want the exact WP-R6 spec message", body["error"])
+	}
+}
+
+// TestUpload_StashIDs_WildcardAllowsAnyEndpoint covers the operator escape
+// hatch: MOANSUBS_STASH_ENDPOINTS=* (Server.StashEndpoints == ["*"])
+// accepts any http(s) endpoint, including one outside the default list.
+func TestUpload_StashIDs_WildcardAllowsAnyEndpoint(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	srv.AgeGate = false
+	srv.StashEndpoints = []string{"*"}
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+	_, token, err := st.CreateAccount(context.Background(), "uploader")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "e5e5e5e5e5e5e5e5", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"stash_ids": []map[string]string{{"endpoint": "https://custom.example/graphql", "stash_id": "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"}},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201 (wildcard allow-list accepts any http(s) endpoint)", resp.StatusCode)
+	}
+}
+
 // TestUpload_StashIDs_StoredAndEchoedInLookup covers the happy path plus
 // normalization: an upload's stash_ids land on the release and come back
 // on a lookup, under the normalized endpoint.

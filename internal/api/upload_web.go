@@ -43,10 +43,27 @@ type uploadFormValues struct {
 	StashEndpointOther string
 }
 
-// stashEndpointOptions is /upload's stash_endpoint <select> — the same two
-// well-known stash-boxes API.md documents, plus "other" for anything else
-// (backed by stash_endpoint_other, a free-text field).
-var stashEndpointOptions = []string{"https://stashdb.org/graphql", "https://fansdb.cc/graphql"}
+// stashEndpointDefaults is the same two well-known stash-boxes API.md
+// documents — /upload's endpoint <select> falls back to these as a
+// starting point when the node's allow-list is the wildcard (WP-R6,
+// MOANSUBS_STASH_ENDPOINTS=*), since there's no fixed list to offer
+// instead.
+var stashEndpointDefaults = []string{"https://stashdb.org/graphql", "https://fansdb.cc/graphql"}
+
+// stashEndpointFormOptions returns /upload's stash_endpoint <select>
+// options and whether its "other" free-text fallback (backed by
+// stash_endpoint_other) should be offered at all (WP-R6): a node with a
+// specific allow-list only offers those endpoints — anything else is
+// rejected server-side anyway, so "other" would just be a dead end — while
+// a node configured with MOANSUBS_STASH_ENDPOINTS=* has no fixed list to
+// offer, so it shows stashEndpointDefaults as a starting point plus
+// "other" for anything else.
+func (s *Server) stashEndpointFormOptions() (options []string, allowOther bool) {
+	if len(s.StashEndpoints) == 1 && s.StashEndpoints[0] == "*" {
+		return stashEndpointDefaults, true
+	}
+	return s.StashEndpoints, false
+}
 
 // uploadResultData is /upload's success state: enough to tell the uploader
 // what landed, without repeating oshash/phash/md5 back at them.
@@ -68,11 +85,18 @@ type uploadResultData struct {
 type uploadPageData struct {
 	Title string
 	Langs []string
-	// StashEndpoints is the stash_endpoint <select>'s options (WP-C9a).
+	// StashEndpoints is the stash_endpoint <select>'s options (WP-C9a),
+	// narrowed to the node's configured allow-list by
+	// Server.stashEndpointFormOptions (WP-R6).
 	StashEndpoints []string
-	Error          string
-	Values         uploadFormValues
-	Result         *uploadResultData
+	// AllowOtherStashEndpoint gates the <select>'s "other" option and its
+	// free-text fallback field (WP-R6) — shown only when the node accepts
+	// any http(s) endpoint, since otherwise "other" would just be rejected
+	// server-side.
+	AllowOtherStashEndpoint bool
+	Error                   string
+	Values                  uploadFormValues
+	Result                  *uploadResultData
 }
 
 // handleUploadForm implements GET /upload (WP-D1): session-only, like /me —
@@ -83,10 +107,12 @@ func (s *Server) handleUploadForm(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
+	opts, allowOther := s.stashEndpointFormOptions()
 	s.renderPage(w, r, http.StatusOK, "upload.html", uploadPageData{
-		Title:          "Upload a subtitle",
-		Langs:          uploadLangs,
-		StashEndpoints: stashEndpointOptions,
+		Title:                   "Upload a subtitle",
+		Langs:                   uploadLangs,
+		StashEndpoints:          opts,
+		AllowOtherStashEndpoint: allowOther,
 	}, false)
 }
 
@@ -163,10 +189,12 @@ func (s *Server) handleUploadSubmit(w http.ResponseWriter, r *http.Request) {
 	if resp.Duplicate {
 		status = http.StatusOK
 	}
+	opts, allowOther := s.stashEndpointFormOptions()
 	s.renderPage(w, r, status, "upload.html", uploadPageData{
-		Title:          "Upload complete",
-		Langs:          uploadLangs,
-		StashEndpoints: stashEndpointOptions,
+		Title:                   "Upload complete",
+		Langs:                   uploadLangs,
+		StashEndpoints:          opts,
+		AllowOtherStashEndpoint: allowOther,
 		Result: &uploadResultData{
 			TrackID:        resp.TrackID,
 			ReleaseID:      resp.ReleaseID,
@@ -182,12 +210,14 @@ func (s *Server) handleUploadSubmit(w http.ResponseWriter, r *http.Request) {
 // refills into a file input) — the same shape a failed /register submission
 // re-shows its Name.
 func (s *Server) renderUploadForm(w http.ResponseWriter, r *http.Request, status int, msg string, values uploadFormValues) {
+	opts, allowOther := s.stashEndpointFormOptions()
 	s.renderPage(w, r, status, "upload.html", uploadPageData{
-		Title:          "Upload a subtitle",
-		Langs:          uploadLangs,
-		StashEndpoints: stashEndpointOptions,
-		Error:          msg,
-		Values:         values,
+		Title:                   "Upload a subtitle",
+		Langs:                   uploadLangs,
+		StashEndpoints:          opts,
+		AllowOtherStashEndpoint: allowOther,
+		Error:                   msg,
+		Values:                  values,
 	}, false)
 }
 

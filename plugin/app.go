@@ -173,11 +173,26 @@ func sceneKeys(s *stash.Scene) (hash.OSHash, *hash.PHash, int64, string, []stash
 // msclientStashIDs converts a scene's stash.StashID list (as read from
 // Stash's GraphQL) into msclient's wire shape — the same two fields, just a
 // different package boundary (plugin/stash reads from Stash, plugin/msclient
-// writes to the moansubs server). Validates each ID, drops invalid ones (logs
-// once per scene), and caps at 5 entries to match the server's push limit.
-func msclientStashIDs(ids []stash.StashID, sceneID string) []msclient.StashID {
+// writes to the moansubs server). Validates each ID, drops invalid ones,
+// drops any whose endpoint the server doesn't advertise in its
+// stash_endpoints allow-list (WP-R6, logs once per scene either way), and
+// caps at 5 entries to match the server's push limit.
+//
+// The allow-list check uses the cached serverVersion (one fetch per task,
+// same as everywhere else this reads it) rather than failing the push and
+// making the caller parse the server's 400 for which id it didn't like —
+// the endpoint field is right there in msclient.ServerVersion.
+// StashEndpoints nil (a server that predates the field, or a version fetch
+// that failed) means "no allow-list known" — send everything, the same
+// behavior this had before WP-R6.
+func (a *app) msclientStashIDs(ctx context.Context, ids []stash.StashID, sceneID string) []msclient.StashID {
 	if len(ids) == 0 {
 		return nil
+	}
+
+	var allowed []string
+	if v, err := a.serverVersion(ctx); err == nil {
+		allowed = v.StashEndpoints
 	}
 
 	const maxStashIDs = 5
@@ -199,6 +214,11 @@ func msclientStashIDs(ids []stash.StashID, sceneID string) []msclient.StashID {
 			continue
 		}
 
+		if len(allowed) > 0 && !slices.Contains(allowed, "*") && !slices.Contains(allowed, validEndpoint) {
+			dropped = true
+			continue
+		}
+
 		// Stop after collecting 5 valid IDs (server limit)
 		if len(out) >= maxStashIDs {
 			continue
@@ -208,7 +228,7 @@ func msclientStashIDs(ids []stash.StashID, sceneID string) []msclient.StashID {
 	}
 
 	if dropped && sceneID != "" {
-		logInfo("scene %s: some stash IDs were dropped (invalid format or too many)", sceneID)
+		logInfo("scene %s: some stash IDs were dropped (invalid format, endpoint not accepted by this node, or too many)", sceneID)
 	}
 
 	return out
@@ -221,7 +241,7 @@ func msclientStashIDs(ids []stash.StashID, sceneID string) []msclient.StashID {
 // from this scene's — that's exactly the case a hash-only comparison can't
 // see, since the same scene re-encoded still carries the same stash-box id.
 func (a *app) stashIdentityCandidates(ctx context.Context, sceneID string, ids []stash.StashID, sceneDurationMs int64) []Candidate {
-	query := msclientStashIDs(ids, sceneID)
+	query := a.msclientStashIDs(ctx, ids, sceneID)
 	perID, err := a.ms.LookupStashIDs(ctx, query)
 	if err != nil {
 		logInfo("stash id lookup failed: %v", err)

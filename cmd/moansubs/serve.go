@@ -229,6 +229,21 @@ var serveCmd = &cobra.Command{
 			ageGate = b
 		}
 
+		// The stash-box endpoint allow-list (WP-R6): uploads naming an
+		// endpoint outside it are rejected with 400, defense in depth
+		// against a rogue uploader attaching an arbitrary URL the UI would
+		// otherwise render as a link. Unset keeps api.DefaultStashEndpoints
+		// (stashdb.org, fansdb.cc); the single value "*" accepts any
+		// http(s) endpoint.
+		stashEndpoints := api.DefaultStashEndpoints
+		if v := os.Getenv("MOANSUBS_STASH_ENDPOINTS"); v != "" {
+			parsed, err := api.ParseStashEndpoints(v)
+			if err != nil {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_STASH_ENDPOINTS: %w", err)
+			}
+			stashEndpoints = parsed
+		}
+
 		// Cancelled on SIGINT/SIGTERM, which also starts the graceful
 		// shutdown below.
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
@@ -270,6 +285,7 @@ var serveCmd = &cobra.Command{
 		apiSrv.Version = version
 		apiSrv.TrustedProxyCIDRs = trustedProxyCIDRs
 		apiSrv.AgeGate = ageGate
+		apiSrv.StashEndpoints = stashEndpoints
 		srv := &http.Server{
 			Addr:    listen,
 			Handler: api.NewMux(apiSrv),

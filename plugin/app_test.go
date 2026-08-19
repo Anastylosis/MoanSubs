@@ -418,11 +418,28 @@ func TestServerURL_TrailingSlashStripped(t *testing.T) {
 	}
 }
 
+// noStashEndpointsVersionServer serves GET /api/v1/version with no
+// stash_endpoints field at all — the same shape a server that predates
+// WP-R6 answers with — so msclientStashIDs's allow-list check degrades to
+// "send everything", the behavior these pre-WP-R6 tests were written
+// against.
+func noStashEndpointsVersionServer(t *testing.T) *msclient.Client {
+	t.Helper()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"version": "1.0.0", "features": []string{}})
+	}))
+	t.Cleanup(ts.Close)
+	return msclient.New(ts.URL, "")
+}
+
 // TestMsclientStashIDs_FiltersAndCaps verifies that msclientStashIDs
 // validates each StashID format, normalizes endpoints, drops invalid ones,
 // and caps the output at 5 entries matching the server's push limit. This
 // exercises WP-R3: a scene with one bad id and six good ones produces five.
 func TestMsclientStashIDs_FiltersAndCaps(t *testing.T) {
+	a := &app{ms: noStashEndpointsVersionServer(t)}
+
 	// Six valid stash IDs plus one invalid one in various positions.
 	ids := []stash.StashID{
 		// Valid: standard stashdb.org id
@@ -441,7 +458,7 @@ func TestMsclientStashIDs_FiltersAndCaps(t *testing.T) {
 		{Endpoint: "https://more.org/graphql", StashID: "b72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
 	}
 
-	got := msclientStashIDs(ids, "test-scene-id")
+	got := a.msclientStashIDs(context.Background(), ids, "test-scene-id")
 	if len(got) != 5 {
 		t.Errorf("msclientStashIDs returned %d entries, want 5 (first five valid)", len(got))
 	}
@@ -471,10 +488,64 @@ func TestMsclientStashIDs_FiltersAndCaps(t *testing.T) {
 	}
 }
 
-// TestMsclientStashIDs_EmptyInput returns nil for empty input.
+// TestMsclientStashIDs_EmptyInput returns nil for empty input, without
+// even fetching the server version — a nil app.ms would panic if it tried.
 func TestMsclientStashIDs_EmptyInput(t *testing.T) {
-	got := msclientStashIDs([]stash.StashID{}, "scene-id")
+	a := &app{}
+	got := a.msclientStashIDs(context.Background(), []stash.StashID{}, "scene-id")
 	if got != nil {
 		t.Errorf("msclientStashIDs([], ...) = %v, want nil", got)
+	}
+}
+
+// TestMsclientStashIDs_DropsEndpointNotAdvertised covers WP-R6: a stash id
+// whose endpoint isn't in the server's stash_endpoints allow-list is
+// dropped before the push, the same defense-in-depth the server itself
+// applies (parseUploadStashIDs) — the plugin doing it first means the
+// server's 400 is never even reached for that id.
+func TestMsclientStashIDs_DropsEndpointNotAdvertised(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"version": "1.0.0", "features": []string{},
+			"stash_endpoints": []string{"https://stashdb.org/graphql"},
+		})
+	}))
+	defer ts.Close()
+	a := &app{ms: msclient.New(ts.URL, "")}
+
+	ids := []stash.StashID{
+		{Endpoint: "https://stashdb.org/graphql", StashID: "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+		{Endpoint: "https://evil.example/graphql", StashID: "d72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+	}
+	got := a.msclientStashIDs(context.Background(), ids, "test-scene-id")
+	if len(got) != 1 {
+		t.Fatalf("msclientStashIDs returned %d entries, want 1 (evil.example dropped)", len(got))
+	}
+	if got[0].Endpoint != "https://stashdb.org/graphql" {
+		t.Errorf("got[0].Endpoint = %q, want the advertised endpoint", got[0].Endpoint)
+	}
+}
+
+// TestMsclientStashIDs_WildcardAllowsAnyEndpoint covers the server's
+// MOANSUBS_STASH_ENDPOINTS=* escape hatch: stash_endpoints: ["*"] must not
+// filter out anything.
+func TestMsclientStashIDs_WildcardAllowsAnyEndpoint(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"version": "1.0.0", "features": []string{},
+			"stash_endpoints": []string{"*"},
+		})
+	}))
+	defer ts.Close()
+	a := &app{ms: msclient.New(ts.URL, "")}
+
+	ids := []stash.StashID{
+		{Endpoint: "https://custom.example/graphql", StashID: "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+	}
+	got := a.msclientStashIDs(context.Background(), ids, "test-scene-id")
+	if len(got) != 1 {
+		t.Fatalf("msclientStashIDs returned %d entries, want 1 (wildcard allows any endpoint)", len(got))
 	}
 }

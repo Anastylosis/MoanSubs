@@ -114,6 +114,64 @@ func TestUploadForm_ShowsAForm(t *testing.T) {
 	}
 }
 
+// TestUploadForm_StashEndpointSelectMatchesAllowList covers WP-R6: the
+// default node (a specific allow-list, not the wildcard) offers exactly
+// its two configured endpoints and no "other" escape hatch — anything
+// else would just be rejected server-side by parseUploadStashIDs.
+func TestUploadForm_StashEndpointSelectMatchesAllowList(t *testing.T) {
+	ts, _, client, _ := sessionServer(t)
+
+	resp, err := client.Get(ts.URL + "/upload")
+	if err != nil {
+		t.Fatalf("GET /upload: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading body: %v", err)
+	}
+	bodyStr := string(body)
+	if !strings.Contains(bodyStr, `value="https://stashdb.org/graphql"`) ||
+		!strings.Contains(bodyStr, `value="https://fansdb.cc/graphql"`) {
+		t.Error("upload form is missing the default allow-list's endpoints")
+	}
+	if strings.Contains(bodyStr, `value="other"`) {
+		t.Error("upload form offers \"other\" even though the node's allow-list isn't the wildcard")
+	}
+}
+
+// TestUploadForm_WildcardStashEndpointsAllowsOther covers the other half:
+// MOANSUBS_STASH_ENDPOINTS=* (Server.StashEndpoints == ["*"]) has no fixed
+// list to offer, so the form falls back to the two well-known defaults
+// plus "other".
+func TestUploadForm_WildcardStashEndpointsAllowsOther(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	srv.AgeGate = false
+	srv.StashEndpoints = []string{"*"}
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	createWebAccount(t, ts, "wildcard-user")
+	client := jarClient(t)
+	if resp := doLogin(t, client, ts, "wildcard-user", testAccountPassword); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST /login = %d, want 303", resp.StatusCode)
+	}
+
+	resp, err := client.Get(ts.URL + "/upload")
+	if err != nil {
+		t.Fatalf("GET /upload: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading body: %v", err)
+	}
+	if !strings.Contains(string(body), `value="other"`) {
+		t.Error("upload form should offer \"other\" when the node's allow-list is the wildcard")
+	}
+}
+
 func TestUploadForm_WrongOriginRejected(t *testing.T) {
 	ts, _, client, _ := sessionServer(t)
 

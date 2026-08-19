@@ -356,6 +356,14 @@ func (c *Client) Match(ctx context.Context, req MatchRequest) (*MatchResult, err
 type ServerVersion struct {
 	Version  string   `json:"version"`
 	Features []string `json:"features"`
+	// StashEndpoints is the node's stash-box endpoint allow-list (WP-R6):
+	// msclientStashIDs (plugin's app.go) drops any id whose endpoint isn't
+	// in this list before a push, rather than letting the server's 400
+	// reject it one id at a time. A single entry of "*" means the node
+	// accepts any http(s) endpoint. nil on a server that predates this
+	// field — the same "nothing advertised" shape as an empty Features —
+	// so callers read that as "send everything, as before".
+	StashEndpoints []string `json:"stash_endpoints"`
 }
 
 // Version calls GET /api/v1/version. A 404 — a pre-0.2 node that predates

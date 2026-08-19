@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/Anastylosis/MoanSubs/internal/hash"
 	"github.com/Anastylosis/MoanSubs/internal/store"
 )
 
@@ -59,6 +61,68 @@ const DefaultInvitesPerUploads = 5
 // earned — a compromised account can't mint an unbounded pool of
 // registration codes even after a lot of contribution.
 const DefaultInvitesCap = 5
+
+// DefaultStashEndpoints is MOANSUBS_STASH_ENDPOINTS's default (WP-R6): the
+// two stash-boxes API.md already documents as the well-known examples.
+// Anything else needs an operator to opt in explicitly, either by naming it
+// or by setting the value `*` (any http(s) endpoint).
+var DefaultStashEndpoints = []string{"https://stashdb.org/graphql", "https://fansdb.cc/graphql"}
+
+// stashEndpointWildcard is MOANSUBS_STASH_ENDPOINTS' escape hatch: a
+// Server.StashEndpoints slice of exactly this one entry means "accept any
+// http(s) endpoint", the same sentinel GET /api/v1/version reports back so
+// a client can tell the two cases apart (WP-R6).
+const stashEndpointWildcard = "*"
+
+// ParseStashEndpoints parses MOANSUBS_STASH_ENDPOINTS' comma-separated
+// value into Server.StashEndpoints (WP-R6): each entry is normalized with
+// hash.NormalizeStashEndpoint, same as an upload's own stash_ids, so the
+// allow-list and the values it's checked against always agree on spelling.
+// The single value `*` bypasses normalization entirely and means "any
+// http(s) endpoint" rather than a literal one to match. An empty csv
+// returns DefaultStashEndpoints, so a Server built without reading the
+// env var at all still gets the documented default.
+func ParseStashEndpoints(csv string) ([]string, error) {
+	csv = strings.TrimSpace(csv)
+	if csv == "" {
+		return append([]string(nil), DefaultStashEndpoints...), nil
+	}
+	if csv == stashEndpointWildcard {
+		return []string{stashEndpointWildcard}, nil
+	}
+	parts := strings.Split(csv, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		norm, err := hash.NormalizeStashEndpoint(p)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, norm)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no valid endpoints in %q", csv)
+	}
+	return out, nil
+}
+
+// stashEndpointAllowed reports whether endpoint (already
+// hash.NormalizeStashEndpoint'd) is accepted by allowed — either present
+// verbatim, or allowed is the single-entry wildcard.
+func stashEndpointAllowed(allowed []string, endpoint string) bool {
+	if len(allowed) == 1 && allowed[0] == stashEndpointWildcard {
+		return true
+	}
+	for _, a := range allowed {
+		if a == endpoint {
+			return true
+		}
+	}
+	return false
+}
 
 // RegistrationMode is how a node treats POST /api/v1/accounts and
 // GET/POST /register (WP-C7a, MOANSUBS_REGISTRATION): open lets any
@@ -151,6 +215,14 @@ type Server struct {
 	// off so the ~100 existing page tests don't all need to carry the
 	// cookie.
 	AgeGate bool
+	// StashEndpoints is the stash-box endpoint allow-list (WP-R6,
+	// MOANSUBS_STASH_ENDPOINTS): parseUploadStashIDs rejects an upload
+	// naming an endpoint outside it with 400, and GET /api/v1/version
+	// advertises it verbatim as stash_endpoints so the plugin can filter
+	// what it sends before a push rather than racing the server's 400 one
+	// id at a time. A single entry of "*" (ParseStashEndpoints' output for
+	// the env var value "*") means any http(s) endpoint is accepted.
+	StashEndpoints []string
 }
 
 // NewServer builds a Server backed by s, with its own rate limiters.
@@ -177,6 +249,8 @@ func NewServer(s *store.Store) *Server {
 		// behind the click-through until an operator opts out
 		// (MOANSUBS_AGE_GATE=false).
 		AgeGate: true,
+		// WP-R6's default allow-list; MOANSUBS_STASH_ENDPOINTS overrides it.
+		StashEndpoints: append([]string(nil), DefaultStashEndpoints...),
 	}
 }
 

@@ -50,7 +50,8 @@ leaks the same, explicitly.
 
 ### `GET /api/v1/version`
 
-`{"version": "<semver or dev>", "features": ["lookup", "match", "withdraw", "stats", "srt", "votes", "stash_ids"]}`. Anonymous
+`{"version": "<semver or dev>", "features": ["lookup", "match", "withdraw", "stats", "srt", "votes", "stash_ids"],
+"stash_endpoints": ["https://stashdb.org/graphql", "https://fansdb.cc/graphql"]}`. Anonymous
 and unthrottled — it never touches the database. Lets a client discover the
 node's version and API surface up front and degrade a missing feature
 gracefully (skip with one log line) instead of tripping over a 404 mid-task.
@@ -58,6 +59,14 @@ gracefully (skip with one log line) instead of tripping over a 404 mid-task.
 appends its own name here in the commit that adds it. A node predating this
 endpoint entirely 404s, which a client should treat identically to a current
 node answering with an empty `features` list.
+
+`stash_endpoints` (WP-R6) is the node's `MOANSUBS_STASH_ENDPOINTS` allow-list
+verbatim — the only stash-box endpoints `POST /api/v1/subtitles`'s
+`stash_ids` will accept, `*` when the node accepts any http(s) endpoint.
+The plugin filters what it sends on a push against this list rather than
+racing the upload endpoint's `400` one id at a time; a node that predates
+this field omits it entirely, which a client reads the same as "send
+everything", the behavior before WP-R6.
 
 ### `GET /api/v1/lookup/oshash/{prefix}`
 
@@ -382,6 +391,12 @@ Stash didn't report it — an empty string is a value, not "absent".
 `endpoint` is normalized (trimmed, scheme and host lowercased, path kept as
 given) before storage; `stash_id` is validated as a 36-character UUID shape
 and lowercased — either malformed rejects the whole upload with `400`.
+`endpoint` must also be in the node's `MOANSUBS_STASH_ENDPOINTS` allow-list
+(WP-R6, MANUAL.md), or `400 {"error": "stash_ids: endpoint not accepted by
+this node"}` rejects the whole upload the same way — defense in depth
+against a rogue uploader attaching an arbitrary URL the UI would otherwise
+render as a link; `GET /api/v1/version`'s `stash_endpoints` is how a client
+finds out what's accepted before trying.
 Unlike name metadata this is **additive, not backfill-only**: like votes and
 downloads, a later upload can add a stash id to a release that already has
 some, on top of whatever was there before; a moderator can remove one from the moderation page; uploads never do.
@@ -390,8 +405,9 @@ See MANUAL.md "Upload semantics" for the sanitization pipeline. Responses:
 - `201` `{"track_id": n, "release_id": n, "generated": bool}` — stored.
 - `200` `{…, "duplicate": true}` — byte-identical track already existed;
   its id is returned. Re-running a bulk push is safe.
-- `400` — unparseable subtitle, bad language tag, over caps, or runtime
-  incompatible with `duration_ms`.
+- `400` — unparseable subtitle, bad language tag, over caps, a `stash_ids`
+  endpoint outside the allow-list, or runtime incompatible with
+  `duration_ms`.
 - `401`/`429` — bad token / over the upload budget.
 - `410` `{"error":"release withdrawn"}` — `oshash` names a release that was
   withdrawn (TAKEDOWN.md). The release is still found by `oshash` — the

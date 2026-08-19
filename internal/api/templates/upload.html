@@ -102,9 +102,9 @@
         <select id="stash_endpoint" name="stash_endpoint">
           {{$se := .Values.StashEndpoint}}
           {{range .StashEndpoints}}<option value="{{.}}"{{if or (eq . $se) (and (eq $se "") (eq . (index $.StashEndpoints 0)))}} selected{{end}}>{{.}}</option>{{end}}
-          <option value="other"{{if eq $se "other"}} selected{{end}}>other</option>
+          {{if .AllowOtherStashEndpoint}}<option value="other"{{if eq $se "other"}} selected{{end}}>other</option>{{end}}
         </select>
-        <input type="text" id="stash_endpoint_other" name="stash_endpoint_other" class="mono" value="{{.Values.StashEndpointOther}}" placeholder="https://example.stashbox/graphql" autocomplete="off" style="margin-top:.35rem">
+        {{if .AllowOtherStashEndpoint}}<input type="text" id="stash_endpoint_other" name="stash_endpoint_other" class="mono" value="{{.Values.StashEndpointOther}}" placeholder="https://example.stashbox/graphql" autocomplete="off" style="margin-top:.35rem">{{end}}
       </div>
     </div>
 

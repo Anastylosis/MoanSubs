@@ -119,7 +119,10 @@ across different people's libraries is nearly never.
   go along too — this is what lets **Exact match** rank a same-scene,
   different-encode hit ahead of ordinary phash matching (see above). Invalid
   or malformed ids are dropped, and the list is capped at five (the server's
-  push limit); if any are dropped, the plugin logs once per scene.
+  push limit); ids whose endpoint isn't in the server's advertised
+  `stash_endpoints` allow-list (`GET /api/v1/version`) are dropped the same
+  way before the push is even sent; if any are dropped, the plugin logs
+  once per scene.
 
 ## Troubleshooting
 
