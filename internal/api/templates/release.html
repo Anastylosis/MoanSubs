@@ -14,7 +14,7 @@
 {{range .Release.Tracks}}
   <li>{{.Lang}}{{if .Generated}} (machine-generated){{end}} —
       <a href="/api/v1/subtitles/{{.ID}}?format=srt">download</a>
-      ({{.Downloads}} downloads)</li>
+      ({{.Downloads}} downloads, +{{.Up}}/&minus;{{.Down}})</li>
 {{end}}
 </ul>
 {{end}}

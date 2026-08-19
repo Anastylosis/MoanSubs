@@ -38,9 +38,13 @@ type SubtitleTrack struct {
 	// successful GET /api/v1/subtitles/{id} via IncrementDownloads. Never
 	// set on insert — always starts at 0.
 	Downloads int64
+	// Up/Down are migration 0008's vote counts (WP-C3), maintained by
+	// UpsertVote/RetractVote. Never set on insert — always start at 0.
+	Up   int
+	Down int
 }
 
-const subtitleTrackColumns = `id, release_id, lang, body, generated, provenance, license, source, uploader_id, created_at, withdrawn_at, withdrawn_reason, downloads`
+const subtitleTrackColumns = `id, release_id, lang, body, generated, provenance, license, source, uploader_id, created_at, withdrawn_at, withdrawn_reason, downloads, up, down`
 
 // CreateSubtitleTrack inserts t and returns its assigned id.
 // FindIdenticalTrack returns the id of an existing track with the same
@@ -120,6 +124,10 @@ type SubtitleTrackSummary struct {
 	// additive on the wire, so older plugins that don't know the field
 	// simply ignore it.
 	Downloads int64
+	// Up/Down are migration 0008's per-track vote counts (WP-C3), also
+	// additive on the wire.
+	Up   int
+	Down int
 }
 
 // TrackSummariesByReleaseIDs returns every subtitle track for the given
@@ -128,6 +136,12 @@ type SubtitleTrackSummary struct {
 // dozens of releases per bucket (or up to 100 via the batch endpoint), and
 // N+1 there would multiply request count right along with the pattern the
 // batch endpoint exists to avoid.
+//
+// Ordering within a release is the server's documented default (WP-C3,
+// API.md): human before generated, then by score (up - down) descending,
+// then downloads descending, then id — the plugin keeps its own confidence
+// ranking across releases regardless, but a client with no opinion (the
+// catalogue templates, a bare API caller) gets a sane order for free.
 func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int64) (map[int64][]SubtitleTrackSummary, error) {
 	out := make(map[int64][]SubtitleTrackSummary, len(releaseIDs))
 	if len(releaseIDs) == 0 {
@@ -135,10 +149,10 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, release_id, lang, generated, license, provenance IS NOT NULL, created_at, downloads
+		SELECT id, release_id, lang, generated, license, provenance IS NOT NULL, created_at, downloads, up, down
 		FROM subtitle_tracks
 		WHERE release_id = ANY($1) AND withdrawn_at IS NULL
-		ORDER BY release_id, id`, releaseIDs)
+		ORDER BY release_id, generated ASC, (up - down) DESC, downloads DESC, id ASC`, releaseIDs)
 	if err != nil {
 		return nil, fmt.Errorf("store: TrackSummariesByReleaseIDs: %w", err)
 	}
@@ -149,7 +163,8 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 			t         SubtitleTrackSummary
 			releaseID int64
 		)
-		if err := rows.Scan(&t.ID, &releaseID, &t.Lang, &t.Generated, &t.License, &t.HasProvenance, &t.CreatedAt, &t.Downloads); err != nil {
+		if err := rows.Scan(&t.ID, &releaseID, &t.Lang, &t.Generated, &t.License, &t.HasProvenance, &t.CreatedAt,
+			&t.Downloads, &t.Up, &t.Down); err != nil {
 			return nil, fmt.Errorf("store: TrackSummariesByReleaseIDs: scanning: %w", err)
 		}
 		out[releaseID] = append(out[releaseID], t)
@@ -234,9 +249,11 @@ func scanSubtitleTrack(row rowScanner) (*SubtitleTrack, error) {
 		withdrawnAt     *time.Time
 		withdrawnReason *string
 		downloads       int64
+		up              int
+		down            int
 	)
 	if err := row.Scan(&id, &releaseID, &lang, &body, &generated, &provenance, &license, &source, &uploaderID, &createdAt,
-		&withdrawnAt, &withdrawnReason, &downloads); err != nil {
+		&withdrawnAt, &withdrawnReason, &downloads, &up, &down); err != nil {
 		return nil, err
 	}
 	return &SubtitleTrack{
@@ -252,6 +269,8 @@ func scanSubtitleTrack(row rowScanner) (*SubtitleTrack, error) {
 		CreatedAt:       createdAt,
 		WithdrawnAt:     withdrawnAt,
 		WithdrawnReason: withdrawnReason,
+		Up:              up,
+		Down:            down,
 		Downloads:       downloads,
 	}, nil
 }
@@ -324,6 +343,10 @@ type TrackDetail struct {
 	CreatedAt       time.Time
 	WithdrawnAt     *time.Time
 	WithdrawnReason *string
+	// Up/Down are migration 0008's per-track vote counts (WP-C3), shown by
+	// `moansubs track show` alongside the votes themselves.
+	Up   int
+	Down int
 }
 
 // GetTrackDetail returns id's TrackDetail, or ErrNotFound. Deliberately
@@ -332,14 +355,14 @@ type TrackDetail struct {
 // hidden.
 func (s *Store) GetTrackDetail(ctx context.Context, id int64) (*TrackDetail, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT t.id, t.release_id, t.lang, t.generated, a.name, t.created_at, t.withdrawn_at, t.withdrawn_reason
+		SELECT t.id, t.release_id, t.lang, t.generated, a.name, t.created_at, t.withdrawn_at, t.withdrawn_reason, t.up, t.down
 		FROM subtitle_tracks t
 		LEFT JOIN accounts a ON a.id = t.uploader_id
 		WHERE t.id = $1`, id)
 
 	var d TrackDetail
 	err := row.Scan(&d.ID, &d.ReleaseID, &d.Lang, &d.Generated, &d.UploaderName, &d.CreatedAt,
-		&d.WithdrawnAt, &d.WithdrawnReason)
+		&d.WithdrawnAt, &d.WithdrawnReason, &d.Up, &d.Down)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

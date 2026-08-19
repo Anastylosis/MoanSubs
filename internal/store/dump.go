@@ -41,6 +41,11 @@ type DumpTrack struct {
 	UploaderName *string
 	CreatedAt    time.Time
 	Downloads    int64
+	// Up/Down are migration 0008's vote counts (WP-C3): informational,
+	// like Downloads — `moansubs import` never carries them onto the
+	// created track, since importing a dump does not import its votes.
+	Up   int
+	Down int
 }
 
 // DumpTracksAfter returns up to limit DumpTracks with id > afterID, ordered
@@ -51,7 +56,7 @@ type DumpTrack struct {
 // redundant with the track-level filter.
 func (s *Store) DumpTracksAfter(ctx context.Context, afterID int64, limit int) ([]DumpTrack, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT t.id, t.release_id, t.lang, t.body, t.generated, t.provenance, t.license, t.source, a.name, t.created_at, t.downloads
+		SELECT t.id, t.release_id, t.lang, t.body, t.generated, t.provenance, t.license, t.source, a.name, t.created_at, t.downloads, t.up, t.down
 		FROM subtitle_tracks t
 		JOIN releases r ON r.id = t.release_id
 		LEFT JOIN accounts a ON a.id = t.uploader_id
@@ -67,7 +72,7 @@ func (s *Store) DumpTracksAfter(ctx context.Context, afterID int64, limit int) (
 	for rows.Next() {
 		var t DumpTrack
 		if err := rows.Scan(&t.ID, &t.ReleaseID, &t.Lang, &t.Body, &t.Generated, &t.Provenance,
-			&t.License, &t.Source, &t.UploaderName, &t.CreatedAt, &t.Downloads); err != nil {
+			&t.License, &t.Source, &t.UploaderName, &t.CreatedAt, &t.Downloads, &t.Up, &t.Down); err != nil {
 			return nil, fmt.Errorf("store: DumpTracksAfter: scanning: %w", err)
 		}
 		out = append(out, t)

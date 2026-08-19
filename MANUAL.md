@@ -23,6 +23,7 @@ Runs the HTTP server. Reads:
 
 | `MOANSUBS_SEARCH_RATE_PER_MINUTE` | `30` | Per-IP budget for `GET /search`. The only catalogue page where an anonymous visitor makes the database do real work (a GIN array-overlap query), rather than an indexed lookup by prefix or id. |
 | `MOANSUBS_DUMP_URL` | *(unset)* | Link the front page shows under "download the latest dump". Publishing a dump (WP-B2, `moansubs dump`) is an out-of-band operator choice; unset hides the link entirely. |
+| `MOANSUBS_VOTE_RATE_PER_HOUR` | `60` | Per-account budget for `PUT`/`DELETE /api/v1/subtitles/{id}/vote` (API.md "Votes"). Generous enough for a person triaging their own downloads in one sitting, tight enough to stop a script grinding a track's score. |
 
 Pages served for humans, none of them needing an account to read:
 `/` (what this node is, with catalogue stats and a search box),
@@ -127,8 +128,24 @@ Undoes `track withdraw`.
 ### `moansubs track show <id>`
 
 Prints a track's metadata — release id, language, generated flag, uploader
-name (or none, for uploader-less seed content), creation time, and
-withdrawn status/reason — without its (potentially large) subtitle body.
+name (or none, for uploader-less seed content), creation time, vote score
+(`up`/`down`), and withdrawn status/reason — without its (potentially
+large) subtitle body. Also lists every vote cast on the track, one per
+line, with the voter's name, value, reason (if any), and note (if any) —
+the detail behind the score, for deciding whether a flagged track (below)
+actually needs action.
+
+### `moansubs track list --flagged`
+
+Lists active tracks worth an operator's attention: `down >= 3 AND down >
+up` (net-negative once seriously downvoted), or carrying any `spam` vote
+at all regardless of counts — one credible spam report is a much lower bar
+than a merely mediocre subtitle. A withdrawn track never appears here: a
+takedown is already the resolution. Tab-separated, one line per track (id,
+release id, lang, uploader, `up/down`, top reason), worst (most
+downvoted) first. `--flagged` is currently required — there is no general
+`track list` yet, and inventing an unpaged dump of every track was out of
+scope for this.
 
 ### `moansubs release withdraw <id> [--reason TEXT]`
 

@@ -75,6 +75,18 @@ docker compose exec moansubs moansubs account list
 docker compose exec moansubs moansubs account disable <name>
 ```
 
+Any account can up- or down-vote a track it didn't upload itself — a
+down-vote requires picking a reason from a short fixed list (out of sync,
+wrong content, wrong language, low quality, spam) and may add a one-line
+note. The resulting score (shown as `up`/`down` everywhere a track
+appears) is the server's default within-release ordering: human before
+machine-generated, then by score, then by downloads, then id — so the
+best-regarded human subtitle for a release surfaces first without anyone
+having to curate it by hand. A track that collects three or more net
+downvotes, or even a single `spam` vote, shows up in
+`moansubs track list --flagged` for an operator to review; see
+[API.md](API.md) and [MANUAL.md](MANUAL.md) for the endpoints and CLI.
+
 The server also carries a small public catalogue for browsers: `/browse`
 and `/search` list releases that have name metadata (title, studio,
 performers, or a filename stem — a bare hash has nothing to show), and

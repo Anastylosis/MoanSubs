@@ -99,6 +99,18 @@ var serveCmd = &cobra.Command{
 			searchRate = n
 		}
 
+		// Per-account vote budget (WP-C3), same shape as the upload rate:
+		// generous for a real person triaging their own downloads, tight
+		// enough to stop a script grinding a track's score.
+		voteRate := api.VoteRateLimitPerHour
+		if v := os.Getenv("MOANSUBS_VOTE_RATE_PER_HOUR"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_VOTE_RATE_PER_HOUR %q", v)
+			}
+			voteRate = n
+		}
+
 		// Unset (the default) hides the front page's dump link entirely —
 		// publishing a dump is an out-of-band operator choice (WP-C2,
 		// deploy/README.md), not something this server does on its own.
@@ -144,6 +156,7 @@ var serveCmd = &cobra.Command{
 		apiSrv.SearchLimiter = api.NewRateLimiterPerMinute(searchRate)
 		apiSrv.OpenRegistration = openRegistration
 		apiSrv.DumpURL = dumpURL
+		apiSrv.VoteLimiter = api.NewRateLimiter(voteRate)
 		// version is main.go's ldflags-stamped build var ("dev" when built
 		// without them); GET /api/v1/version reports whatever this process
 		// actually is, the same source --version already uses.

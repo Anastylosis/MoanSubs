@@ -37,6 +37,12 @@ const RegisterRateLimitPerHour = 5
 // rather than an indexed lookup by prefix or id.
 const SearchRateLimitPerMinute = 30
 
+// VoteRateLimitPerHour is the per-account budget for PUT/DELETE
+// /api/v1/subtitles/{id}/vote (WP-C3 spec): generous enough for a real
+// person triaging their own downloads in one sitting, tight enough that a
+// script can't grind a track's score by hammering re-votes.
+const VoteRateLimitPerHour = 60
+
 // Server holds the dependencies HTTP handlers need.
 type Server struct {
 	Store *store.Store
@@ -83,6 +89,10 @@ type Server struct {
 	// publishing a dump is an out-of-band operator choice this server
 	// doesn't make on its own.
 	DumpURL string
+	// VoteLimiter is the per-account limiter for PUT/DELETE
+	// /api/v1/subtitles/{id}/vote (WP-C3), also exported for the same
+	// reason as Limiter.
+	VoteLimiter *RateLimiter
 }
 
 // NewServer builds a Server backed by s, with its own rate limiters.
@@ -101,6 +111,7 @@ func NewServer(s *store.Store) *Server {
 		OpenRegistration: true,
 		Version:          "dev",
 		Stats:            NewStats(s),
+		VoteLimiter:      NewRateLimiter(VoteRateLimitPerHour),
 	}
 }
 
@@ -128,6 +139,9 @@ func NewMux(s *Server) *http.ServeMux {
 	mux.HandleFunc("POST /api/v1/accounts", s.handleRegisterAccount)
 	mux.HandleFunc("POST /api/v1/subtitles", s.handleUploadSubtitle)
 	mux.HandleFunc("GET /api/v1/subtitles/{id}", s.handleGetSubtitle)
+	mux.HandleFunc("PUT /api/v1/subtitles/{id}/vote", s.handleVotePut)
+	mux.HandleFunc("DELETE /api/v1/subtitles/{id}/vote", s.handleVoteDelete)
+	mux.HandleFunc("GET /api/v1/subtitles/{id}/votes", s.handleListVotes)
 	mux.HandleFunc("GET /api/v1/lookup/oshash/{prefix}", s.handleLookupOshashPrefix)
 	mux.HandleFunc("GET /api/v1/lookup/phash/{block}/{val}", s.handleLookupPhashBlock)
 	mux.HandleFunc("POST /api/v1/lookup/batch", s.handleLookupBatch)

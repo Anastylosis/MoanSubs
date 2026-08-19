@@ -32,6 +32,9 @@ type lookupTrackSummary struct {
 	// Downloads is migration 0006's per-track counter (WP-A2). Additive —
 	// older plugins that don't know the field simply ignore it.
 	Downloads int64 `json:"downloads"`
+	// Up/Down are migration 0008's vote counts (WP-C3), also additive.
+	Up   int `json:"up"`
+	Down int `json:"down"`
 }
 
 // lookupRelease is one release as returned by any of the four lookup
@@ -86,6 +89,8 @@ func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) (
 				HasProvenance: t.HasProvenance,
 				CreatedAt:     t.CreatedAt,
 				Downloads:     t.Downloads,
+				Up:            t.Up,
+				Down:          t.Down,
 			})
 		}
 

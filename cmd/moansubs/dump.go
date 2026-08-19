@@ -55,9 +55,10 @@ type dumpReleaseLine struct {
 // dumpTrackLine is one non-withdrawn track. Uploader is the account's
 // display name, never its id or token — the only thing dump output carries
 // from accounts (PLAN.md WP-B2: "Nothing from accounts, sessions,
-// track_votes beyond the aggregate"). Downloads is the origin's count,
-// informational for a mirror (import starts its own at zero). up/down are
-// omitted until votes exist (WP-C3).
+// track_votes beyond the aggregate"). Downloads and Up/Down are the
+// origin's counts, informational for a mirror — import starts its own
+// downloads at zero and never imports votes at all (WP-C3: a mirror has no
+// accounts of its own to have cast them).
 type dumpTrackLine struct {
 	Kind       string          `json:"kind"`
 	ID         int64           `json:"id"`
@@ -70,6 +71,8 @@ type dumpTrackLine struct {
 	Uploader   *string         `json:"uploader"`
 	CreatedAt  time.Time       `json:"created_at"`
 	Downloads  int64           `json:"downloads"`
+	Up         int             `json:"up"`
+	Down       int             `json:"down"`
 	Body       string          `json:"body"`
 }
 
@@ -227,6 +230,8 @@ func dumpTrackFrom(t store.DumpTrack) dumpTrackLine {
 		Uploader:   t.UploaderName,
 		CreatedAt:  t.CreatedAt,
 		Downloads:  t.Downloads,
+		Up:         t.Up,
+		Down:       t.Down,
 		Body:       t.Body,
 	}
 }

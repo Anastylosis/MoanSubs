@@ -23,6 +23,10 @@ type catalogueTrack struct {
 	Lang      string
 	Generated bool
 	Downloads int64
+	// Up/Down are migration 0008's vote counts (WP-C3), shown on the
+	// release page next to each track.
+	Up   int
+	Down int
 }
 
 // catalogueRelease is one release as rendered on a catalogue page.
@@ -102,6 +106,7 @@ func buildCatalogueRelease(r store.Release, tracks []store.SubtitleTrackSummary)
 	for _, t := range tracks {
 		out.Tracks = append(out.Tracks, catalogueTrack{
 			ID: t.ID, Lang: t.Lang, Generated: t.Generated, Downloads: t.Downloads,
+			Up: t.Up, Down: t.Down,
 		})
 	}
 	return out

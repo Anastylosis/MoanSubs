@@ -125,6 +125,7 @@ var trackShowCmd = &cobra.Command{
 		}
 		_, _ = fmt.Fprintf(out, "uploader: %s\n", uploader)
 		_, _ = fmt.Fprintf(out, "created: %s\n", d.CreatedAt.UTC().Format(time.RFC3339))
+		_, _ = fmt.Fprintf(out, "score: +%d/-%d\n", d.Up, d.Down)
 		if d.WithdrawnAt == nil {
 			_, _ = fmt.Fprintln(out, "withdrawn: no")
 		} else {
@@ -133,6 +134,78 @@ var trackShowCmd = &cobra.Command{
 				reason = " (" + *d.WithdrawnReason + ")"
 			}
 			_, _ = fmt.Fprintf(out, "withdrawn: %s%s\n", d.WithdrawnAt.UTC().Format(time.RFC3339), reason)
+		}
+
+		votes, err := s.VotesForTrack(ctx, id)
+		if err != nil {
+			return fmt.Errorf("moansubs track show: listing votes: %w", err)
+		}
+		if len(votes) == 0 {
+			_, _ = fmt.Fprintln(out, "votes: none cast")
+		} else {
+			_, _ = fmt.Fprintln(out, "votes:")
+			for _, v := range votes {
+				reason := "-"
+				if v.Reason != nil {
+					reason = *v.Reason
+				}
+				note := ""
+				if v.Note != nil {
+					note = *v.Note
+				}
+				_, _ = fmt.Fprintf(out, "  %s\t%+d\t%s\t%s\n", v.Voter, v.Value, reason, note)
+			}
+		}
+		return nil
+	},
+}
+
+// flaggedMinDown is `track list --flagged`'s down-vote floor (WP-C3 spec:
+// "ListFlaggedTracks(minDown=3)") — below this a handful of downvotes is
+// just ordinary disagreement, not something worth an operator's attention
+// on its own (a spam vote flags a track regardless of this floor).
+const flaggedMinDown = 3
+
+var trackListFlagged bool
+
+// trackListCmd lists tracks needing operator attention (WP-C3 spec).
+// --flagged is required for now rather than an unpaged dump of every
+// track: nothing in this work package asks for a general listing, and
+// inventing one unbounded would be scope creep with its own pagination
+// and ordering questions to answer.
+var trackListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List subtitle tracks",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		if !trackListFlagged {
+			return errors.New("moansubs track list: only --flagged is supported")
+		}
+
+		s, ctx, cancel, err := openStore(cmd, "track list")
+		if err != nil {
+			return err
+		}
+		defer cancel()
+		defer s.Close()
+
+		tracks, err := s.ListFlaggedTracks(ctx, flaggedMinDown)
+		if err != nil {
+			return fmt.Errorf("moansubs track list: %w", err)
+		}
+
+		out := cmd.OutOrStdout()
+		for _, t := range tracks {
+			uploader := "(none)"
+			if t.UploaderName != nil {
+				uploader = *t.UploaderName
+			}
+			topReason := "(none)"
+			if t.TopReason != nil {
+				topReason = *t.TopReason
+			}
+			_, _ = fmt.Fprintf(out, "%d\t%d\t%s\t%s\t+%d/-%d\t%s\n",
+				t.ID, t.ReleaseID, t.Lang, uploader, t.Up, t.Down, topReason)
 		}
 		return nil
 	},
@@ -238,6 +311,7 @@ func init() {
 	trackResanitizeCmd.Flags().BoolVar(&resanitizeDryRun, "dry-run", false, "print what would change without writing")
 	trackResanitizeCmd.Flags().Int64Var(&resanitizeID, "id", 0, "resanitize only this track id")
 	trackWithdrawCmd.Flags().StringVar(&trackWithdrawReason, "reason", "", "reason recorded for the withdrawal")
-	trackCmd.AddCommand(trackResanitizeCmd, trackWithdrawCmd, trackRestoreCmd, trackShowCmd)
+	trackListCmd.Flags().BoolVar(&trackListFlagged, "flagged", false, "list tracks flagged for operator review (the only supported mode)")
+	trackCmd.AddCommand(trackResanitizeCmd, trackWithdrawCmd, trackRestoreCmd, trackShowCmd, trackListCmd)
 	rootCmd.AddCommand(trackCmd)
 }

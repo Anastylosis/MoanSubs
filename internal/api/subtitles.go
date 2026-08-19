@@ -64,14 +64,16 @@ func optString(s string) *string {
 	return &s
 }
 
-// authenticateUpload is handleUploadSubtitle's auth step, split out to
-// keep that function under gocyclo's limit: it runs authenticate, and for
-// a session-cookie-authenticated caller only, the Origin check (WP-C1) —
-// a Bearer token is never sent by a browser following a cross-site form or
-// script, so it has nothing to defend against and is exempt, same as
-// every other Bearer-authenticated API route. Writes the error response
-// itself; ok is false iff it did.
-func (s *Server) authenticateUpload(w http.ResponseWriter, r *http.Request) (account *store.Account, ok bool) {
+// authenticateStateChange is the shared auth step for every state-changing
+// API route that accepts both Bearer and session-cookie auth (originally
+// handleUploadSubtitle's, WP-C1; reused as-is by WP-C3's vote endpoints
+// rather than copied): it runs authenticate, and for a session-cookie-
+// authenticated caller only, the Origin check — a Bearer token is never
+// sent by a browser following a cross-site form or script, so it has
+// nothing to defend against and is exempt, same as every other
+// Bearer-authenticated API route. Writes the error response itself; ok is
+// false iff it did.
+func (s *Server) authenticateStateChange(w http.ResponseWriter, r *http.Request) (account *store.Account, ok bool) {
 	ares, err := authenticate(r.Context(), s.Store, r)
 	if err != nil {
 		switch {
@@ -101,7 +103,7 @@ func (s *Server) authenticateUpload(w http.ResponseWriter, r *http.Request) (acc
 func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	account, ok := s.authenticateUpload(w, r)
+	account, ok := s.authenticateStateChange(w, r)
 	if !ok {
 		return
 	}
@@ -309,6 +311,9 @@ type getSubtitleResponse struct {
 	// the count as of just before this request's own increment. Additive —
 	// older plugins that don't know the field simply ignore it.
 	Downloads int64 `json:"downloads"`
+	// Up/Down are migration 0008's vote counts (WP-C3), also additive.
+	Up   int `json:"up"`
+	Down int `json:"down"`
 }
 
 // handleGetSubtitle implements GET /api/v1/subtitles/{id} — public, no
@@ -387,6 +392,8 @@ func (s *Server) handleGetSubtitle(w http.ResponseWriter, r *http.Request) {
 		License:    track.License,
 		Source:     track.Source,
 		CreatedAt:  track.CreatedAt,
+		Up:         track.Up,
+		Down:       track.Down,
 	})
 }
 
