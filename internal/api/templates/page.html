@@ -41,6 +41,10 @@
   nav { display: flex; gap: 1.25rem; margin-left: auto; font-family: var(--sans); font-size: .9rem; }
   nav a { color: var(--fg); text-decoration: none; opacity: .85; }
   nav a:hover { opacity: 1; text-decoration: underline; }
+  nav .navform { display: inline; margin: 0; }
+  nav .navform button { all: unset; cursor: pointer; font: inherit; color: var(--fg); opacity: .85; }
+  nav .navform button:hover { opacity: 1; text-decoration: underline; }
+  nav .navform button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   main { max-width: 64rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
   footer { border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; font-family: var(--sans); }
   footer .bar-in { justify-content: space-between; }
@@ -138,7 +142,8 @@
       <a href="/browse">Browse</a>
       <a href="/search">Search</a>
       {{if loggedIn}}<a href="/upload">Upload</a>
-      <a href="/me">Account</a>{{if roleAtLeast "mod"}}<a href="/mod/flagged">Moderate</a>{{end}}{{if roleAtLeast "admin"}}<a href="/admin">Admin</a>{{end}}{{else}}<a href="/login">Log in</a>{{end}}
+      <a href="/me">Account</a>{{if roleAtLeast "mod"}}<a href="/mod/flagged">Moderate</a>{{end}}{{if roleAtLeast "admin"}}<a href="/admin">Admin</a>{{end}}
+      <form method="post" action="/logout" class="navform"><button type="submit">Log out</button></form>{{else}}<a href="/login">Log in</a>{{end}}
     </nav>
   </div>
 </header>
