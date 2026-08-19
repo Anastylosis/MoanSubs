@@ -236,3 +236,53 @@ func TestVote_ServerErrorPassedThroughVerbatim(t *testing.T) {
 		t.Fatalf("err = %v, want the server's message verbatim", err)
 	}
 }
+
+// TestDefaultServerURL_Defined verifies the default public node URL is set.
+func TestDefaultServerURL_Defined(t *testing.T) {
+	if DefaultServerURL == "" {
+		t.Errorf("DefaultServerURL is empty, want https://moansubs.org")
+	}
+	if DefaultServerURL != "https://moansubs.org" {
+		t.Errorf("DefaultServerURL = %q, want https://moansubs.org", DefaultServerURL)
+	}
+}
+
+// TestDefaultServerURL_UsedWhenSettingEmpty verifies that an empty or
+// whitespace server_url setting falls back to DefaultServerURL. This is
+// tested via msclient.New to ensure the URL is correctly passed.
+func TestDefaultServerURL_UsedWhenSettingEmpty(t *testing.T) {
+	c := msclient.New(DefaultServerURL, "")
+	if c.BaseURL != "https://moansubs.org" {
+		t.Errorf("BaseURL = %q, want https://moansubs.org", c.BaseURL)
+	}
+}
+
+// TestServerURL_ExplicitSettingUsed verifies that an explicit server_url
+// setting overrides the default.
+func TestServerURL_ExplicitSettingUsed(t *testing.T) {
+	customURL := "https://custom.example.com"
+	c := msclient.New(customURL, "")
+	if c.BaseURL != customURL {
+		t.Errorf("BaseURL = %q, want %q", c.BaseURL, customURL)
+	}
+}
+
+// TestServerURL_TrailingSlashStripped verifies that trailing slashes are
+// correctly handled by msclient.New, whether from an explicit setting or
+// from DefaultServerURL.
+func TestServerURL_TrailingSlashStripped(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{DefaultServerURL + "/", "https://moansubs.org"},
+		{"https://custom.example.com/", "https://custom.example.com"},
+		{"https://custom.example.com///", "https://custom.example.com"},
+	}
+	for _, tt := range tests {
+		c := msclient.New(tt.input, "")
+		if c.BaseURL != tt.want {
+			t.Errorf("msclient.New(%q).BaseURL = %q, want %q", tt.input, c.BaseURL, tt.want)
+		}
+	}
+}

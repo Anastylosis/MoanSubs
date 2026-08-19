@@ -21,7 +21,7 @@ ui:
 settings:
   server_url:
     displayName: moansubs server URL
-    description: Base URL of the moansubs server, e.g. https://subs.example
+    description: Base URL of a moansubs server. Leave empty for the public node (https://moansubs.org).
     type: STRING
   token:
     displayName: Upload token

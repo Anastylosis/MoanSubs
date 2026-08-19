@@ -51,10 +51,10 @@ curl http://localhost:8080/healthz   # -> ok
 ```
 
 Uploading needs an account. People register their own by visiting the node
-in a browser — `https://your-node/register` — or over the API:
+in a browser — `https://moansubs.org/register` — or over the API:
 
 ```sh
-curl -X POST https://your-node/api/v1/accounts \
+curl -X POST https://moansubs.org/api/v1/accounts \
   -H 'Content-Type: application/json' -d '{"name": "somebody"}'
 ```
 

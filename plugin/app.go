@@ -18,6 +18,10 @@ import (
 // (moansubs.yml → "moansubs"); it keys this plugin's settings map.
 const pluginID = "moansubs"
 
+// DefaultServerURL is the public moansubs node, used when the server_url
+// setting is empty or whitespace.
+const DefaultServerURL = "https://moansubs.org"
+
 // app holds the two clients a task needs: the parent Stash and the moansubs
 // server, both configured from the plugin input + plugin settings.
 type app struct {
@@ -58,8 +62,9 @@ func newApp(ctx context.Context, input PluginInput) (*app, error) {
 	}
 
 	serverURL, _ := settings["server_url"].(string)
+	serverURL = strings.TrimSpace(serverURL)
 	if serverURL == "" {
-		return nil, fmt.Errorf("the moansubs server URL is not configured — set it in Settings → Plugins → moansubs")
+		serverURL = DefaultServerURL
 	}
 	token, _ := settings["token"].(string)
 	exact, _ := settings["exact_mode"].(bool)
