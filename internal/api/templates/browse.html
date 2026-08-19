@@ -1,0 +1,28 @@
+{{define "browse.html"}}
+<h2>Browse</h2>
+<form method="get" action="/browse">
+  <label for="lang">Language</label>
+  <input type="text" id="lang" name="lang" value="{{.Lang}}" placeholder="e.g. en, pt-BR" autocomplete="off">
+  <button type="submit">Filter</button>
+</form>
+
+{{if not .Releases}}
+<p>Nothing here yet.</p>
+{{else}}
+<ul class="releases">
+{{range .Releases}}
+  <li>
+    <a href="/release/{{.ID}}">{{.Title}}</a>
+    {{if .Studio}} — {{.Studio}}{{end}}{{if .ReleaseDate}} ({{.ReleaseDate}}){{end}}
+    <div class="hint">
+    {{range $i, $t := .Tracks}}{{if $i}}, {{end}}{{$t.Lang}}{{if $t.Generated}} (auto){{end}}{{end}}
+    </div>
+  </li>
+{{end}}
+</ul>
+{{end}}
+
+{{if .HasMore}}
+<p><a href="/browse?after={{.NextAfter}}{{if .Lang}}&lang={{.Lang}}{{end}}">older →</a></p>
+{{end}}
+{{end}}

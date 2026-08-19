@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"golang.org/x/text/language"
+	"github.com/Anastylosis/MoanSubs/internal/subtitle"
 )
 
 // CaptionLang resolves a stored language tag (full BCP-47, possibly
@@ -36,15 +36,12 @@ func ResolveCaptionLang(tag string) (CaptionLang, error) {
 	if tag == "" {
 		return CaptionLang{}, fmt.Errorf("track has no language tag; refusing to write a sidecar that would never attach")
 	}
-	t, err := language.Parse(tag)
+	// One reduction shared with the server's format=srt download names, so
+	// the two can never disagree on what a caption file is called.
+	b, err := subtitle.BaseLang(tag)
 	if err != nil {
-		return CaptionLang{}, fmt.Errorf("language tag %q is not parseable (%w); refusing to write a sidecar that would never attach", tag, err)
+		return CaptionLang{}, fmt.Errorf("language tag %q has no usable base subtag (%w); refusing to write a sidecar that would never attach", tag, err)
 	}
-	base, conf := t.Base()
-	if conf == language.No {
-		return CaptionLang{}, fmt.Errorf("language tag %q has no derivable base subtag; refusing to write a sidecar that would never attach", tag)
-	}
-	b := base.String()
 	// x/text can widen 2-letter codes to 3-letter bases for exotic tags;
 	// Stash accepts any ParseBase-able subtag, so both widths are fine.
 	return CaptionLang{

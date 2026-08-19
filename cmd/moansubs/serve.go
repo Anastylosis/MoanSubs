@@ -87,6 +87,22 @@ var serveCmd = &cobra.Command{
 			}
 			sessionTTL = d
 		}
+		// GET /search is the only catalogue page where a stranger makes the
+		// database do real work (WP-C2), so it gets its own budget rather
+		// than sharing the generous browse-a-scene-wall lookup limit.
+		searchRate := api.SearchRateLimitPerMinute
+		if v := os.Getenv("MOANSUBS_SEARCH_RATE_PER_MINUTE"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_SEARCH_RATE_PER_MINUTE %q", v)
+			}
+			searchRate = n
+		}
+
+		// Unset (the default) hides the front page's dump link entirely —
+		// publishing a dump is an out-of-band operator choice (WP-C2,
+		// deploy/README.md), not something this server does on its own.
+		dumpURL := os.Getenv("MOANSUBS_DUMP_URL")
 
 		// Unset trusts no proxy, so clientIP ignores X-Forwarded-For and
 		// always uses RemoteAddr -- see internal/api/ratelimit.go.
@@ -125,7 +141,9 @@ var serveCmd = &cobra.Command{
 		apiSrv.RegisterLimiter = api.NewRateLimiter(registerRate)
 		apiSrv.LoginLimiter = api.NewRateLimiter(loginRate)
 		apiSrv.SessionTTL = sessionTTL
+		apiSrv.SearchLimiter = api.NewRateLimiterPerMinute(searchRate)
 		apiSrv.OpenRegistration = openRegistration
+		apiSrv.DumpURL = dumpURL
 		// version is main.go's ldflags-stamped build var ("dev" when built
 		// without them); GET /api/v1/version reports whatever this process
 		// actually is, the same source --version already uses.

@@ -31,6 +31,12 @@ const LookupRateLimitPerMinute = 300
 // hour from one address is somebody minting names, not somebody signing up.
 const RegisterRateLimitPerHour = 5
 
+// SearchRateLimitPerMinute is the per-IP budget for GET /search (WP-C2):
+// the only catalogue page where an anonymous stranger makes the database do
+// real work (a GIN array-overlap query plus a set-intersection sort),
+// rather than an indexed lookup by prefix or id.
+const SearchRateLimitPerMinute = 30
+
 // Server holds the dependencies HTTP handlers need.
 type Server struct {
 	Store *store.Store
@@ -50,6 +56,9 @@ type Server struct {
 	// login handler, so a Server built without setting this explicitly
 	// (e.g. in tests) still works.
 	SessionTTL time.Duration
+	// SearchLimiter is the per-IP limiter for GET /search (WP-C2), also
+	// exported for the same reason as Limiter.
+	SearchLimiter *RateLimiter
 	// OpenRegistration allows strangers to create their own upload accounts
 	// (POST /api/v1/accounts). A node that leaves this off is invite-only:
 	// the operator mints accounts with `moansubs account create`.
@@ -69,6 +78,11 @@ type Server struct {
 	// serve.go runs its Run method alongside graceful shutdown, and
 	// GET /api/v1/stats reads its persisted, cached snapshot.
 	Stats *Stats
+	// DumpURL is the operator-published dump link the front page shows
+	// (WP-C2, MOANSUBS_DUMP_URL). Empty — the default — hides the link:
+	// publishing a dump is an out-of-band operator choice this server
+	// doesn't make on its own.
+	DumpURL string
 }
 
 // NewServer builds a Server backed by s, with its own rate limiters.
@@ -80,6 +94,7 @@ func NewServer(s *store.Store) *Server {
 		RegisterLimiter: NewRateLimiter(RegisterRateLimitPerHour),
 		LoginLimiter:    NewRateLimiter(LoginRateLimitPerHour),
 		SessionTTL:      DefaultSessionTTL,
+		SearchLimiter:   NewRateLimiterPerMinute(SearchRateLimitPerMinute),
 		// Open by default: a subtitle database with no contributors is a
 		// mirror. Operators running a private node close it with
 		// MOANSUBS_OPEN_REGISTRATION=false.
@@ -100,6 +115,11 @@ func NewMux(s *Server) *http.ServeMux {
 	mux.HandleFunc("POST /logout", s.handleLogout)
 	mux.HandleFunc("GET /me", s.handleMe)
 	mux.HandleFunc("POST /me/rotate-token", s.handleRotateToken)
+	mux.HandleFunc("GET /robots.txt", s.handleRobotsTxt)
+	mux.HandleFunc("GET /browse", s.handleBrowse)
+	mux.HandleFunc("GET /search", s.handleSearch)
+	mux.HandleFunc("GET /release/{id}", s.handleReleasePage)
+	mux.HandleFunc("GET /u/{name}", s.handleUploaderPage)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /api/v1/version", s.handleVersion)
 	mux.HandleFunc("GET /api/v1/stats", s.handleStats)

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"regexp"
@@ -360,6 +361,15 @@ func (s *Server) handleGetSubtitle(w http.ResponseWriter, r *http.Request) {
 		downloads++
 	}
 
+	// format=srt (WP-C2, the catalogue's release-page download link): the
+	// same track, as a plain-text attachment instead of the JSON envelope.
+	// Counts as a download exactly like the JSON path above — the increment
+	// already happened, unconditionally, before this branch.
+	if r.URL.Query().Get("format") == "srt" {
+		s.writeSRTAttachment(w, *release, *track)
+		return
+	}
+
 	writeJSON(w, http.StatusOK, getSubtitleResponse{
 		ID:         track.ID,
 		ReleaseID:  track.ReleaseID,
@@ -372,6 +382,53 @@ func (s *Server) handleGetSubtitle(w http.ResponseWriter, r *http.Request) {
 		Source:     track.Source,
 		CreatedAt:  track.CreatedAt,
 	})
+}
+
+// filenameStemPattern keeps only printable ASCII, minus the characters that
+// would break a Content-Disposition filename attribute or read as a path
+// (quotes, path separators) — WP-C2: "sanitise the stem to a safe ASCII
+// filename". Everything else in the stem (letters, digits, punctuation
+// like - and _) passes through unchanged.
+var filenameStemPattern = regexp.MustCompile(`[^\x20-\x7e]|["/\\]`)
+
+// sanitizeFilenameStem strips filenameStemPattern's disallowed characters
+// from stem and trims the result, returning "" when nothing safe is left
+// (an all-non-ASCII or all-control-character stem, say) — the caller falls
+// back to a release-id-based name in that case.
+func sanitizeFilenameStem(stem string) string {
+	return strings.TrimSpace(filenameStemPattern.ReplaceAllString(stem, ""))
+}
+
+// writeSRTAttachment implements GET /api/v1/subtitles/{id}?format=srt
+// (WP-C2): the same track body, served as a downloadable plain-text file
+// instead of the JSON envelope, named "<stem or release-<id>>.<bare
+// subtag>.srt" — the bare subtag via internal/subtitle.BaseLang, the same
+// reduction plugin/sidecar.go's ResolveCaptionLang applies to a caption
+// filename, so the two never drift on what "bare" means.
+func (s *Server) writeSRTAttachment(w http.ResponseWriter, release store.Release, track store.SubtitleTrack) {
+	base, err := subtitle.BaseLang(track.Lang)
+	if err != nil {
+		// track.Lang was already validated as a parseable BCP-47 tag at
+		// upload time (handleUploadSubtitle); reaching here means stored
+		// data disagrees with that invariant, not a client mistake.
+		log.Printf("api: BaseLang(%q) for track %d: %v", track.Lang, track.ID, err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	stem := ""
+	if release.Stem != nil {
+		stem = sanitizeFilenameStem(*release.Stem)
+	}
+	if stem == "" {
+		stem = fmt.Sprintf("release-%d", release.ID)
+	}
+	filename := fmt.Sprintf("%s.%s.srt", stem, base)
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(track.Body))
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

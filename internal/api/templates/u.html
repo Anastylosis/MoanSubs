@@ -1,0 +1,16 @@
+{{define "u.html"}}
+<h2>{{.Name}}</h2>
+<p class="sub">{{.UploadCount}} subtitle{{if ne .UploadCount 1}}s{{end}} contributed.</p>
+
+{{if not .Tracks}}
+<p>Nothing here yet.</p>
+{{else}}
+<ul>
+{{range .Tracks}}
+  <li><a href="/release/{{.ReleaseID}}">release #{{.ReleaseID}}</a> —
+      {{.Lang}}{{if .Generated}} (machine-generated){{end}}
+      ({{.Downloads}} downloads)</li>
+{{end}}
+</ul>
+{{end}}
+{{end}}

@@ -1,0 +1,30 @@
+{{define "search.html"}}
+<h2>Search</h2>
+{{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+<form method="get" action="/search">
+  <label for="q">Title, filename or studio</label>
+  <input type="text" id="q" name="q" value="{{.Q}}" autofocus autocomplete="off">
+  <label for="lang">Language</label>
+  <input type="text" id="lang" name="lang" value="{{.Lang}}" placeholder="e.g. en, pt-BR" autocomplete="off">
+  <button type="submit">Search</button>
+</form>
+
+{{if .Searched}}
+  {{if not .Results}}
+  <p>No matches.</p>
+  {{else}}
+    {{if .Truncated}}<p class="hint">Showing the best 50 matches.</p>{{end}}
+    <ul class="releases">
+    {{range .Results}}
+      <li>
+        <a href="/release/{{.ID}}">{{.Title}}</a>
+        {{if .Studio}} — {{.Studio}}{{end}}
+        <div class="hint">
+        {{range $i, $t := .Tracks}}{{if $i}}, {{end}}{{$t.Lang}}{{if $t.Generated}} (auto){{end}}{{end}}
+        </div>
+      </li>
+    {{end}}
+    </ul>
+  {{end}}
+{{end}}
+{{end}}

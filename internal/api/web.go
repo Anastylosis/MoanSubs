@@ -7,10 +7,10 @@ import (
 	"net/http"
 )
 
-// The node's human-facing surface: a front door and a registration form, so
-// getting an upload token does not require knowing how to POST JSON. It is
-// deliberately tiny — three templates, no assets, no JavaScript — because
-// this is a JSON API server that happens to greet people, not a web app.
+// The node's human-facing surface: a front door, a registration form, and
+// (WP-C2) a small public catalogue. It is deliberately tiny — no assets, no
+// JavaScript — because this is a JSON API server that happens to greet
+// people, not a web app.
 //
 //go:embed templates/*.html
 var templateFS embed.FS
@@ -18,12 +18,6 @@ var templateFS embed.FS
 // Parsed once at startup: a template parse error is a build-time mistake, so
 // failing here is better than discovering it on someone's first visit.
 var pages = template.Must(template.ParseFS(templateFS, "templates/*.html"))
-
-// indexData is GET /'s data.
-type indexData struct {
-	Title string
-	Open  bool
-}
 
 // registerData is /register's data (both the form and its result). Name is
 // echoed back into the form after a failed submission; html/template
@@ -78,6 +72,19 @@ func (s *Server) renderPage(w http.ResponseWriter, status int, body string, data
 	}
 }
 
+// indexPageData is the front page's data: catalogue stats read through the
+// same 5-minute cache GET /api/v1/stats uses (WP-C2), a link to /browse and
+// a search box, and the operator's published dump link when one is
+// configured (Server.DumpURL / MOANSUBS_DUMP_URL — unset hides the link
+// entirely, since publishing a dump is an out-of-band operator choice, not
+// something this server does itself).
+type indexPageData struct {
+	Title   string
+	Open    bool
+	Stats   *statsResponse
+	DumpURL string
+}
+
 // handleIndex serves the front page. Registered as "GET /", which in
 // net/http's mux is a catch-all prefix rather than an exact match, so
 // anything unrouted lands here and has to be turned back into a 404 —
@@ -87,7 +94,19 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.renderPage(w, http.StatusOK, "index.html", indexData{Title: "Home", Open: s.OpenRegistration}, false)
+
+	data := indexPageData{Title: "Home", Open: s.OpenRegistration, DumpURL: s.DumpURL}
+	// Stats are best-effort here: a snapshot error omits the numbers rather
+	// than failing the whole front page (WP-C2 spec) — this is the node's
+	// front door, and it must render even when the stats aggregate query
+	// has a bad day.
+	if body, err := s.Stats.snapshot(r.Context()); err != nil {
+		log.Printf("api: Stats.snapshot (index): %v", err)
+	} else {
+		data.Stats = &body
+	}
+
+	s.renderPage(w, http.StatusOK, "index.html", data, false)
 }
 
 // handleRegisterForm serves the registration form (or the closed notice).

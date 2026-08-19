@@ -2,6 +2,19 @@
 <p>This node stores subtitles keyed to video fingerprints, so a subtitle
 made for one copy of a scene can be found from a different encode of it.</p>
 
+{{if .Stats}}
+<p class="sub">{{.Stats.Tracks}} tracks across {{.Stats.Releases}} releases,
+{{.Stats.DownloadsTotal}} downloads so far.</p>
+{{end}}
+
+<form method="get" action="/search">
+  <label for="q">Search the catalogue</label>
+  <input type="text" id="q" name="q" placeholder="title, filename, studio...">
+  <button type="submit">Search</button>
+</form>
+<p class="hint"><a href="/browse">Browse everything</a>{{if .DumpURL}} ·
+<a href="{{.DumpURL}}">download the latest dump</a>{{end}}.</p>
+
 <p>Searching and downloading is anonymous — the
 <a href="https://github.com/Anastylosis/MoanSubs">Stash plugin</a> does it
 for you from the scene page, and needs nothing but this node's address.</p>

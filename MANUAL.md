@@ -21,12 +21,23 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_SESSION_TTL` | `720h` | How long a browser session (the `moansubs_session` cookie from `POST /login`) stays valid, parsed with Go's `time.ParseDuration`. |
 | `MOANSUBS_TRUSTED_PROXY_CIDRS` | *(unset)* | Comma-separated CIDRs (e.g. `172.28.0.0/24,10.0.0.0/8`). The rate limiters' `X-Forwarded-For` handling only trusts the header when the request's direct peer address falls inside one of these — see "Reverse proxies" below. It also gates whether `X-Forwarded-Proto: https` is believed for the session cookie's `Secure` flag. Unset means none are trusted. |
 
-Pages served for humans: `/` (what this node is), `/register` (the
-registration form), `/login`, and `/me` (the logged-in account's own
-summary — upload count, total downloads, own tracks including withdrawn
-ones, and a "rotate token" button). They are self-contained — no assets,
-no JavaScript — and `/register` and `/me`'s rotate-token action show a new
-token once, exactly like the API does. Everything else 404s.
+| `MOANSUBS_SEARCH_RATE_PER_MINUTE` | `30` | Per-IP budget for `GET /search`. The only catalogue page where an anonymous visitor makes the database do real work (a GIN array-overlap query), rather than an indexed lookup by prefix or id. |
+| `MOANSUBS_DUMP_URL` | *(unset)* | Link the front page shows under "download the latest dump". Publishing a dump (WP-B2, `moansubs dump`) is an out-of-band operator choice; unset hides the link entirely. |
+
+Pages served for humans, none of them needing an account to read:
+`/` (what this node is, with catalogue stats and a search box),
+`/register` (the registration form, showing the new token once, exactly
+like the API does), `/browse` and `/search` (the subtitle catalogue,
+keyset-paginated and optionally filtered by `lang`), `/release/{id}` (one
+release's tracks, each linking to its `format=srt` download), and
+`/u/{name}` (an uploader's credited contributions). `/login` and `/me`
+are the logged-in account's own view — upload count, total downloads,
+own tracks including withdrawn ones, and a "rotate token" button that
+shows the new token once. All are self-contained — no assets, no
+JavaScript. The catalogue pages (`/browse`, `/search`, `/release/*`,
+`/u/*`) send `X-Robots-Tag: noindex, nofollow`, and `/robots.txt`
+disallows the whole site — this is a subtitle mirror, not something to
+optimize for search engines. Everything else 404s.
 
 Startup applies any pending migrations, then serves. Shutdown is graceful
 on SIGINT/SIGTERM (in-flight requests get 10 seconds).

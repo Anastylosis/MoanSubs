@@ -1,0 +1,21 @@
+{{define "release.html"}}
+<h2>{{.Release.Title}}</h2>
+{{if .Release.Studio}}<p class="sub">{{.Release.Studio}}{{if .Release.ReleaseDate}} — {{.Release.ReleaseDate}}{{end}}</p>{{end}}
+{{if .Release.Performers}}<p>{{range $i, $p := .Release.Performers}}{{if $i}}, {{end}}{{$p}}{{end}}</p>{{end}}
+{{if or .Release.Duration .Release.Resolution}}
+<p class="hint">{{.Release.Duration}}{{if and .Release.Duration .Release.Resolution}} · {{end}}{{.Release.Resolution}}</p>
+{{end}}
+
+<h3>Subtitles</h3>
+{{if not .Release.Tracks}}
+<p>None visible.</p>
+{{else}}
+<ul>
+{{range .Release.Tracks}}
+  <li>{{.Lang}}{{if .Generated}} (machine-generated){{end}} —
+      <a href="/api/v1/subtitles/{{.ID}}?format=srt">download</a>
+      ({{.Downloads}} downloads)</li>
+{{end}}
+</ul>
+{{end}}
+{{end}}

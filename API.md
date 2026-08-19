@@ -50,7 +50,7 @@ leaks the same, explicitly.
 
 ### `GET /api/v1/version`
 
-`{"version": "<semver or dev>", "features": ["lookup", "match", "withdraw", "stats"]}`. Anonymous
+`{"version": "<semver or dev>", "features": ["lookup", "match", "withdraw", "stats", "srt"]}`. Anonymous
 and unthrottled — it never touches the database. Lets a client discover the
 node's version and API surface up front and degrade a missing feature
 gracefully (skip with one log line) instead of tripping over a 404 mid-task.
@@ -212,6 +212,17 @@ request; no IP, account or timestamp is recorded against it, deliberately
   hiding every track under it. Either way, the id used to work and no
   longer does; distinguishing this from a plain `404` lets a client tell
   "never existed" from "was taken down".
+
+`?format=srt` returns the same track as a downloadable plain-text file
+instead of the JSON envelope — this is what the catalogue's `/release/{id}`
+page links to. `200` response: `Content-Type: text/plain; charset=utf-8`,
+`Content-Disposition: attachment; filename="<stem-or-release-id>.<bare
+lang>.srt"`, body is the raw canonical SRT. The filename's stem is the
+release's own `stem` (sanitized to safe ASCII; falls back to
+`release-<id>` when the release has none or nothing safe survives) and the
+language is reduced to its bare ISO 639 subtag (`pt-BR` → `pt`) the same
+way the Stash plugin normalizes caption filenames. Counts as a download
+exactly like the JSON path; the same `404`/`410` cases apply.
 
 ### `POST /api/v1/accounts`
 

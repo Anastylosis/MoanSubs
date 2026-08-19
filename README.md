@@ -70,6 +70,14 @@ docker compose exec moansubs moansubs account list
 docker compose exec moansubs moansubs account disable <name>
 ```
 
+The server also carries a small public catalogue for browsers: `/browse`
+and `/search` list releases that have name metadata (title, studio,
+performers, or a filename stem — a bare hash has nothing to show), and
+`/release/{id}` shows one release's tracks with download links, `/u/{name}`
+credits an uploader's contributions. These pages are deliberately kept out
+of search engines (`/robots.txt`, `X-Robots-Tag: noindex`) — they're for
+people who already know this node exists, not for driving traffic to it.
+
 Server configuration is environment-only — see [MANUAL.md](MANUAL.md) for
 every variable, CLI command, and operational note (backups, rate limits,
 reverse proxies).
