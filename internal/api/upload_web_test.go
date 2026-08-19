@@ -240,6 +240,17 @@ func TestStaticUploadJS_Served(t *testing.T) {
 	if !strings.Contains(body, "oshashOf") {
 		t.Error("served script does not look like upload.js")
 	}
+
+	resp, body = getBody(t, ts.URL+"/static/phash.js")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /static/phash.js = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "text/javascript; charset=utf-8" {
+		t.Errorf("phash.js Content-Type = %q", ct)
+	}
+	if !strings.Contains(body, "phashOfPixels") {
+		t.Error("served script does not look like phash.js")
+	}
 }
 
 // A release with no title or stem never gets a catalogue page

@@ -129,6 +129,7 @@ func NewMux(s *Server) *http.ServeMux {
 	mux.HandleFunc("GET /upload", s.handleUploadForm)
 	mux.HandleFunc("POST /upload", s.handleUploadSubmit)
 	mux.HandleFunc("GET /static/upload.js", s.handleUploadJS)
+	mux.HandleFunc("GET /static/phash.js", s.handlePhashJS)
 	mux.HandleFunc("GET /robots.txt", s.handleRobotsTxt)
 	mux.HandleFunc("GET /browse", s.handleBrowse)
 	mux.HandleFunc("GET /search", s.handleSearch)

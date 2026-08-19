@@ -22,9 +22,9 @@
     <label for="video">Video file (stays on your computer — only its fingerprint is computed here)</label>
     <input type="file" id="video" accept="video/*">
     <p class="hint" id="video-status">Picking a video file fills in oshash,
-    duration and the filename stem below — the video itself is never sent
-    anywhere. Requires JavaScript; without it, copy the fields from Stash by
-    hand as before.</p>
+    duration, the filename stem and an approximate phash below — the video
+    itself is never sent anywhere. Requires JavaScript; without it, copy the
+    fields from Stash by hand as before.</p>
 
     <label for="oshash">oshash</label>
     <input type="text" id="oshash" name="oshash" value="{{.Values.OSHash}}" required
@@ -38,7 +38,10 @@
 
     <label for="phash">phash (optional)</label>
     <input type="text" id="phash" name="phash" value="{{.Values.PHash}}" autocomplete="off">
-    <p class="hint">From Stash: scene → File info → Phash, if generated.</p>
+    <p class="hint" id="phash-hint">From Stash: scene → File info → Phash, if generated. A value
+    computed here from the video file is approximate (the browser's decoder
+    stands in for ffmpeg's) but close enough for matching; Stash's own value
+    is better when you have it.</p>
 
     <label for="md5">md5 (optional)</label>
     <input type="text" id="md5" name="md5" value="{{.Values.MD5}}" autocomplete="off">
@@ -74,6 +77,7 @@
 
     <button type="submit">Upload</button>
   </form>
+  <script src="/static/phash.js" defer></script>
   <script src="/static/upload.js" defer></script>
 {{end}}
 {{end}}

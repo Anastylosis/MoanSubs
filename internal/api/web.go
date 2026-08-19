@@ -10,14 +10,18 @@ import (
 // The node's human-facing surface: a front door, a registration form, and
 // (WP-C2) a small public catalogue. It is deliberately tiny — almost no
 // assets, almost no JavaScript — because this is a JSON API server that
-// happens to greet people, not a web app. The one exception is
-// static/upload.js (WP-D2), the in-browser oshash/duration fingerprinter.
+// happens to greet people, not a web app. The exceptions are
+// static/upload.js (WP-D2) and static/phash.js (WP-D3), the in-browser
+// video fingerprinters.
 //
 //go:embed templates/*.html
 var templateFS embed.FS
 
 //go:embed static/upload.js
 var uploadJS []byte
+
+//go:embed static/phash.js
+var phashJS []byte
 
 // defaultCSP is every page's Content-Security-Policy except /upload: the
 // page is entirely self-contained, so the strictest useful policy applies
@@ -92,16 +96,24 @@ func (s *Server) renderPage(w http.ResponseWriter, status int, body string, data
 	}
 }
 
-// handleUploadJS serves static/upload.js (WP-D2) at GET /static/upload.js —
-// this node's one static asset, hence a dedicated route rather than a
-// generic file server. Cached for an hour: the file only changes on a
-// deploy, and it exists at all only because /upload's CSP (script-src
-// 'self', no inline scripts, no nonce — see uploadCSP) requires the script
-// to be same-origin rather than embedded in the page.
+// handleUploadJS and handlePhashJS serve this node's two static assets
+// (GET /static/upload.js, GET /static/phash.js) — dedicated routes rather
+// than a generic file server. Cached for an hour: the files only change on
+// a deploy, and they exist at all only because /upload's CSP (script-src
+// 'self', no inline scripts, no nonce — see uploadCSP) requires scripts to
+// be same-origin rather than embedded in the page.
 func (s *Server) handleUploadJS(w http.ResponseWriter, _ *http.Request) {
+	serveScript(w, uploadJS)
+}
+
+func (s *Server) handlePhashJS(w http.ResponseWriter, _ *http.Request) {
+	serveScript(w, phashJS)
+}
+
+func serveScript(w http.ResponseWriter, body []byte) {
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
-	_, _ = w.Write(uploadJS)
+	_, _ = w.Write(body)
 }
 
 // indexPageData is the front page's data: catalogue stats read through the

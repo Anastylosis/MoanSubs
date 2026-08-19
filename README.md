@@ -66,11 +66,15 @@ plugin isn't handy, going through the exact same checks as the API upload
 path below. Picking the *video* file (a second, separate file picker —
 never the subtitle) computes `oshash` and probes duration right there in
 the browser and fills both fields in; the video itself is never uploaded
-or even read in full, just its first and last 64KiB. `phash` still has to
-be copied from Stash by hand (scene → File info) — Stash's phash isn't
-something a browser can derive from the file alone. Without JavaScript, or
-if the browser can't decode the video's container, all three fields are
-still plain text you fill in yourself, exactly as before.
+or even read in full — oshash needs just its first and last 64KiB. If the
+browser can decode the video it also computes an *approximate* `phash`
+the way Stash does (25 frames, a 5×5 sprite, the same perceptual hash):
+the browser's decoder and scaler stand in for ffmpeg's, so a few bits may
+differ from what Stash stores, which the distance-based matching absorbs;
+Stash's own value (scene → File info) is still better when you have it and
+overrides the computed one if you paste it. Without JavaScript, or if the
+browser can't decode the container, all the fields are plain text you fill
+in yourself, exactly as before.
 Operators can mint an account directly, which is also the only route on a
 node running with `MOANSUBS_OPEN_REGISTRATION=false`:
 

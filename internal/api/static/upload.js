@@ -102,6 +102,40 @@ if (typeof document !== 'undefined') {
       video.src = url;
     };
 
+    // probePhash fills the phash field from static/phash.js when that
+    // script loaded and this browser can decode the file; otherwise the
+    // field is left exactly as it was (typed, or empty) — phash is optional
+    // and a wrong one is worse than none, so nothing here ever guesses.
+    const phashField = document.getElementById('phash');
+    // lastComputedPhash lets a second video pick replace the first pick's
+    // value while a value the user pasted themselves is never overwritten:
+    // Stash's own phash beats the browser's approximation.
+    let lastComputedPhash = '';
+    const probePhash = (file) => {
+      if (typeof window.moansubsPhashOf !== 'function' || !phashField) {
+        return;
+      }
+      const before = phashField.value;
+      if (before !== '' && before !== lastComputedPhash) {
+        return;
+      }
+      phashField.placeholder = 'computing…';
+      window.moansubsPhashOf(file).then((h) => {
+        phashField.placeholder = '';
+        if (h === null) {
+          setStatus("this browser couldn't decode the video for phash — paste it from Stash if you have it.");
+          return;
+        }
+        if (phashField.value === before) {
+          phashField.value = h;
+          lastComputedPhash = h;
+        }
+      }).catch((err) => {
+        phashField.placeholder = '';
+        console.error('phash:', err);
+      });
+    };
+
     videoInput.addEventListener('change', () => {
       const file = videoInput.files && videoInput.files[0];
       if (!file) {
@@ -126,6 +160,7 @@ if (typeof document !== 'undefined') {
       });
 
       probeDuration(file);
+      probePhash(file);
     });
   });
 }

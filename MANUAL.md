@@ -41,20 +41,29 @@ the new token once, and a link to `/upload`. `/upload` (session required,
 redirects to `/login` otherwise) is a multipart form for the same
 `POST /api/v1/subtitles` upload — same fields, same rate limit
 (`MOANSUBS_UPLOAD_RATE_PER_HOUR`), same validation, same dedup — for a
-person without the Stash plugin handy. `oshash`, `duration_ms` and the
-filename stem stay plain text fields, but `/upload` alone loads one script
-(`GET /static/upload.js`, same-origin, `script-src 'self'` on that page
-only) that fills them in when a second file picker is given the *video*
-file: `oshash` from the same algorithm as `internal/hash.ComputeOSHash`
-(size plus the little-endian uint64 sum of the first and last 64KiB, read
-with `File.slice(...).arrayBuffer()` — the video is never uploaded, never
-read past those two windows), duration from a detached
-`<video preload="metadata">` element's `loadedmetadata` event. A file too
-small to fingerprint, or a container the browser can't decode, leaves the
-field for the uploader to type — same as with JavaScript disabled, which
-leaves every field exactly as WP-D1 had it. `phash` is always a plain text
-field: it isn't derivable from the file alone. Every other page is
-self-contained — no assets, no JavaScript. The catalogue pages (`/browse`, `/search`, `/release/*`,
+person without the Stash plugin handy. `oshash`, `duration_ms`, `phash`
+and the filename stem stay plain text fields, but `/upload` alone loads
+two scripts (`GET /static/upload.js` and `GET /static/phash.js`,
+same-origin, `script-src 'self'` on that page only) that fill them in
+when a second file picker is given the *video* file: `oshash` from the
+same algorithm as `internal/hash.ComputeOSHash` (size plus the
+little-endian uint64 sum of the first and last 64KiB, read with
+`File.slice(...).arrayBuffer()` — the video is never uploaded), duration
+from a detached `<video>` element's `loadedmetadata` event, and `phash`
+the way Stash's `pkg/hash/videophash` computes it — 25 frames at
+`5% + i·(90%/25)` of the duration, each drawn 160 px wide into a 5×5
+sprite, then goimagehash's `PerceptionHash` (nfnt bilinear to 64×64,
+grayscale, DCT-II, top-left 8×8, median threshold), ported bit-for-bit
+for the sprite→hash half (the Go test `TestPhashJS_MatchesGoimagehash`
+proves it against goimagehash's own output) while the browser's decoder,
+seek and scaler stand in for ffmpeg's for the file→sprite half, so the
+result is labelled approximate: expect a few bits of Hamming distance from
+Stash's stored value, which the server's distance-based matching absorbs.
+A pasted value is never overwritten. A file too small to fingerprint, or a
+container the browser can't decode, leaves the field for the uploader to
+type — same as with JavaScript disabled, which leaves every field plain.
+Every other page is self-contained — no assets, no JavaScript. The
+catalogue pages (`/browse`, `/search`, `/release/*`,
 `/u/*`) send `X-Robots-Tag: noindex, nofollow`, and `/robots.txt`
 disallows the whole site — this is a subtitle mirror, not something to
 optimize for search engines. Everything else 404s.
