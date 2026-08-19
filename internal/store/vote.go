@@ -231,3 +231,21 @@ func (s *Store) ListFlaggedTracks(ctx context.Context, minDown int) ([]FlaggedTr
 	}
 	return out, nil
 }
+
+// CountFlaggedTracks returns how many active tracks ListFlaggedTracks(minDown)
+// would list, without fetching the rows themselves — /admin index's flagged
+// count (WP-C7b). Shares ListFlaggedTracks's exact predicate so the number
+// there can never drift from what /mod/flagged actually shows.
+func (s *Store) CountFlaggedTracks(ctx context.Context, minDown int) (int, error) {
+	var n int
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM subtitle_tracks t
+		WHERE t.withdrawn_at IS NULL
+		  AND ((t.down >= $1 AND t.down > t.up)
+		       OR EXISTS (SELECT 1 FROM track_votes v WHERE v.track_id = t.id AND v.reason = 'spam'))`, minDown,
+	).Scan(&n); err != nil {
+		return 0, fmt.Errorf("store: CountFlaggedTracks: %w", err)
+	}
+	return n, nil
+}

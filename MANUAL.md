@@ -115,7 +115,9 @@ Every other page is self-contained — no assets, no JavaScript. The
 catalogue pages (`/browse`, `/search`, `/release/*`,
 `/u/*`) send `X-Robots-Tag: noindex, nofollow`, and `/robots.txt`
 disallows the whole site — this is a subtitle mirror, not something to
-optimize for search engines. Everything else 404s.
+optimize for search engines. `/mod/*` and `/admin/*` (role-gated, see
+"Moderating from the browser" below) send the same `X-Robots-Tag` plus
+`Cache-Control: no-store` on every page. Everything else 404s.
 
 Startup applies any pending migrations, then serves. Shutdown is graceful
 on SIGINT/SIGTERM (in-flight requests get 10 seconds).
@@ -362,6 +364,63 @@ present/skipped (unparseable, or under a locally withdrawn release).
 ### `moansubs --version`
 
 Prints version, commit, and build date (stamped by `make`/CI builds).
+
+## Moderating from the browser
+
+Everything below is a browser front end onto the exact same store
+operations the `account`/`track`/`release`/`invite` commands above already
+run — no separate moderation logic, just pages. The CLI stays: these pages
+exist for a mod or admin who'd rather click than SSH in, not as a
+replacement.
+
+Every page here is session-only (log in at `/login` first) and gated by
+role (`moansubs account role`, above): an account that isn't allowed on a
+given page gets a plain `404`, not `403` or a login prompt, so the page's
+existence isn't advertised to someone who can't use it. Every state-changing
+action is a same-origin POST (WP-C1's Origin/Referer check, SECURITY.md),
+same as `/me`'s own buttons.
+
+**Role `mod` or higher:**
+
+- `/mod/flagged` — the same list `track list --flagged` prints, as a table:
+  track, release, language, uploader, vote tally, top down-vote reason, and
+  the single newest note left on the track. Each row has a "Withdraw" action
+  (a reason is required, ≤300 characters — the same free text `track
+  withdraw --reason` takes) that runs `WithdrawTrack` and returns to the
+  queue. There is no "Dismiss": the queue is derived straight from votes, so
+  a withdrawn track simply stops qualifying and drops off it on its own.
+- `/mod/track/{id}` — one track's full detail (uploader, language,
+  generated flag, vote tally, withdrawn state) plus every vote cast on it
+  with its reason/note/voter (`VotesForTrack`, the same data `track show`
+  prints), a preview of its first 20 cues, and a Withdraw or Restore button
+  depending on its current state.
+- `/mod/release/{id}` — a minimal page for withdrawing or restoring a whole
+  release (`WithdrawRelease`/`RestoreRelease`, cascading to every one of its
+  active tracks exactly like `release withdraw`/`release restore`).
+
+**Role `admin`:**
+
+- `/admin` — the numbers `GET /api/v1/stats` already publishes, plus
+  accounts-by-role, the current flagged count, and how many invite codes
+  are still redeemable right now.
+- `/admin/accounts?q=` — search accounts by name (blank lists everyone,
+  newest first): role, creation time, upload count, who invited them, and
+  disabled state. Per row: Disable/Enable (`SetAccountDisabled`, plus
+  `DeleteSessionsForAccount` on disable — identical to `account
+  disable`/`enable`), a role `<select>` (`SetAccountRole`), and Purge (the
+  `account purge` sequence — withdraw every upload, then disable, then kill
+  sessions — behind a confirmation field that must be typed to match the
+  account's name exactly). An admin cannot disable, purge, or change the
+  role of their own account — every one of those actions answers `400`
+  against yourself, the same way the CLI has no "disable myself" footgun
+  either.
+- `/admin/invites` — every invite code on the node with its creator, uses,
+  and status; a form to mint one for any account (self included, unlimited
+  or a fixed use count, with or without an expiry — `CreateInvite`, the same
+  primitive `invite create` uses); a Disable button per active code
+  (`DisableInvite`, unrestricted by creator here, unlike `/me`'s own
+  disable button which only lets a code's creator or an admin turn off
+  their own).
 
 ## Operations
 

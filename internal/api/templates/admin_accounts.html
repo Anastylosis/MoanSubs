@@ -1,0 +1,52 @@
+{{define "admin_accounts.html"}}
+<h1>Accounts</h1>
+{{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+<form method="get" action="/admin/accounts" class="row" style="max-width:30rem">
+  <div>
+    <label for="q" style="margin-top:0">Search</label>
+    <input type="text" id="q" name="q" value="{{.Q}}" placeholder="name contains…" autocomplete="off">
+  </div>
+  <button type="submit" class="quiet">Search</button>
+</form>
+
+{{if not .Rows}}
+<p class="empty">No accounts match.</p>
+{{else}}
+<table>
+  <thead><tr><th>Name</th><th>Role</th><th>Created</th><th class="n">Uploads</th><th>Invited by</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+  {{range $a := .Rows}}
+  <tr>
+    <td><a href="/u/{{$a.Name}}">{{$a.Name}}</a></td>
+    <td>
+      <form method="post" action="/admin/accounts/{{$a.Name}}/role" class="inline">
+        <select name="role" aria-label="Role for {{$a.Name}}">
+          {{range $.Roles}}<option value="{{.}}"{{if eq . $a.Role}} selected{{end}}>{{.}}</option>{{end}}
+        </select>
+        <button type="submit" class="quiet sm">Set</button>
+      </form>
+    </td>
+    <td class="mono">{{$a.CreatedAt.Format "2006-01-02"}}</td>
+    <td class="n">{{$a.UploadCount}}</td>
+    <td>{{if $a.InvitedByName}}<a href="/u/{{$a.InvitedByName}}">{{$a.InvitedByName}}</a>{{else}}<span class="hint" style="display:inline">(none)</span>{{end}}</td>
+    <td>{{if $a.Disabled}}<span class="hint" style="display:inline;color:var(--danger)">disabled</span>{{else}}active{{end}}</td>
+    <td>
+      <div class="inline">
+      {{if $a.Disabled}}
+        <form method="post" action="/admin/accounts/{{$a.Name}}/enable" style="margin:0"><button type="submit" class="quiet sm">Enable</button></form>
+      {{else}}
+        <form method="post" action="/admin/accounts/{{$a.Name}}/disable" style="margin:0"><button type="submit" class="quiet sm">Disable</button></form>
+      {{end}}
+      <form method="post" action="/admin/accounts/{{$a.Name}}/purge" class="inline" style="margin:0">
+        <input type="text" name="confirm" placeholder="type name to confirm" aria-label="Confirm purge of {{$a.Name}}">
+        <input type="text" name="reason" placeholder="reason" aria-label="Purge reason for {{$a.Name}}">
+        <button type="submit" class="quiet sm">Purge</button>
+      </form>
+      </div>
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+{{end}}

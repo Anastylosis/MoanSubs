@@ -181,6 +181,24 @@ func (s *Store) ListInvitesWithCreators(ctx context.Context) ([]InviteWithCreato
 	return out, nil
 }
 
+// CountPendingInvites returns how many invite codes are currently
+// redeemable — enabled, unexpired, under their use limit — /admin index's
+// "pending invites" count (WP-C7b). Shares createInvitedAccount's exact
+// redemption gate as a plain SELECT so the count can never disagree with
+// what actually redeems.
+func (s *Store) CountPendingInvites(ctx context.Context) (int, error) {
+	var n int
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM invites
+		WHERE disabled_at IS NULL
+		  AND (expires_at IS NULL OR expires_at > now())
+		  AND (max_uses IS NULL OR uses < max_uses)`,
+	).Scan(&n); err != nil {
+		return 0, fmt.Errorf("store: CountPendingInvites: %w", err)
+	}
+	return n, nil
+}
+
 // DisableInvite marks code disabled. Idempotent — disabling an
 // already-disabled code, or one that doesn't exist, is not an error, the
 // same "the end state is already true" reasoning as DeleteSession. Callers

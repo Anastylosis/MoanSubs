@@ -44,9 +44,11 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	// words turns a closed-vocabulary key ("out_of_sync") into its label
 	// ("out of sync") — the keys are API contract, the labels are not.
 	"words": func(s string) string { return strings.ReplaceAll(s, "_", " ") },
-	// loggedIn is rebound per request in renderPage; this is the
-	// parse-time placeholder.
-	"loggedIn": func() bool { return false },
+	// loggedIn and roleAtLeast are rebound per request in renderPage; these
+	// are the parse-time placeholders (a template function must be defined
+	// at parse time or parsing itself fails).
+	"loggedIn":    func() bool { return false },
+	"roleAtLeast": func(string) bool { return false },
 }).ParseFS(templateFS, "templates/*.html"))
 
 // registerData is /register's data (both the form and its result). Name is
@@ -84,9 +86,25 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 		// "Account" in the nav. Cookie presence, not validity — a stale
 		// cookie just means /me bounces to /login, which is fine for a
 		// signpost and costs no query per page.
-		_, cerr := r.Cookie(sessionCookieName)
+		cookie, cerr := r.Cookie(sessionCookieName)
 		loggedIn := cerr == nil
-		tpl = tpl.Funcs(template.FuncMap{"loggedIn": func() bool { return loggedIn }})
+
+		// roleAtLeast (WP-C7b) gates the nav's "Moderate"/"Admin" links —
+		// unlike loggedIn, it needs the account behind the cookie, not just
+		// the cookie's presence, so it costs one lookup per page render
+		// when a cookie is present. Deliberately uncached: a role change
+		// (or a session dying) must be reflected on the very next page a
+		// visitor loads, not after some TTL.
+		role := ""
+		if loggedIn {
+			if account, aerr := s.Store.GetSessionAccount(r.Context(), cookie.Value); aerr == nil {
+				role = account.Role
+			}
+		}
+		tpl = tpl.Funcs(template.FuncMap{
+			"loggedIn":    func() bool { return loggedIn },
+			"roleAtLeast": func(want string) bool { return roleRank[role] >= roleRank[want] },
+		})
 	}
 	if err == nil {
 		_, err = tpl.AddParseTree("body", pages.Lookup(body).Tree)

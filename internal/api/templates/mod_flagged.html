@@ -1,0 +1,32 @@
+{{define "mod_flagged.html"}}
+<h1>Flagged tracks</h1>
+<p class="hint" style="margin:0 0 1rem">Net three or more downvotes, or any spam vote at all. There is no "Dismiss" — the queue is derived straight from votes, so withdrawing a track is what makes it leave.</p>
+
+{{if not .Rows}}
+<p class="empty">Nothing flagged right now.</p>
+{{else}}
+<table>
+  <thead><tr><th>Track</th><th>Release</th><th>Lang</th><th>Uploader</th><th class="n">Votes</th><th>Top reason</th><th>Newest note</th><th></th></tr></thead>
+  <tbody>
+  {{range .Rows}}
+  <tr>
+    <td><a href="/mod/track/{{.ID}}">#{{.ID}}</a></td>
+    <td><a href="/mod/release/{{.ReleaseID}}">#{{.ReleaseID}}</a></td>
+    <td><span class="tag">{{.Lang}}</span></td>
+    <td>{{if .UploaderName}}<a href="/u/{{.UploaderName}}">{{.UploaderName}}</a>{{else}}<span class="hint" style="display:inline">(none)</span>{{end}}</td>
+    <td class="n"><span class="tally"><span class="up">▲{{.Up}}</span> <span class="down">▼{{.Down}}</span></span></td>
+    <td>{{if .TopReason}}{{words .TopReason}}{{end}}</td>
+    <td>{{.NewestNote}}</td>
+    <td>
+      <form method="post" action="/mod/track/{{.ID}}/withdraw" class="inline">
+        <input type="hidden" name="redirect" value="/mod/flagged">
+        <input type="text" name="reason" maxlength="300" placeholder="reason, required" required aria-label="Withdrawal reason for track {{.ID}}">
+        <button type="submit" class="quiet sm">Withdraw</button>
+      </form>
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+{{end}}

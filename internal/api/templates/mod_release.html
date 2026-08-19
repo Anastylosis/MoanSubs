@@ -1,0 +1,25 @@
+{{define "mod_release.html"}}
+{{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+<h1>Release #{{.Release.ID}}</h1>
+<div class="meta">
+  <span>oshash: <code class="mono">{{.Release.OSHash}}</code></span>
+  {{if .Release.Duration}}<span>{{.Release.Duration}}</span>{{end}}
+  {{if .Release.Resolution}}<span>{{.Release.Resolution}}</span>{{end}}
+  <span>Created: {{.Release.CreatedAt.Format "2006-01-02"}}</span>
+</div>
+{{if or .Release.Title .Release.Stem}}<p>{{if .Release.Title}}{{.Release.Title}}{{else}}{{.Release.Stem}}{{end}}{{if .Release.Studio}} — {{.Release.Studio}}{{end}}</p>{{end}}
+
+{{if .Release.Withdrawn}}
+<div class="notice">Withdrawn{{if .Release.WithdrawnReason}}: {{.Release.WithdrawnReason}}{{end}}</div>
+<form method="post" action="/mod/release/{{.Release.ID}}/restore" style="margin:0">
+  <button type="submit" class="quiet">Restore</button>
+</form>
+{{else}}
+<form method="post" action="/mod/release/{{.Release.ID}}/withdraw" class="stack">
+  <label for="reason">Withdraw this release (and every active track under it)</label>
+  <input type="text" id="reason" name="reason" maxlength="300" required>
+  <button type="submit">Withdraw</button>
+</form>
+{{end}}
+<p class="hint"><a href="/release/{{.Release.ID}}">View the public release page</a></p>
+{{end}}

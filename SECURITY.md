@@ -89,11 +89,23 @@ disabled or purged: it's a moderation trail, not a live permission, so it
 outlives the relationship it recorded.
 
 **Roles.** Every account has a role (`user`, `mod`, or `admin`; default
-`user`), set by the operator with `moansubs account role`. This version of
-the server does not gate any behavior on role beyond who may disable
-someone else's invite code — the column exists ahead of the moderation
-surfaces that will read it, not as a currently-enforced privilege
-boundary.
+`user`), set by the operator with `moansubs account role`. `mod` and above
+can disable someone else's invite code; `mod` and above can also reach the
+moderation pages (`/mod/flagged`, `/mod/track/{id}`, `/mod/release/{id}`,
+MANUAL.md "Moderating from the browser") to withdraw or restore a track or
+release; `admin` additionally reaches `/admin`, `/admin/accounts`, and
+`/admin/invites` — disabling, purging, or re-rolling any other account's
+role, and minting or disabling invite codes for anyone. An account that
+lacks the required role gets a plain `404` from any of these pages, not
+`403` — a moderation or admin surface must not even confirm its own
+existence to an account that isn't allowed to use it. Every state-changing
+action on these pages is the same store primitive the CLI equivalent
+(`account`/`track`/`release`/`invite`) already runs, reached through the
+same session-cookie auth and Origin/CSRF check as `/me`'s own buttons — no
+separate authorization or validation logic to drift out of sync with the
+CLI. An admin cannot disable, purge, or change the role of their own
+account (`400`) — self-lockout by misclick is refused outright rather than
+relying on an operator noticing in time.
 
 **Web pages.** The node serves HTML pages (`/`, `/register`, `/login`,
 `/me`), built with `html/template` so anything reflected back into the

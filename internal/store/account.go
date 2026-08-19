@@ -187,6 +187,84 @@ func (s *Store) ListAccounts(ctx context.Context) ([]Account, error) {
 	return out, nil
 }
 
+// AdminAccountRow is one row of /admin/accounts (WP-C7b): everything an
+// operator needs to triage an account without opening it individually —
+// upload count and inviter name, both resolved via a join, on top of the
+// plain account columns.
+type AdminAccountRow struct {
+	ID            int64
+	Name          string
+	Role          string
+	CreatedAt     time.Time
+	Disabled      bool
+	UploadCount   int
+	InvitedByName *string // nil when not invited (operator-created, or pre-dates invites)
+}
+
+// SearchAccounts returns up to limit accounts whose name contains q
+// (case-insensitive), newest first — /admin/accounts?q= (WP-C7b). An empty
+// q matches every account, so the same query also backs the bare listing.
+//
+// Deliberately a distinct function from ListAccounts rather than an added
+// q/limit pair on it: ListAccounts already has its own signature and
+// callers (`moansubs account list`, unfiltered and unlimited) that WP-C7b
+// has no business changing — a second, differently-shaped query for a
+// second, differently-shaped caller keeps the two from having to agree on
+// what their arguments mean.
+func (s *Store) SearchAccounts(ctx context.Context, q string, limit int) ([]AdminAccountRow, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT a.id, a.name, a.role, a.created_at, a.disabled, i.name,
+		       (SELECT COUNT(*) FROM subtitle_tracks t WHERE t.uploader_id = a.id)
+		FROM accounts a
+		LEFT JOIN accounts i ON i.id = a.invited_by
+		WHERE a.name ILIKE '%' || $1 || '%'
+		ORDER BY a.id DESC
+		LIMIT $2`, q, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: SearchAccounts: %w", err)
+	}
+	defer rows.Close()
+
+	var out []AdminAccountRow
+	for rows.Next() {
+		var a AdminAccountRow
+		var uploads int64
+		if err := rows.Scan(&a.ID, &a.Name, &a.Role, &a.CreatedAt, &a.Disabled, &a.InvitedByName, &uploads); err != nil {
+			return nil, fmt.Errorf("store: SearchAccounts: scanning: %w", err)
+		}
+		a.UploadCount = int(uploads)
+		out = append(out, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: SearchAccounts: %w", err)
+	}
+	return out, nil
+}
+
+// CountAccountsByRole returns the number of accounts holding each role,
+// keyed by role — /admin index's per-role counts (WP-C7b).
+func (s *Store) CountAccountsByRole(ctx context.Context) (map[string]int, error) {
+	rows, err := s.pool.Query(ctx, `SELECT role, COUNT(*) FROM accounts GROUP BY role`)
+	if err != nil {
+		return nil, fmt.Errorf("store: CountAccountsByRole: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]int, 3)
+	for rows.Next() {
+		var role string
+		var n int
+		if err := rows.Scan(&role, &n); err != nil {
+			return nil, fmt.Errorf("store: CountAccountsByRole: scanning: %w", err)
+		}
+		out[role] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: CountAccountsByRole: %w", err)
+	}
+	return out, nil
+}
+
 // SetAccountDisabled flips an account's disabled flag, matched on name
 // case-insensitively so an operator revoking access does not have to
 // reproduce the registrant's capitalization. Returns ErrNotFound when no

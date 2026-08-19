@@ -1,0 +1,39 @@
+{{define "admin_invites.html"}}
+<h1>Invites</h1>
+{{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+
+<h2 style="margin-top:0">Create a code</h2>
+<form method="post" action="/admin/invites" class="stack">
+  <label for="for">For account (yourself or another member)</label>
+  <input type="text" id="for" name="for" required>
+  <label style="display:flex;align-items:center;gap:.4rem;font-weight:400">
+    <input type="checkbox" name="unlimited" value="1" style="width:auto"> Unlimited uses
+  </label>
+  <label for="uses">Uses (ignored when unlimited)</label>
+  <input type="text" id="uses" name="uses" class="mono" placeholder="1" inputmode="numeric">
+  <label for="expires">Expires — a duration like 720h; blank means never</label>
+  <input type="text" id="expires" name="expires" class="mono" placeholder="720h">
+  <button type="submit">Create</button>
+</form>
+
+<h2>All codes</h2>
+{{if not .Rows}}
+<p class="empty">No invite codes yet.</p>
+{{else}}
+<table>
+  <thead><tr><th>Code</th><th>Created by</th><th class="n">Uses</th><th>Status</th><th>Expires</th><th></th></tr></thead>
+  <tbody>
+  {{range .Rows}}
+  <tr>
+    <td><code class="mono">{{.Code}}</code></td>
+    <td><a href="/u/{{.CreatedByName}}">{{.CreatedByName}}</a></td>
+    <td class="n">{{if .MaxUses}}{{.Uses}}/{{.MaxUses}}{{else}}{{.Uses}}/&infin;{{end}}</td>
+    <td>{{if .DisabledAt}}<span class="hint" style="display:inline;color:var(--danger)">disabled</span>{{else}}active{{end}}</td>
+    <td class="mono">{{if .ExpiresAt}}{{.ExpiresAt.Format "2006-01-02"}}{{else}}never{{end}}</td>
+    <td>{{if not .DisabledAt}}<form method="post" action="/admin/invites/{{.Code}}/disable" style="margin:0"><button type="submit" class="quiet sm">Disable</button></form>{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+{{end}}

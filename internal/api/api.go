@@ -201,6 +201,22 @@ func NewMux(s *Server) *http.ServeMux {
 	mux.HandleFunc("POST /api/v1/lookup/batch", s.handleLookupBatch)
 	mux.HandleFunc("POST /api/v1/lookup/exact", s.handleLookupExact)
 	mux.HandleFunc("POST /api/v1/match", s.handleMatch)
+	mux.HandleFunc("GET /mod/flagged", s.handleModFlagged)
+	mux.HandleFunc("GET /mod/track/{id}", s.handleModTrack)
+	mux.HandleFunc("POST /mod/track/{id}/withdraw", s.handleModTrackWithdraw)
+	mux.HandleFunc("POST /mod/track/{id}/restore", s.handleModTrackRestore)
+	mux.HandleFunc("GET /mod/release/{id}", s.handleModRelease)
+	mux.HandleFunc("POST /mod/release/{id}/withdraw", s.handleModReleaseWithdraw)
+	mux.HandleFunc("POST /mod/release/{id}/restore", s.handleModReleaseRestore)
+	mux.HandleFunc("GET /admin", s.handleAdminIndex)
+	mux.HandleFunc("GET /admin/accounts", s.handleAdminAccounts)
+	mux.HandleFunc("POST /admin/accounts/{name}/disable", s.handleAdminAccountDisable)
+	mux.HandleFunc("POST /admin/accounts/{name}/enable", s.handleAdminAccountEnable)
+	mux.HandleFunc("POST /admin/accounts/{name}/purge", s.handleAdminAccountPurge)
+	mux.HandleFunc("POST /admin/accounts/{name}/role", s.handleAdminAccountRole)
+	mux.HandleFunc("GET /admin/invites", s.handleAdminInvites)
+	mux.HandleFunc("POST /admin/invites", s.handleAdminInviteCreate)
+	mux.HandleFunc("POST /admin/invites/{code}/disable", s.handleAdminInviteDisable)
 	return mux
 }
 
