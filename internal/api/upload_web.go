@@ -103,12 +103,13 @@ type uploadPageData struct {
 // an anonymous visitor is sent to /login rather than shown a form they
 // cannot submit.
 func (s *Server) handleUploadForm(w http.ResponseWriter, r *http.Request) {
-	if _, err := authenticate(r.Context(), s.Store, r); err != nil {
+	ares, err := authenticate(r.Context(), s.Store, r)
+	if err != nil {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 	opts, allowOther := s.stashEndpointFormOptions()
-	s.renderPage(w, r, http.StatusOK, "upload.html", uploadPageData{
+	s.renderPage(w, withAuth(r, ares), http.StatusOK, "upload.html", uploadPageData{
 		Title:                   "Upload a subtitle",
 		Langs:                   uploadLangs,
 		StashEndpoints:          opts,
@@ -143,7 +144,7 @@ func (s *Server) handleUploadSubmit(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &maxErr) {
 			status, msg = http.StatusRequestEntityTooLarge, "upload is too large"
 		}
-		s.renderUploadForm(w, r, status, msg, uploadFormValues{})
+		s.renderUploadForm(w, r, ares, status, msg, uploadFormValues{})
 		return
 	}
 	values := formValuesFromRequest(r)
@@ -156,16 +157,16 @@ func (s *Server) handleUploadSubmit(w http.ResponseWriter, r *http.Request) {
 		data, rerr := io.ReadAll(io.LimitReader(file, subtitle.MaxBytes+1))
 		if rerr != nil {
 			log.Printf("api: reading uploaded file: %v", rerr)
-			s.renderUploadForm(w, r, http.StatusInternalServerError, "internal error", values)
+			s.renderUploadForm(w, r, ares, http.StatusInternalServerError, "internal error", values)
 			return
 		}
 		if int64(len(data)) > subtitle.MaxBytes {
-			s.renderUploadForm(w, r, http.StatusRequestEntityTooLarge, "subtitle file is too large", values)
+			s.renderUploadForm(w, r, ares, http.StatusRequestEntityTooLarge, "subtitle file is too large", values)
 			return
 		}
 		body = string(data)
 	} else if !errors.Is(ferr, http.ErrMissingFile) {
-		s.renderUploadForm(w, r, http.StatusBadRequest, "could not read the uploaded file", values)
+		s.renderUploadForm(w, r, ares, http.StatusBadRequest, "could not read the uploaded file", values)
 		return
 	}
 	// A missing file falls through with body == "": ingest's own "body is
@@ -175,13 +176,13 @@ func (s *Server) handleUploadSubmit(w http.ResponseWriter, r *http.Request) {
 
 	req, ferr := uploadRequestFromForm(r, body)
 	if ferr != nil {
-		s.renderUploadForm(w, r, ferr.status, ferr.msg, values)
+		s.renderUploadForm(w, r, ares, ferr.status, ferr.msg, values)
 		return
 	}
 
 	resp, aerr := s.ingest(r.Context(), ares.Account, req)
 	if aerr != nil {
-		s.renderUploadForm(w, r, aerr.status, aerr.msg, values)
+		s.renderUploadForm(w, r, ares, aerr.status, aerr.msg, values)
 		return
 	}
 
@@ -190,7 +191,7 @@ func (s *Server) handleUploadSubmit(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusOK
 	}
 	opts, allowOther := s.stashEndpointFormOptions()
-	s.renderPage(w, r, status, "upload.html", uploadPageData{
+	s.renderPage(w, withAuth(r, ares), status, "upload.html", uploadPageData{
 		Title:                   "Upload complete",
 		Langs:                   uploadLangs,
 		StashEndpoints:          opts,
@@ -209,9 +210,9 @@ func (s *Server) handleUploadSubmit(w http.ResponseWriter, r *http.Request) {
 // previously-submitted values (minus the file, which a browser never
 // refills into a file input) — the same shape a failed /register submission
 // re-shows its Name.
-func (s *Server) renderUploadForm(w http.ResponseWriter, r *http.Request, status int, msg string, values uploadFormValues) {
+func (s *Server) renderUploadForm(w http.ResponseWriter, r *http.Request, ares *authResult, status int, msg string, values uploadFormValues) {
 	opts, allowOther := s.stashEndpointFormOptions()
-	s.renderPage(w, r, status, "upload.html", uploadPageData{
+	s.renderPage(w, withAuth(r, ares), status, "upload.html", uploadPageData{
 		Title:                   "Upload a subtitle",
 		Langs:                   uploadLangs,
 		StashEndpoints:          opts,

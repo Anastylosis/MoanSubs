@@ -408,7 +408,18 @@ func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id in
 
 	data := releasePageData{Title: rendered.Title, Release: rendered, Error: formError}
 
-	if ares, err := authenticate(ctx, s.Store, r); err == nil {
+	// Check for authResult in context first (WP-R7) — a handler that
+	// authenticated may have stored it there to avoid a redundant session
+	// lookup here. Fall back to authenticate if not present.
+	ares := authFromContext(r)
+	if ares == nil {
+		var err error
+		ares, err = authenticate(ctx, s.Store, r)
+		if err != nil {
+			ares = nil
+		}
+	}
+	if ares != nil {
 		data.LoggedIn = true
 		if err := s.applyViewerVoteState(ctx, &data.Release, ares.Account.ID); err != nil {
 			// The page still renders without "your vote" state — an
@@ -484,18 +495,18 @@ func (s *Server) handleReleaseVote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := r.ParseForm(); err != nil {
-		s.renderReleasePage(w, r, releaseID, http.StatusBadRequest, "could not read the submitted form")
+		s.renderReleasePage(w, withAuth(r, ares), releaseID, http.StatusBadRequest, "could not read the submitted form")
 		return
 	}
 
 	trackID, err := strconv.ParseInt(r.PostFormValue("track_id"), 10, 64)
 	if err != nil {
-		s.renderReleasePage(w, r, releaseID, http.StatusBadRequest, "invalid track_id")
+		s.renderReleasePage(w, withAuth(r, ares), releaseID, http.StatusBadRequest, "invalid track_id")
 		return
 	}
 	value, err := strconv.Atoi(r.PostFormValue("value"))
 	if err != nil {
-		s.renderReleasePage(w, r, releaseID, http.StatusBadRequest, "invalid value")
+		s.renderReleasePage(w, withAuth(r, ares), releaseID, http.StatusBadRequest, "invalid value")
 		return
 	}
 
@@ -508,7 +519,7 @@ func (s *Server) handleReleaseVote(w http.ResponseWriter, r *http.Request) {
 		_, aerr = s.castVote(ctx, ares.Account, trackID, req)
 	}
 	if aerr != nil {
-		s.renderReleasePage(w, r, releaseID, aerr.status, aerr.msg)
+		s.renderReleasePage(w, withAuth(r, ares), releaseID, aerr.status, aerr.msg)
 		return
 	}
 

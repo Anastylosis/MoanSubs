@@ -31,6 +31,27 @@ type authResult struct {
 	Role string
 }
 
+// authContextKey is the unexported context key for storing an authResult
+// in the request context to avoid re-querying the session.
+type authContextKey struct{}
+
+// withAuth stores an authResult in the request's context and returns the
+// modified request. renderPage reads it when present to avoid a redundant
+// session lookup (WP-R7).
+func withAuth(r *http.Request, ares *authResult) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), authContextKey{}, ares))
+}
+
+// authFromContext retrieves an authResult from the request's context, or
+// nil if no authResult was stored there.
+func authFromContext(r *http.Request) *authResult {
+	ares, ok := r.Context().Value(authContextKey{}).(*authResult)
+	if !ok {
+		return nil
+	}
+	return ares
+}
+
 // roleRank orders roles for requireRole's "at least" comparison: an
 // unrecognized role (there shouldn't be one — the column has a CHECK
 // constraint) ranks below "user", never above a real role by accident.

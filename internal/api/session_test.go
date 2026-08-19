@@ -613,3 +613,47 @@ func TestSecureCookie_PlainHTTPNoProxyConfigured(t *testing.T) {
 		t.Error("secureCookie = true for a plain HTTP request with no trusted proxies, want false")
 	}
 }
+
+// -- WP-R7: sessionLookups counter (avoiding redundant session queries) ----
+
+func TestRenderPage_ContextAuthBypassesSessionLookup(t *testing.T) {
+	ts, _, client, _ := sessionServer(t)
+
+	// Create a fresh session to test with.
+	name := "contexttest"
+	createWebAccount(t, ts, name)
+	doLogin(t, client, ts, name, testAccountPassword)
+
+	// Render /me (logged-in page): the handler calls authenticate and passes
+	// ares through the context via withAuth, so renderPage should NOT do a
+	// fallback session lookup. Assert sessionLookups doesn't increment.
+	sessionLookups = 0
+	resp, err := client.Get(ts.URL + "/me")
+	if err != nil {
+		t.Fatalf("GET /me: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET /me = %d, want 200", resp.StatusCode)
+	}
+	if sessionLookups != 0 {
+		t.Errorf("sessionLookups after /me (context auth) = %d, want 0", sessionLookups)
+	}
+
+	// Render /browse (public page, but renderPage checks for a session cookie
+	// anyway for the nav's logged-in state). The handler doesn't call
+	// authenticate, so renderPage will do a fallback session lookup when it
+	// sees the cookie. Assert sessionLookups increments by 1.
+	sessionLookups = 0
+	resp, err = client.Get(ts.URL + "/browse")
+	if err != nil {
+		t.Fatalf("GET /browse: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET /browse = %d, want 200", resp.StatusCode)
+	}
+	if sessionLookups != 1 {
+		t.Errorf("sessionLookups after /browse (fallback lookup) = %d, want 1", sessionLookups)
+	}
+}

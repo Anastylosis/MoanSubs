@@ -45,7 +45,8 @@ type adminIndexData struct {
 // failing the whole page, the same reasoning handleIndex's Stats.snapshot
 // call uses for the public front page (web.go).
 func (s *Server) handleAdminIndex(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireWebRole(w, r, "admin"); !ok {
+	ares, ok := s.requireWebRole(w, r, "admin")
+	if !ok {
 		return
 	}
 	setModPageHeaders(w)
@@ -74,7 +75,7 @@ func (s *Server) handleAdminIndex(w http.ResponseWriter, r *http.Request) {
 		data.PendingInvites = n
 	}
 
-	s.renderPage(w, r, http.StatusOK, "admin_index.html", data, true)
+	s.renderPage(w, withAuth(r, ares), http.StatusOK, "admin_index.html", data, true)
 }
 
 // -- GET /admin/accounts ----------------------------------------------------
@@ -102,7 +103,8 @@ type adminAccountsData struct {
 // name (empty q lists everyone, newest first), with each row's role
 // changeable in place and Disable/Enable/Purge actions.
 func (s *Server) handleAdminAccounts(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireWebRole(w, r, "admin"); !ok {
+	ares, ok := s.requireWebRole(w, r, "admin")
+	if !ok {
 		return
 	}
 	setModPageHeaders(w)
@@ -124,7 +126,7 @@ func (s *Server) handleAdminAccounts(w http.ResponseWriter, r *http.Request) {
 		rows = append(rows, row)
 	}
 
-	s.renderPage(w, r, http.StatusOK, "admin_accounts.html", adminAccountsData{
+	s.renderPage(w, withAuth(r, ares), http.StatusOK, "admin_accounts.html", adminAccountsData{
 		Title: "Admin — accounts", Q: q, Rows: rows, Roles: []string{"user", "mod", "admin"},
 	}, true)
 }
@@ -309,7 +311,8 @@ type adminInvitesData struct {
 // handleAdminInvites implements GET /admin/invites (WP-C7b): every code on
 // the node, newest first, with its creator's name.
 func (s *Server) handleAdminInvites(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireWebRole(w, r, "admin"); !ok {
+	ares, ok := s.requireWebRole(w, r, "admin")
+	if !ok {
 		return
 	}
 	setModPageHeaders(w)
@@ -320,20 +323,20 @@ func (s *Server) handleAdminInvites(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	s.renderPage(w, r, http.StatusOK, "admin_invites.html", adminInvitesData{Title: "Admin — invites", Rows: invites}, true)
+	s.renderPage(w, withAuth(r, ares), http.StatusOK, "admin_invites.html", adminInvitesData{Title: "Admin — invites", Rows: invites}, true)
 }
 
 // renderAdminInvitesError re-renders /admin/invites with msg shown above
 // the create form — a same-page validation failure rather than a bare error
 // response, the same shape renderMeError uses for /me (session.go).
-func (s *Server) renderAdminInvitesError(w http.ResponseWriter, r *http.Request, msg string) {
+func (s *Server) renderAdminInvitesError(w http.ResponseWriter, r *http.Request, ares *authResult, msg string) {
 	invites, err := s.Store.ListInvitesWithCreators(r.Context())
 	if err != nil {
 		log.Printf("api: ListInvitesWithCreators: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	s.renderPage(w, r, http.StatusBadRequest, "admin_invites.html", adminInvitesData{Title: "Admin — invites", Rows: invites, Error: msg}, true)
+	s.renderPage(w, withAuth(r, ares), http.StatusBadRequest, "admin_invites.html", adminInvitesData{Title: "Admin — invites", Rows: invites, Error: msg}, true)
 }
 
 // handleAdminInviteCreate implements POST /admin/invites (WP-C7b): mints a
@@ -342,14 +345,15 @@ func (s *Server) renderAdminInvitesError(w http.ResponseWriter, r *http.Request,
 // Exactly one of "unlimited" (checkbox) or a positive "uses" is required,
 // the same either/or CreateInvite's own maxUses parameter encodes.
 func (s *Server) handleAdminInviteCreate(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireWebRole(w, r, "admin"); !ok {
+	ares, ok := s.requireWebRole(w, r, "admin")
+	if !ok {
 		return
 	}
 	if !checkOrigin(w, r) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		s.renderAdminInvitesError(w, r, "could not read the submitted form")
+		s.renderAdminInvitesError(w, r, ares, "could not read the submitted form")
 		return
 	}
 
@@ -357,7 +361,7 @@ func (s *Server) handleAdminInviteCreate(w http.ResponseWriter, r *http.Request)
 	forName := strings.TrimSpace(r.PostFormValue("for"))
 	account, err := s.Store.GetAccountByName(ctx, forName)
 	if errors.Is(err, store.ErrNotFound) {
-		s.renderAdminInvitesError(w, r, "no account named "+strconv.Quote(forName))
+		s.renderAdminInvitesError(w, r, ares, "no account named "+strconv.Quote(forName))
 		return
 	}
 	if err != nil {
@@ -370,7 +374,7 @@ func (s *Server) handleAdminInviteCreate(w http.ResponseWriter, r *http.Request)
 	if r.PostFormValue("unlimited") == "" {
 		n, perr := strconv.Atoi(strings.TrimSpace(r.PostFormValue("uses")))
 		if perr != nil || n < 1 {
-			s.renderAdminInvitesError(w, r, "uses must be a positive whole number, or check unlimited")
+			s.renderAdminInvitesError(w, r, ares, "uses must be a positive whole number, or check unlimited")
 			return
 		}
 		maxUses = &n
@@ -380,7 +384,7 @@ func (s *Server) handleAdminInviteCreate(w http.ResponseWriter, r *http.Request)
 	if raw := strings.TrimSpace(r.PostFormValue("expires")); raw != "" {
 		d, perr := time.ParseDuration(raw)
 		if perr != nil || d <= 0 {
-			s.renderAdminInvitesError(w, r, "expires must be a duration like 720h, or left blank for never")
+			s.renderAdminInvitesError(w, r, ares, "expires must be a duration like 720h, or left blank for never")
 			return
 		}
 		t := time.Now().Add(d)

@@ -38,6 +38,11 @@ const defaultCSP = "default-src 'none'; style-src 'unsafe-inline'; form-action '
 // URL.createObjectURL(file).
 const uploadCSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; media-src blob:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
+// sessionLookups counts fallback session lookups (WP-R7) — incremented when
+// renderPage does a cookie lookup because authFromContext was nil. Exported
+// only for test reads, never written directly by test code.
+var sessionLookups int
+
 // Parsed once at startup: a template parse error is a build-time mistake, so
 // failing here is better than discovering it on someone's first visit.
 var pages = template.Must(template.New("").Funcs(template.FuncMap{
@@ -86,19 +91,32 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 		// "Account" in the nav. Cookie presence, not validity — a stale
 		// cookie just means /me bounces to /login, which is fine for a
 		// signpost and costs no query per page.
-		cookie, cerr := r.Cookie(sessionCookieName)
-		loggedIn := cerr == nil
 
-		// roleAtLeast (WP-C7b) gates the nav's "Moderate"/"Admin" links —
-		// unlike loggedIn, it needs the account behind the cookie, not just
-		// the cookie's presence, so it costs one lookup per page render
-		// when a cookie is present. Deliberately uncached: a role change
-		// (or a session dying) must be reflected on the very next page a
-		// visitor loads, not after some TTL.
+		// First, try to get the authResult from the context (WP-R7) — a
+		// handler that authenticated may have stored it there to avoid a
+		// redundant session lookup in renderPage.
+		ares := authFromContext(r)
+		loggedIn := false
 		role := ""
-		if loggedIn {
-			if account, aerr := s.Store.GetSessionAccount(r.Context(), cookie.Value); aerr == nil {
-				role = account.Role
+		if ares != nil {
+			loggedIn = true
+			role = ares.Role
+		} else {
+			// Fallback to a cookie lookup when no authResult was passed.
+			cookie, cerr := r.Cookie(sessionCookieName)
+			loggedIn = cerr == nil
+
+			// roleAtLeast (WP-C7b) gates the nav's "Moderate"/"Admin" links —
+			// unlike loggedIn, it needs the account behind the cookie, not just
+			// the cookie's presence, so it costs one lookup per page render
+			// when a cookie is present. Deliberately uncached: a role change
+			// (or a session dying) must be reflected on the very next page a
+			// visitor loads, not after some TTL.
+			if loggedIn {
+				if account, aerr := s.Store.GetSessionAccount(r.Context(), cookie.Value); aerr == nil {
+					role = account.Role
+				}
+				sessionLookups++
 			}
 		}
 		tpl = tpl.Funcs(template.FuncMap{

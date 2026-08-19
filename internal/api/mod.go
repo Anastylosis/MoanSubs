@@ -145,7 +145,8 @@ type modFlaggedData struct {
 // track (which stops it appearing in ListFlaggedTracks) is the only way one
 // leaves it.
 func (s *Server) handleModFlagged(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireWebRole(w, r, "mod"); !ok {
+	ares, ok := s.requireWebRole(w, r, "mod")
+	if !ok {
 		return
 	}
 	setModPageHeaders(w)
@@ -182,7 +183,7 @@ func (s *Server) handleModFlagged(w http.ResponseWriter, r *http.Request) {
 		rows = append(rows, row)
 	}
 
-	s.renderPage(w, r, http.StatusOK, "mod_flagged.html", modFlaggedData{Title: "Moderate — flagged tracks", Rows: rows}, true)
+	s.renderPage(w, withAuth(r, ares), http.StatusOK, "mod_flagged.html", modFlaggedData{Title: "Moderate — flagged tracks", Rows: rows}, true)
 }
 
 // -- GET /mod/track/{id} --------------------------------------------------
@@ -235,7 +236,8 @@ type modTrackData struct {
 
 // handleModTrack implements GET /mod/track/{id} (WP-C7b).
 func (s *Server) handleModTrack(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireWebRole(w, r, "mod"); !ok {
+	ares, ok := s.requireWebRole(w, r, "mod")
+	if !ok {
 		return
 	}
 	setModPageHeaders(w)
@@ -245,13 +247,13 @@ func (s *Server) handleModTrack(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.renderModTrack(w, r, id, http.StatusOK, "")
+	s.renderModTrack(w, r, ares, id, http.StatusOK, "")
 }
 
 // renderModTrack builds and renders /mod/track/{id}'s full page — shared
 // between the plain GET and a failed withdraw POST's re-render, the same
 // pattern renderReleasePage uses for the public release page (catalogue.go).
-func (s *Server) renderModTrack(w http.ResponseWriter, r *http.Request, id int64, status int, formErr string) {
+func (s *Server) renderModTrack(w http.ResponseWriter, r *http.Request, ares *authResult, id int64, status int, formErr string) {
 	ctx := r.Context()
 	detail, err := s.Store.GetTrackDetail(ctx, id)
 	if errors.Is(err, store.ErrNotFound) {
@@ -289,7 +291,7 @@ func (s *Server) renderModTrack(w http.ResponseWriter, r *http.Request, id int64
 		preview = trackBodyPreview(track.Body)
 	}
 
-	s.renderPage(w, r, status, "mod_track.html", modTrackData{
+	s.renderPage(w, withAuth(r, ares), status, "mod_track.html", modTrackData{
 		Title:   "Track #" + strconv.FormatInt(id, 10),
 		Detail:  newModTrackDetailView(detail),
 		Votes:   voteRows,
@@ -302,7 +304,8 @@ func (s *Server) renderModTrack(w http.ResponseWriter, r *http.Request, id int64
 // (WP-C7b): the web front end onto store.WithdrawTrack, exactly the
 // primitive `moansubs track withdraw` calls.
 func (s *Server) handleModTrackWithdraw(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireWebRole(w, r, "mod"); !ok {
+	ares, ok := s.requireWebRole(w, r, "mod")
+	if !ok {
 		return
 	}
 	if !checkOrigin(w, r) {
@@ -315,12 +318,12 @@ func (s *Server) handleModTrackWithdraw(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		s.renderModTrack(w, r, id, http.StatusBadRequest, "could not read the submitted form")
+		s.renderModTrack(w, r, ares, id, http.StatusBadRequest, "could not read the submitted form")
 		return
 	}
 	reason, rerr := validateWithdrawReason(r.PostFormValue("reason"))
 	if rerr != nil {
-		s.renderModTrack(w, r, id, http.StatusBadRequest, rerr.Error())
+		s.renderModTrack(w, r, ares, id, http.StatusBadRequest, rerr.Error())
 		return
 	}
 
@@ -417,7 +420,8 @@ type modReleaseData struct {
 
 // handleModRelease implements GET /mod/release/{id} (WP-C7b, "minimal").
 func (s *Server) handleModRelease(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireWebRole(w, r, "mod"); !ok {
+	ares, ok := s.requireWebRole(w, r, "mod")
+	if !ok {
 		return
 	}
 	setModPageHeaders(w)
@@ -427,10 +431,10 @@ func (s *Server) handleModRelease(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.renderModRelease(w, r, id, http.StatusOK, "")
+	s.renderModRelease(w, r, ares, id, http.StatusOK, "")
 }
 
-func (s *Server) renderModRelease(w http.ResponseWriter, r *http.Request, id int64, status int, formErr string) {
+func (s *Server) renderModRelease(w http.ResponseWriter, r *http.Request, ares *authResult, id int64, status int, formErr string) {
 	release, err := s.Store.GetReleaseByID(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		http.NotFound(w, r)
@@ -447,7 +451,7 @@ func (s *Server) renderModRelease(w http.ResponseWriter, r *http.Request, id int
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	s.renderPage(w, r, status, "mod_release.html", modReleaseData{
+	s.renderPage(w, withAuth(r, ares), status, "mod_release.html", modReleaseData{
 		Title: "Release #" + strconv.FormatInt(id, 10), Release: newModReleaseView(release),
 		StashIDs: byRelease[id], Error: formErr,
 	}, true)
@@ -478,7 +482,7 @@ func (s *Server) handleModReleaseStashRemove(w http.ResponseWriter, r *http.Requ
 	endpoint := r.PostFormValue("endpoint")
 	stashID := r.PostFormValue("stash_id")
 	if endpoint == "" || stashID == "" {
-		s.renderModRelease(w, r, id, http.StatusBadRequest, "endpoint and stash_id are required")
+		s.renderModRelease(w, r, ares, id, http.StatusBadRequest, "endpoint and stash_id are required")
 		return
 	}
 	if err := s.Store.RemoveReleaseStashID(r.Context(), id, endpoint, stashID); err != nil {
@@ -494,7 +498,8 @@ func (s *Server) handleModReleaseStashRemove(w http.ResponseWriter, r *http.Requ
 // (WP-C7b): the web front end onto store.WithdrawRelease (A1), which
 // cascades onto every one of the release's currently-active tracks.
 func (s *Server) handleModReleaseWithdraw(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireWebRole(w, r, "mod"); !ok {
+	ares, ok := s.requireWebRole(w, r, "mod")
+	if !ok {
 		return
 	}
 	if !checkOrigin(w, r) {
@@ -507,12 +512,12 @@ func (s *Server) handleModReleaseWithdraw(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		s.renderModRelease(w, r, id, http.StatusBadRequest, "could not read the submitted form")
+		s.renderModRelease(w, r, ares, id, http.StatusBadRequest, "could not read the submitted form")
 		return
 	}
 	reason, rerr := validateWithdrawReason(r.PostFormValue("reason"))
 	if rerr != nil {
-		s.renderModRelease(w, r, id, http.StatusBadRequest, rerr.Error())
+		s.renderModRelease(w, r, ares, id, http.StatusBadRequest, rerr.Error())
 		return
 	}
 

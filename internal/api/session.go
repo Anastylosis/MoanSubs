@@ -198,7 +198,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	s.renderPage(w, r, http.StatusOK, "me.html", data, true)
+	s.renderPage(w, withAuth(r, ares), http.StatusOK, "me.html", data, true)
 }
 
 // handleRotateToken implements POST /me/rotate-token: mints a fresh upload
@@ -228,7 +228,7 @@ func (s *Server) handleRotateToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	s.renderPage(w, r, http.StatusOK, "me.html", data, true)
+	s.renderPage(w, withAuth(r, ares), http.StatusOK, "me.html", data, true)
 }
 
 // meDataFor builds /me's page data, shared by handleMe and
@@ -311,7 +311,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		s.renderMeError(w, r, ares.Account, "could not read the submitted form")
+		s.renderMeError(w, r, ares, "could not read the submitted form")
 		return
 	}
 
@@ -320,15 +320,15 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	password2 := r.PostFormValue("password2")
 
 	if _, err := s.Store.VerifyAccountPassword(r.Context(), ares.Account.Name, current); err != nil {
-		s.renderMeError(w, r, ares.Account, "current password is incorrect")
+		s.renderMeError(w, r, ares, "current password is incorrect")
 		return
 	}
 	if password != password2 {
-		s.renderMeError(w, r, ares.Account, "the two new passwords do not match")
+		s.renderMeError(w, r, ares, "the two new passwords do not match")
 		return
 	}
 	if err := validatePassword(password); err != nil {
-		s.renderMeError(w, r, ares.Account, err.Error())
+		s.renderMeError(w, r, ares, err.Error())
 		return
 	}
 
@@ -355,36 +355,36 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data.PasswordChanged = true
-	s.renderPage(w, r, http.StatusOK, "me.html", data, true)
+	s.renderPage(w, withAuth(r, ares), http.StatusOK, "me.html", data, true)
 }
 
 // renderMeError re-renders /me with msg shown above the change-password
 // form — a same-page validation failure (wrong current password,
 // mismatched new ones, or a length violation) rather than a redirect, so
 // the visitor doesn't lose their place.
-func (s *Server) renderMeError(w http.ResponseWriter, r *http.Request, account *store.Account, msg string) {
-	data, err := s.meDataFor(r.Context(), account, "")
+func (s *Server) renderMeError(w http.ResponseWriter, r *http.Request, ares *authResult, msg string) {
+	data, err := s.meDataFor(r.Context(), ares.Account, "")
 	if err != nil {
 		log.Printf("api: meDataFor: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	data.Error = msg
-	s.renderPage(w, r, http.StatusBadRequest, "me.html", data, true)
+	s.renderPage(w, withAuth(r, ares), http.StatusBadRequest, "me.html", data, true)
 }
 
 // renderMeInviteError re-renders /me with msg shown above the invite
 // section — POST /me/invites' cap/earn refusal, the invite-section
 // counterpart of renderMeError above.
-func (s *Server) renderMeInviteError(w http.ResponseWriter, r *http.Request, account *store.Account, msg string) {
-	data, err := s.meDataFor(r.Context(), account, "")
+func (s *Server) renderMeInviteError(w http.ResponseWriter, r *http.Request, ares *authResult, msg string) {
+	data, err := s.meDataFor(r.Context(), ares.Account, "")
 	if err != nil {
 		log.Printf("api: meDataFor: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	data.InviteError = msg
-	s.renderPage(w, r, http.StatusBadRequest, "me.html", data, true)
+	s.renderPage(w, withAuth(r, ares), http.StatusBadRequest, "me.html", data, true)
 }
 
 // handleCreateInvite implements POST /me/invites (WP-C7c): mints one
@@ -422,7 +422,7 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 		if unusedActive >= s.InvitesCap {
 			reason = "cap reached"
 		}
-		s.renderMeInviteError(w, r, ares.Account, reason)
+		s.renderMeInviteError(w, r, ares, reason)
 		return
 	}
 
