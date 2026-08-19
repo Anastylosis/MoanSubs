@@ -44,6 +44,21 @@ func (s *Server) page(h http.HandlerFunc) http.HandlerFunc {
 			h(w, r)
 			return
 		}
+		// Only a GET can be gated meaningfully: rendering the interstitial
+		// in place of a POST would discard the form and, after the click-
+		// through, land on a GET of a POST-only path (a 404). A POST without
+		// the cookie is someone whose cookie expired mid-session — let it
+		// through; the gate is a notice, not an access control.
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			h(w, r)
+			return
+		}
+		// The "GET /" catch-all reaches here for every unrouted path; those
+		// must stay 404s (an API typo must not get an HTML 200).
+		if r.Pattern == "GET /" && r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
 		s.renderAgeGate(w, r)
 	}
 }

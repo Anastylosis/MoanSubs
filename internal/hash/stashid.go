@@ -53,6 +53,15 @@ func NormalizeStashEndpoint(s string) (string, error) {
 	}
 	u.Scheme = strings.ToLower(u.Scheme)
 	u.Host = strings.ToLower(u.Host)
+	// The endpoint is rendered as a link in the plugin's panel and on the
+	// release page; anything but http(s) (javascript:, data:, …) would be
+	// stored XSS delivered into every Stash that sees the release.
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return "", fmt.Errorf("hash: invalid stash endpoint %q: want http or https", s)
+	}
+	if u.User != nil {
+		return "", fmt.Errorf("hash: invalid stash endpoint %q: credentials are not allowed", s)
+	}
 	return u.String(), nil
 }
 

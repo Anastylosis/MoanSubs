@@ -123,7 +123,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		status, msg := http.StatusUnauthorized, "invalid name or password"
 		switch {
 		case errors.Is(err, store.ErrNoPassword):
-			msg = "this account has no password; ask an admin"
+			// Same wording as a wrong password: a distinct message would tell
+			// a guesser which names exist. The operator still learns why.
+			log.Printf("api: login for %q refused: account has no password", name)
 		case errors.Is(err, store.ErrInvalidCredentials):
 			// default msg above already fits.
 		default:

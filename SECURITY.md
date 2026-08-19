@@ -25,8 +25,9 @@ password, and they unlock different surfaces:
 - **The password** is the *web* login only (`POST /login`, name +
   password) — it never authenticates an API call. Not every account has
   one: `POST /api/v1/accounts` without a `password` field, or an account
-  that pre-dates this feature, has none, and `/login` refuses it
-  (`"this account has no password; ask an admin"`) until an admin runs
+  that pre-dates this feature, has none, and `/login` refuses it with the
+  same "invalid name or password" as any failed login (a distinct message
+  would reveal which names exist; the server log says why) until an admin runs
   `moansubs account set-password <name>`. Registering through the node's
   own `/register` form always sets one, since that form exists specifically
   for people who'll come back to `/me` in a browser.
