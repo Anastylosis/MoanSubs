@@ -62,9 +62,11 @@ func validateAccountName(name string) (string, error) {
 	return name, nil
 }
 
-// regError is a registration failure carrying the status and the wording
-// both the JSON endpoint and the HTML form should present.
-type regError struct {
+// apiError is a handler failure carrying the status and the wording both a
+// JSON endpoint and its HTML-form equivalent should present — shared by
+// registration and upload (WP-D1's ingest) so every path that can fail two
+// ways renders the same status/message pair regardless of which one it is.
+type apiError struct {
 	status int
 	msg    string
 }
@@ -77,26 +79,26 @@ type regError struct {
 // is no account yet. That makes the limit only as good as the client IP the
 // node can see — see clientIP's trust caveat. Behind a reverse proxy setting
 // X-Forwarded-For it is sound; on a bare node it is advisory.
-func (s *Server) register(ctx context.Context, ip, rawName string) (*registerResponse, *regError) {
+func (s *Server) register(ctx context.Context, ip, rawName string) (*registerResponse, *apiError) {
 	if !s.OpenRegistration {
-		return nil, &regError{http.StatusForbidden, "registration is closed on this node; ask the operator for an account"}
+		return nil, &apiError{http.StatusForbidden, "registration is closed on this node; ask the operator for an account"}
 	}
 	if !s.RegisterLimiter.Allow(ip) {
-		return nil, &regError{http.StatusTooManyRequests, "registration rate limit exceeded"}
+		return nil, &apiError{http.StatusTooManyRequests, "registration rate limit exceeded"}
 	}
 
 	name, err := validateAccountName(rawName)
 	if err != nil {
-		return nil, &regError{http.StatusBadRequest, err.Error()}
+		return nil, &apiError{http.StatusBadRequest, err.Error()}
 	}
 
 	id, token, err := s.Store.CreateAccount(ctx, name)
 	if err != nil {
 		if errors.Is(err, store.ErrNameTaken) {
-			return nil, &regError{http.StatusConflict, "that name is already taken"}
+			return nil, &apiError{http.StatusConflict, "that name is already taken"}
 		}
 		log.Printf("api: CreateAccount: %v", err)
-		return nil, &regError{http.StatusInternalServerError, "internal error"}
+		return nil, &apiError{http.StatusInternalServerError, "internal error"}
 	}
 	return &registerResponse{ID: id, Name: name, Token: token}, nil
 }

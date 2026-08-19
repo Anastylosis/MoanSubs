@@ -32,8 +32,14 @@ keyset-paginated and optionally filtered by `lang`), `/release/{id}` (one
 release's tracks, each linking to its `format=srt` download), and
 `/u/{name}` (an uploader's credited contributions). `/login` and `/me`
 are the logged-in account's own view — upload count, total downloads,
-own tracks including withdrawn ones, and a "rotate token" button that
-shows the new token once. All are self-contained — no assets, no
+own tracks including withdrawn ones, a "rotate token" button that shows
+the new token once, and a link to `/upload`. `/upload` (session required,
+redirects to `/login` otherwise) is a multipart form for the same
+`POST /api/v1/subtitles` upload — same fields, same rate limit
+(`MOANSUBS_UPLOAD_RATE_PER_HOUR`), same validation, same dedup — for a
+person without the Stash plugin handy; `oshash`/`duration_ms`/`phash` are
+still plain text fields copied from Stash (scene → File info) rather than
+filled in automatically. All are self-contained — no assets, no
 JavaScript. The catalogue pages (`/browse`, `/search`, `/release/*`,
 `/u/*`) send `X-Robots-Tag: noindex, nofollow`, and `/robots.txt`
 disallows the whole site — this is a subtitle mirror, not something to

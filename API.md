@@ -305,3 +305,7 @@ See MANUAL.md "Upload semantics" for the sanitization pipeline. Responses:
   track that was withdrawn. A takedown must not be undoable by re-uploading
   the same file, so this is refused rather than treated as an ordinary
   `duplicate: true`.
+
+The node's own `/upload` form (session-authenticated, MANUAL.md) runs the
+exact same validation, sanitization, and dedup logic — it is a multipart
+front end onto the same code, not a second implementation.

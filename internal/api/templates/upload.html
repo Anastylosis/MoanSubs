@@ -1,0 +1,71 @@
+{{define "upload.html"}}
+{{if .Result}}
+  <h2>{{if .Result.Duplicate}}Already uploaded{{else}}Upload complete{{end}}</h2>
+  {{if .Result.Generated}}<div class="warn">Detected as machine-generated — labeled automatically, regardless of how it was described.</div>{{end}}
+  {{if .Result.Duplicate}}<p>A byte-identical subtitle already existed for this release and language; nothing new was stored.</p>{{end}}
+  <p>Track id: <strong>{{.Result.TrackID}}</strong></p>
+  {{if .Result.HasReleasePage}}
+  <p><a href="/release/{{.Result.ReleaseID}}">View this release</a></p>
+  {{else}}
+  <p class="hint">Release id: {{.Result.ReleaseID}}. It has no catalogue page yet — give it a title or filename stem next time to make one.</p>
+  {{end}}
+  <p><a href="/upload">Upload another</a></p>
+{{else}}
+  <h2>Upload a subtitle</h2>
+  {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+  <p>SRT or WebVTT, up to 2 MiB. The file is parsed and re-rendered — the
+  bytes you send are never stored as-is.</p>
+  <form method="post" action="/upload" enctype="multipart/form-data">
+    <label for="file">Subtitle file (.srt or .vtt)</label>
+    <input type="file" id="file" name="file" accept=".srt,.vtt" required>
+
+    <label for="oshash">oshash</label>
+    <input type="text" id="oshash" name="oshash" value="{{.Values.OSHash}}" required
+           autocomplete="off" pattern="[0-9a-fA-F]{16}" maxlength="16">
+    <p class="hint">From Stash: scene → File info → Checksum.</p>
+
+    <label for="duration_ms">Duration (milliseconds)</label>
+    <input type="text" id="duration_ms" name="duration_ms" value="{{.Values.DurationMs}}" required
+           autocomplete="off" inputmode="numeric">
+    <p class="hint">From Stash: scene → File info → Duration, in milliseconds.</p>
+
+    <label for="phash">phash (optional)</label>
+    <input type="text" id="phash" name="phash" value="{{.Values.PHash}}" autocomplete="off">
+    <p class="hint">From Stash: scene → File info → Phash, if generated.</p>
+
+    <label for="md5">md5 (optional)</label>
+    <input type="text" id="md5" name="md5" value="{{.Values.MD5}}" autocomplete="off">
+
+    <label for="lang">Language</label>
+    <select id="lang" name="lang">
+      <option value=""{{if eq .Values.Lang ""}} selected{{end}}>— choose —</option>
+      {{$lang := .Values.Lang}}
+      {{range .Langs}}<option value="{{.}}"{{if eq . $lang}} selected{{end}}>{{.}}</option>{{end}}
+    </select>
+    <label for="lang_other">Other language tag</label>
+    <input type="text" id="lang_other" name="lang_other" value="{{.Values.LangOther}}"
+           placeholder="BCP-47, e.g. pt-BR" autocomplete="off">
+    <p class="hint">Filled in? It wins over the dropdown above.</p>
+
+    <label for="title">Title (optional)</label>
+    <input type="text" id="title" name="title" value="{{.Values.Title}}">
+
+    <label for="stem">Filename stem (optional)</label>
+    <input type="text" id="stem" name="stem" value="{{.Values.Stem}}">
+
+    <label for="date">Date (optional, YYYY-MM-DD)</label>
+    <input type="text" id="date" name="date" value="{{.Values.Date}}" autocomplete="off">
+
+    <label for="studio">Studio (optional)</label>
+    <input type="text" id="studio" name="studio" value="{{.Values.Studio}}">
+
+    <label for="performers">Performers (optional, comma-separated)</label>
+    <input type="text" id="performers" name="performers" value="{{.Values.Performers}}">
+    <p class="hint">Title/stem/date/studio/performers only take effect the
+    first time this release is seen — they never overwrite what an earlier
+    upload already recorded.</p>
+
+    <button type="submit">Upload</button>
+  </form>
+{{end}}
+{{end}}

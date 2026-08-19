@@ -115,6 +115,8 @@ func NewMux(s *Server) *http.ServeMux {
 	mux.HandleFunc("POST /logout", s.handleLogout)
 	mux.HandleFunc("GET /me", s.handleMe)
 	mux.HandleFunc("POST /me/rotate-token", s.handleRotateToken)
+	mux.HandleFunc("GET /upload", s.handleUploadForm)
+	mux.HandleFunc("POST /upload", s.handleUploadSubmit)
 	mux.HandleFunc("GET /robots.txt", s.handleRobotsTxt)
 	mux.HandleFunc("GET /browse", s.handleBrowse)
 	mux.HandleFunc("GET /search", s.handleSearch)

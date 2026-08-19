@@ -60,9 +60,14 @@ curl -X POST https://your-node/api/v1/accounts \
 
 Either way the token is shown once — no email, no password, and no way to
 recover it. Log in at `/login` with that token to reach `/me`: your upload
-count, total downloads, your own tracks, and a "rotate token" button for
-if it ever leaks. Operators can mint an account directly, which is also
-the only route on a node running with `MOANSUBS_OPEN_REGISTRATION=false`:
+count, total downloads, your own tracks, a "rotate token" button for if it
+ever leaks, and a link to `/upload` — a browser upload form for when the
+plugin isn't handy, going through the exact same checks as the API upload
+path below. `oshash`/`duration_ms`/optional `phash` still have to be typed
+in by hand for now, copied from Stash (scene → File info) — in-browser
+fingerprinting to fill them in automatically is planned but not yet built.
+Operators can mint an account directly, which is also the only route on a
+node running with `MOANSUBS_OPEN_REGISTRATION=false`:
 
 ```sh
 docker compose exec moansubs moansubs account create <name>

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -92,22 +93,16 @@ func (s *Server) authenticateUpload(w http.ResponseWriter, r *http.Request) (acc
 }
 
 // handleUploadSubtitle implements POST /api/v1/subtitles (PLAN.md "Upload
-// safety" + "Data model"). Flow: authenticate -> rate limit -> validate ->
-// parse/re-render/sanitize -> detect provenance on the raw bytes -> runtime
-// sanity check -> get-or-create the release -> store the track.
+// safety" + "Data model"). Flow: authenticate -> decode JSON -> ingest
+// (rate limit, validate, parse/re-render/sanitize, detect provenance,
+// runtime sanity check, get-or-create the release, store the track) ->
+// write the response. ingest is shared with the web upload form (WP-D1,
+// upload_web.go) so the two paths can never drift on any of that.
 func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	account, ok := s.authenticateUpload(w, r)
 	if !ok {
-		return
-	}
-
-	// Keyed by account id rather than the raw token or its hash — an
-	// integer is a cheaper map key and there's no reason to keep copies of
-	// even the hashed secret lying around longer than needed.
-	if !s.Limiter.Allow(strconv.FormatInt(account.ID, 10)) {
-		writeError(w, http.StatusTooManyRequests, "upload rate limit exceeded")
 		return
 	}
 
@@ -118,55 +113,75 @@ func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	resp, aerr := s.ingest(ctx, account, req)
+	if aerr != nil {
+		writeError(w, aerr.status, aerr.msg)
+		return
+	}
+
+	status := http.StatusCreated
+	if resp.Duplicate {
+		status = http.StatusOK
+	}
+	writeJSON(w, status, resp)
+}
+
+// ingest is handleUploadSubtitle's and the web upload form's (WP-D1,
+// POST /upload) shared core: rate limit -> validate -> parse/re-render/
+// sanitize -> detect provenance on the raw bytes -> runtime sanity check ->
+// get-or-create the release -> store the track. Pulled out of
+// handleUploadSubtitle so both entry points run exactly the same checks in
+// exactly the same order; only auth and request decoding differ between
+// them (Bearer/cookie + JSON body vs. session-only + multipart form).
+func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadRequest) (*uploadResponse, *apiError) {
+	// Keyed by account id rather than the raw token or its hash — an
+	// integer is a cheaper map key and there's no reason to keep copies of
+	// even the hashed secret lying around longer than needed.
+	if !s.Limiter.Allow(strconv.FormatInt(account.ID, 10)) {
+		return nil, &apiError{http.StatusTooManyRequests, "upload rate limit exceeded"}
+	}
+
 	oshash, err := hash.ParseOSHash(req.OSHash)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		return nil, &apiError{http.StatusBadRequest, err.Error()}
 	}
 	var phash *hash.PHash
 	if req.PHash != "" {
 		p, err := hash.ParsePHash(req.PHash)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
+			return nil, &apiError{http.StatusBadRequest, err.Error()}
 		}
 		phash = &p
 	}
 	var md5 *string
 	if req.MD5 != "" {
 		if !md5Pattern.MatchString(req.MD5) {
-			writeError(w, http.StatusBadRequest, "md5: want 32 hex characters")
-			return
+			return nil, &apiError{http.StatusBadRequest, "md5: want 32 hex characters"}
 		}
 		v := strings.ToLower(req.MD5)
 		md5 = &v
 	}
 	if req.DurationMs <= 0 {
-		writeError(w, http.StatusBadRequest, "duration_ms must be > 0")
-		return
+		return nil, &apiError{http.StatusBadRequest, "duration_ms must be > 0"}
 	}
 	if req.Lang == "" {
-		writeError(w, http.StatusBadRequest, "lang is required")
-		return
+		return nil, &apiError{http.StatusBadRequest, "lang is required"}
 	}
 	// Stash reads the language from the caption filename via x/text's
 	// language.ParseBase (PLAN.md "The Stash plugin" delivery constraints);
 	// validating with the same package's Parse here at upload time catches
 	// a malformed BCP-47 tag before it ever reaches a filename.
 	if _, err := language.Parse(req.Lang); err != nil {
-		writeError(w, http.StatusBadRequest, "lang is not a valid BCP-47 tag: "+err.Error())
-		return
+		return nil, &apiError{http.StatusBadRequest, "lang is not a valid BCP-47 tag: " + err.Error()}
 	}
 	if req.Body == "" {
-		writeError(w, http.StatusBadRequest, "body is required")
-		return
+		return nil, &apiError{http.StatusBadRequest, "body is required"}
 	}
 
 	rawBody := []byte(req.Body)
 	cues, err := subtitle.Parse(rawBody)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "unparseable subtitle: "+err.Error())
-		return
+		return nil, &apiError{http.StatusBadRequest, "unparseable subtitle: " + err.Error()}
 	}
 	rendered := subtitle.RenderSRT(cues)
 
@@ -192,9 +207,8 @@ func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 	if subRuntime, ok := subs.Runtime(strings.NewReader(rendered)); ok {
 		sceneDur := time.Duration(req.DurationMs) * time.Millisecond
 		if score, delta := subs.RuntimeFit(subRuntime, sceneDur); score == 0 {
-			writeError(w, http.StatusBadRequest,
-				"subtitle runtime is incompatible with the declared duration_ms")
-			return
+			return nil, &apiError{http.StatusBadRequest,
+				"subtitle runtime is incompatible with the declared duration_ms"}
 		} else if score < 1 {
 			log.Printf("api: weak runtime fit for upload (score=%.2f delta=%v duration_ms=%d subtitle_runtime=%v), accepting anyway",
 				score, delta, req.DurationMs, subRuntime)
@@ -202,8 +216,7 @@ func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Date != "" && !datePattern.MatchString(req.Date) {
-		writeError(w, http.StatusBadRequest, "date: want YYYY-MM-DD")
-		return
+		return nil, &apiError{http.StatusBadRequest, "date: want YYYY-MM-DD"}
 	}
 	release, err := s.Store.GetOrCreateRelease(ctx, store.Release{
 		OSHash:     oshash,
@@ -220,8 +233,7 @@ func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Printf("api: GetOrCreateRelease: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
+		return nil, &apiError{http.StatusInternalServerError, "internal error"}
 	}
 
 	// A withdrawn release stays findable by GetOrCreateRelease (it's still
@@ -229,8 +241,7 @@ func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 	// upload didn't land, rather than silently accepting a new track under
 	// content that was taken down (WP-A1).
 	if release.WithdrawnAt != nil {
-		writeError(w, http.StatusGone, "release withdrawn")
-		return
+		return nil, &apiError{http.StatusGone, "release withdrawn"}
 	}
 
 	// Idempotent upload: a byte-identical track for the same release and
@@ -239,8 +250,7 @@ func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 	// library) must be safe to re-run without doubling every track.
 	if existingID, err := s.Store.FindIdenticalTrack(ctx, release.ID, req.Lang, rendered); err != nil {
 		log.Printf("api: FindIdenticalTrack: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
+		return nil, &apiError{http.StatusInternalServerError, "internal error"}
 	} else if existingID != 0 {
 		// FindIdenticalTrack deliberately finds withdrawn tracks too (WP-A1):
 		// a takedown must not be silently undone by re-uploading the same
@@ -249,20 +259,17 @@ func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 		existing, err := s.Store.GetSubtitleTrack(ctx, existingID)
 		if err != nil {
 			log.Printf("api: GetSubtitleTrack (duplicate check): %v", err)
-			writeError(w, http.StatusInternalServerError, "internal error")
-			return
+			return nil, &apiError{http.StatusInternalServerError, "internal error"}
 		}
 		if existing.WithdrawnAt != nil {
-			writeError(w, http.StatusGone, "track withdrawn")
-			return
+			return nil, &apiError{http.StatusGone, "track withdrawn"}
 		}
-		writeJSON(w, http.StatusOK, uploadResponse{
+		return &uploadResponse{
 			TrackID:   existingID,
 			ReleaseID: release.ID,
 			Generated: generated,
 			Duplicate: true,
-		})
-		return
+		}, nil
 	}
 
 	accountID := account.ID
@@ -277,15 +284,14 @@ func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Printf("api: CreateSubtitleTrack: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
+		return nil, &apiError{http.StatusInternalServerError, "internal error"}
 	}
 
-	writeJSON(w, http.StatusCreated, uploadResponse{
+	return &uploadResponse{
 		TrackID:   trackID,
 		ReleaseID: release.ID,
 		Generated: generated,
-	})
+	}, nil
 }
 
 // getSubtitleResponse is GET /api/v1/subtitles/{id}'s JSON body.
