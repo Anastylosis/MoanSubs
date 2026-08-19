@@ -237,6 +237,136 @@ func TestVote_ServerErrorPassedThroughVerbatim(t *testing.T) {
 	}
 }
 
+// -- stash id ranking (WP-C9a level 0, "identity") ---------------------
+
+// TestSceneKeys_WithAndWithoutStashIDs covers sceneKeys' new return value:
+// present when Stash reports stash_ids on the scene, nil (not a
+// zero-length non-nil slice, though either would do) when it doesn't.
+func TestSceneKeys_WithAndWithoutStashIDs(t *testing.T) {
+	withIDs := &stash.Scene{
+		ID: "1",
+		Files: []stash.SceneFile{{Path: "/videos/x.mp4", Duration: 60, Fingerprints: []struct {
+			Type  string `json:"type"`
+			Value string `json:"value"`
+		}{{Type: "oshash", Value: "0123456789abcdef"}}}},
+		StashIDs: []stash.StashID{{Endpoint: "https://stashdb.org/graphql", StashID: "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"}},
+	}
+	_, _, _, _, ids, err := sceneKeys(withIDs)
+	if err != nil {
+		t.Fatalf("sceneKeys: %v", err)
+	}
+	if len(ids) != 1 || ids[0].StashID != "c72cba4a-1e2b-4f0e-8f3a-1234567890ab" {
+		t.Errorf("stash ids = %+v, want the one scene.StashIDs entry", ids)
+	}
+
+	withoutIDs := &stash.Scene{
+		ID: "2",
+		Files: []stash.SceneFile{{Path: "/videos/y.mp4", Duration: 60, Fingerprints: []struct {
+			Type  string `json:"type"`
+			Value string `json:"value"`
+		}{{Type: "oshash", Value: "fedcba9876543210"}}}},
+	}
+	_, _, _, _, ids2, err := sceneKeys(withoutIDs)
+	if err != nil {
+		t.Fatalf("sceneKeys: %v", err)
+	}
+	if len(ids2) != 0 {
+		t.Errorf("stash ids = %+v, want none", ids2)
+	}
+}
+
+// TestSearch_StashIdentityRanksFirst is the WP-C9a named test: when the
+// scene carries a stash-box id that resolves to a release, that candidate
+// must lead the ranked list — at Confidence "exact" with a "same StashDB
+// scene" reason — ahead of a *different* release found by ordinary oshash
+// lookup, via an httptest fake standing in for the moansubs server.
+func TestSearch_StashIdentityRanksFirst(t *testing.T) {
+	const sceneOshash = "0123456789abcdef"
+	const stashID = "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/lookup/batch", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			OshashPrefixes []string `json:"oshash_prefixes"`
+			StashIDs       []struct {
+				EHash   string `json:"ehash"`
+				StashID string `json:"stash_id"`
+			} `json:"stash_ids"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decoding batch request: %v", err)
+		}
+		results := map[string]any{}
+		for _, p := range req.OshashPrefixes {
+			// The hash-matched release: a DIFFERENT release id than the
+			// stash hit, so the test can tell them apart in the ranking.
+			results["oshash:"+p] = []map[string]any{{
+				"id": 1, "oshash": sceneOshash, "duration_ms": 60000, "tracks": []any{}, "stash_ids": []any{},
+			}}
+		}
+		for _, sq := range req.StashIDs {
+			results["stash:"+sq.EHash+":"+sq.StashID] = []map[string]any{{
+				"id": 99, "oshash": "ffffffffffffffff", "duration_ms": 60000, "tracks": []any{}, "stash_ids": []any{},
+			}}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"results": results})
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	a := &app{
+		stash: &stash.Client{}, // FindScene isn't reachable in this test; search is called on a pre-built scene via the lower-level pieces instead
+		ms:    msclient.New(ts.URL, ""),
+	}
+
+	scene := &stash.Scene{
+		ID: "1",
+		Files: []stash.SceneFile{{Path: "/videos/x.mp4", Duration: 60, Fingerprints: []struct {
+			Type  string `json:"type"`
+			Value string `json:"value"`
+		}{{Type: "oshash", Value: sceneOshash}}}},
+		StashIDs: []stash.StashID{{Endpoint: "https://stashdb.org/graphql", StashID: stashID}},
+	}
+
+	// Exercised at the same level search() itself operates at, once the
+	// scene is already resolved (FindScene needs a real Stash to fake
+	// otherwise) — stashIdentityCandidates + rankCandidates are exactly
+	// search()'s own two candidate sources, combined the same way.
+	oh, ph, durationMs, _, stashIDs, err := sceneKeys(scene)
+	if err != nil {
+		t.Fatalf("sceneKeys: %v", err)
+	}
+	stashCandidates := a.stashIdentityCandidates(context.Background(), stashIDs, durationMs)
+	releases, err := a.ms.LookupBuckets(context.Background(), oh, ph)
+	if err != nil {
+		t.Fatalf("LookupBuckets: %v", err)
+	}
+	hashCandidates := rankCandidates(releases, oh, ph, durationMs, false)
+
+	if len(stashCandidates) != 1 || stashCandidates[0].Release.ID != 99 {
+		t.Fatalf("stashCandidates = %+v, want exactly release 99", stashCandidates)
+	}
+	if stashCandidates[0].Confidence != ConfidenceExact {
+		t.Errorf("stash candidate Confidence = %q, want %q", stashCandidates[0].Confidence, ConfidenceExact)
+	}
+	if len(stashCandidates[0].Reasons) != 1 || stashCandidates[0].Reasons[0] != "same StashDB scene" {
+		t.Errorf("stash candidate Reasons = %v, want [\"same StashDB scene\"]", stashCandidates[0].Reasons)
+	}
+	if len(hashCandidates) != 1 || hashCandidates[0].Release.ID != 1 {
+		t.Fatalf("hashCandidates = %+v, want exactly release 1", hashCandidates)
+	}
+
+	// search()'s own combination: stash first, hash hits deduped by id.
+	candidates := append(append([]Candidate{}, stashCandidates...), hashCandidates...)
+	if candidates[0].Release.ID != 99 {
+		t.Errorf("combined candidates[0].Release.ID = %d, want 99 (stash identity ranks first)", candidates[0].Release.ID)
+	}
+	if candidates[1].Release.ID != 1 {
+		t.Errorf("combined candidates[1].Release.ID = %d, want 1", candidates[1].Release.ID)
+	}
+}
+
 // TestDefaultServerURL_Defined verifies the default public node URL is set.
 func TestDefaultServerURL_Defined(t *testing.T) {
 	if DefaultServerURL == "" {

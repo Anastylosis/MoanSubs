@@ -1,12 +1,33 @@
 package main
 
 import (
+	"net/url"
 	"sort"
 	"time"
 
 	"github.com/Anastylosis/MoanSubs/internal/hash"
 	"github.com/Anastylosis/MoanSubs/plugin/msclient"
 )
+
+// stashLabel maps a stash-box endpoint to a short display label (WP-C9a
+// spec: "Label from the endpoint host: stashdb.org→StashDB, fansdb.cc→
+// FansDB, else host") — mirrors the server's own mapping
+// (internal/api/catalogue.go's stashLabel), duplicated here since the
+// plugin binary doesn't import internal/api.
+func stashLabel(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" {
+		return endpoint
+	}
+	switch u.Host {
+	case "stashdb.org":
+		return "StashDB"
+	case "fansdb.cc":
+		return "FansDB"
+	default:
+		return u.Host
+	}
+}
 
 // Confidence levels for a candidate release, per PLAN.md "Matching" levels
 // 1-4 (level 5, the token scorer, is v2 and server-side).

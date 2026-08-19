@@ -232,6 +232,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("GET /api/v1/subtitles/{id}/votes", s.handleListVotes)
 	mux.HandleFunc("GET /api/v1/lookup/oshash/{prefix}", s.handleLookupOshashPrefix)
 	mux.HandleFunc("GET /api/v1/lookup/phash/{block}/{val}", s.handleLookupPhashBlock)
+	mux.HandleFunc("GET /api/v1/lookup/stash/{ehash}/{stash_id}", s.handleLookupStash)
 	mux.HandleFunc("POST /api/v1/lookup/batch", s.handleLookupBatch)
 	mux.HandleFunc("POST /api/v1/lookup/exact", s.handleLookupExact)
 	mux.HandleFunc("POST /api/v1/match", s.handleMatch)

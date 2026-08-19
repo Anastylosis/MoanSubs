@@ -137,6 +137,12 @@ unchanged. The upload page says the same in its own words.
 A pasted value is never overwritten. A file too small to fingerprint, or a
 container the browser can't decode, leaves the field for the uploader to
 type — same as with JavaScript disabled, which leaves every field plain.
+"About the scene" also carries a `stash_id` text field and a
+`stash_endpoint` select (stashdb.org, fansdb.cc, or "other" with its own
+free-text `stash_endpoint_other`) — migration 0011's WP-C9a stash-box scene
+id, one per submission (the JSON API accepts up to 5; the form is for a
+person filling this in by hand, so one is what fits the UI), stored the
+same additive way an ordinary upload's `stash_ids` is.
 Every other page is self-contained — no assets, no JavaScript. The
 catalogue pages (`/browse`, `/search`, `/release/*`,
 `/u/*`) send `X-Robots-Tag: noindex, nofollow`, and `/robots.txt`
@@ -347,9 +353,10 @@ would be impractical.
 
 Writes every non-withdrawn release and track as gzip-compressed JSONL: a
 `meta` line first (`format`, `generated_at`, `node` version), then one
-`release` line per release (fingerprints, duration, resolution and the
+`release` line per release (fingerprints, duration, resolution, the
 name metadata `POST /api/v1/match` scores against — a mirror without it
-would have no name matching and an empty catalogue), then one `track` line
+would have no name matching and an empty catalogue — and its stash-box ids,
+migration 0011, WP-C9a), then one `track` line
 per track. Withdrawn
 releases and tracks are excluded, as is any track under a withdrawn release
 even if the track itself was never individually withdrawn (TAKEDOWN.md).
@@ -382,8 +389,11 @@ nothing on this node to attach it to. Instead the uploader's name from the
 dump (if any) is folded into `source` as `mirror:<name>`, or plain `mirror`
 when the dump line had no uploader; `license` is carried over unchanged.
 Release name metadata is backfill-only, exactly as for uploads: it fills a
-release this node knows nothing about and never overwrites one it does. A
-release withdrawn *on this node* stays withdrawn — its tracks in the dump
+release this node knows nothing about and never overwrites one it does.
+Stash ids, unlike name metadata, are additive on import too — attached
+regardless of whatever the release already had, same as an ordinary upload's
+`stash_ids` (a malformed endpoint or id in the dump is skipped and printed,
+not fatal to the import). A release withdrawn *on this node* stays withdrawn — its tracks in the dump
 are counted and dropped, so a local takedown survives re-importing
 upstream. Prints final counts: releases seen, and tracks imported/already
 present/skipped (unparseable, or under a locally withdrawn release).
@@ -522,11 +532,12 @@ log:
   request — no IP, no account, no timestamp — the number is a plain
   counter, not a log a takedown or an abuse investigation could mine for
   who downloaded what.
-- **Lookup hit rate.** The four bucketed/exact/name-match lookup endpoints
-  (`/lookup/oshash`, `/lookup/phash`, `/lookup/batch`, `/lookup/exact`,
-  `/match`) each increment an in-memory total on every call and a hit
-  count when the response actually carried a release (for `/match`, when
-  the verdict wasn't `UNMATCHED`). These live in process memory and flush
+- **Lookup hit rate.** The bucketed/exact/name-match/stash-id lookup
+  endpoints (`/lookup/oshash`, `/lookup/phash`, `/lookup/stash`,
+  `/lookup/batch`, `/lookup/exact`, `/match`) each increment an in-memory
+  total on every call and a hit count when the response actually carried a
+  release (for `/match`, when the verdict wasn't `UNMATCHED`). These live
+  in process memory and flush
   to the database every 30 seconds and once more on graceful shutdown —
   losing up to 30 seconds of counts to a crash is an accepted trade-off,
   the same reasoning as the in-memory rate limiter buckets above. The

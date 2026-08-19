@@ -58,6 +58,13 @@ type TrackSummary struct {
 	Down      int   `json:"down"`
 }
 
+// StashID is one stash-box scene identity (migration 0011, WP-C9a) — sent
+// on upload and echoed back on every release a lookup response carries.
+type StashID struct {
+	Endpoint string `json:"endpoint"`
+	StashID  string `json:"stash_id"`
+}
+
 // Release mirrors the lookup API's per-release shape.
 type Release struct {
 	ID         int64          `json:"id"`
@@ -68,6 +75,9 @@ type Release struct {
 	Height     *int           `json:"height"`
 	VideoCodec *string        `json:"video_codec"`
 	Tracks     []TrackSummary `json:"tracks"`
+	// StashIDs is migration 0011's stash-box scene identities (WP-C9a),
+	// present on every release a lookup response carries.
+	StashIDs []StashID `json:"stash_ids"`
 }
 
 // Track is a full subtitle track as returned by GET /api/v1/subtitles/{id}.
@@ -91,13 +101,23 @@ type Track struct {
 }
 
 type batchRequest struct {
-	OshashPrefixes []string     `json:"oshash_prefixes,omitempty"`
-	PhashBlocks    []phashBlock `json:"phash_blocks,omitempty"`
+	OshashPrefixes []string            `json:"oshash_prefixes,omitempty"`
+	PhashBlocks    []phashBlock        `json:"phash_blocks,omitempty"`
+	StashIDs       []stashIDBatchQuery `json:"stash_ids,omitempty"`
 }
 
 type phashBlock struct {
 	Block int    `json:"block"`
 	Val   string `json:"val"`
+}
+
+// stashIDBatchQuery is one entry of the batch endpoint's stash_ids list:
+// ehash (internal/hash.EndpointHash of the normalized endpoint), never the
+// endpoint itself — same reasoning GET /api/v1/lookup/stash/{ehash}/{...}
+// has (API.md).
+type stashIDBatchQuery struct {
+	EHash   string `json:"ehash"`
+	StashID string `json:"stash_id"`
 }
 
 // SceneKeys is one scene file's lookup keys.
@@ -194,6 +214,57 @@ func (c *Client) LookupBucketsBatch(ctx context.Context, keys []SceneKeys) ([][]
 				out[i] = append(out[i], r)
 			}
 		}
+	}
+	return out, nil
+}
+
+// LookupStashIDs resolves releases matching any of ids via the batch
+// endpoint's stash_ids form (migration 0011, WP-C9a level 0 "identity"
+// match): a scene's own stash-box ids identify it across every encode,
+// which beats phash outright and costs no stash-box API key. Returns a
+// slice aligned with ids — out[i] holds ids[i]'s matching releases, [] when
+// none, so a caller can attribute a hit back to which of the scene's own
+// ids produced it (e.g. for a "same StashDB scene" reason). An id whose
+// endpoint or stash_id doesn't even parse locally is simply skipped rather
+// than failing the whole call — same "one broken entry doesn't sink the
+// batch" reasoning LookupBucketsBatch's caller (badge) relies on.
+func (c *Client) LookupStashIDs(ctx context.Context, ids []StashID) ([][]Release, error) {
+	out := make([][]Release, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+
+	req := batchRequest{}
+	// keyToIdx maps the batch response's "stash:<ehash>:<id>" key back to
+	// ids' index — the server echoes ehash, not the endpoint it hashes
+	// from (internal/hash.EndpointHash is one-way by design), so the
+	// original endpoint string is never recoverable from the response key.
+	keyToIdx := make(map[string]int, len(ids))
+	for i, id := range ids {
+		norm, err := hash.NormalizeStashEndpoint(id.Endpoint)
+		if err != nil {
+			continue
+		}
+		sid, err := hash.ParseStashID(id.StashID)
+		if err != nil {
+			continue
+		}
+		eh := hash.EndpointHash(norm)
+		req.StashIDs = append(req.StashIDs, stashIDBatchQuery{EHash: eh, StashID: sid})
+		keyToIdx[fmt.Sprintf("stash:%s:%s", eh, sid)] = i
+	}
+	if len(req.StashIDs) == 0 {
+		return out, nil
+	}
+
+	var resp struct {
+		Results map[string][]Release `json:"results"`
+	}
+	if err := c.post(ctx, "/api/v1/lookup/batch", req, &resp); err != nil {
+		return nil, err
+	}
+	for key, idx := range keyToIdx {
+		out[idx] = resp.Results[key]
 	}
 	return out, nil
 }
@@ -328,6 +399,11 @@ type UploadRequest struct {
 	Date       string   `json:"date,omitempty"`
 	Studio     string   `json:"studio,omitempty"`
 	Performers []string `json:"performers,omitempty"`
+
+	// StashIDs are the scene's stash-box identities (migration 0011,
+	// WP-C9a) — sent with every push so the server can attach them to the
+	// release, additive like the name metadata above.
+	StashIDs []StashID `json:"stash_ids,omitempty"`
 }
 
 // UploadResult mirrors the server's upload response.

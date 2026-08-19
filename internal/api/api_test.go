@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -611,5 +612,106 @@ func TestGetSubtitle_NotFound(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", resp.StatusCode)
+	}
+}
+
+// -- stash_ids on upload (migration 0011, WP-C9a) --------------------------
+
+func TestUpload_StashIDs_RejectsBadUUID(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "e0e0e0e0e0e0e0e0", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"stash_ids": []map[string]string{{"endpoint": "https://stashdb.org/graphql", "stash_id": "not-a-uuid"}},
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 (bad stash_id shape)", resp.StatusCode)
+	}
+}
+
+func TestUpload_StashIDs_RejectsOverCap(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	ids := make([]map[string]string, 0, 6)
+	for i := 0; i < 6; i++ {
+		ids = append(ids, map[string]string{
+			"endpoint": "https://stashdb.org/graphql",
+			"stash_id": fmt.Sprintf("c72cba4a-1e2b-4f0e-8f3a-1234567890a%d", i),
+		})
+	}
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "e1e1e1e1e1e1e1e1", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"stash_ids": ids,
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 (over the 5-id cap)", resp.StatusCode)
+	}
+}
+
+// TestUpload_StashIDs_StoredAndEchoedInLookup covers the happy path plus
+// normalization: an upload's stash_ids land on the release and come back
+// on a lookup, under the normalized endpoint.
+func TestUpload_StashIDs_StoredAndEchoedInLookup(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	up := doUpload(t, ts, token, map[string]any{
+		"oshash": "e2e2e2e2e2e2e2e2", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"stash_ids": []map[string]string{
+			{"endpoint": "HTTPS://StashDB.org/graphql", "stash_id": "C72CBA4A-1E2B-4F0E-8F3A-1234567890AB"},
+		},
+	})
+	if up.StatusCode != http.StatusCreated {
+		t.Fatalf("upload status = %d, want 201", up.StatusCode)
+	}
+
+	resp, err := http.Get(ts.URL + "/api/v1/lookup/oshash/e2e2e")
+	if err != nil {
+		t.Fatalf("GET lookup: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	got := decodeJSON[[]lookupRelease](t, resp)
+	if len(got) != 1 {
+		t.Fatalf("len(got) = %d, want 1", len(got))
+	}
+	if len(got[0].StashIDs) != 1 {
+		t.Fatalf("StashIDs = %+v, want exactly 1", got[0].StashIDs)
+	}
+	sid := got[0].StashIDs[0]
+	if sid.Endpoint != "https://stashdb.org/graphql" {
+		t.Errorf("Endpoint = %q, want normalized https://stashdb.org/graphql", sid.Endpoint)
+	}
+	if sid.StashID != "c72cba4a-1e2b-4f0e-8f3a-1234567890ab" {
+		t.Errorf("StashID = %q, want lowercased", sid.StashID)
+	}
+}
+
+// TestUpload_StashIDs_AdditiveAcrossUploads covers the WP-C9a spec: a later
+// upload can add a stash id to an existing release but never removes the
+// one a previous upload attached.
+func TestUpload_StashIDs_AdditiveAcrossUploads(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	first := doUpload(t, ts, token, map[string]any{
+		"oshash": "e3e3e3e3e3e3e3e3", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"stash_ids": []map[string]string{{"endpoint": "https://stashdb.org/graphql", "stash_id": "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"}},
+	})
+	if first.StatusCode != http.StatusCreated {
+		t.Fatalf("first upload status = %d, want 201", first.StatusCode)
+	}
+
+	// Same release (same oshash), a different language and a different
+	// stash id.
+	second := doUpload(t, ts, token, map[string]any{
+		"oshash": "e3e3e3e3e3e3e3e3", "duration_ms": 12000, "lang": "fr", "body": basicSRT,
+		"stash_ids": []map[string]string{{"endpoint": "https://fansdb.cc/graphql", "stash_id": "d83dba4a-1e2b-4f0e-8f3a-1234567890cd"}},
+	})
+	if second.StatusCode != http.StatusCreated {
+		t.Fatalf("second upload status = %d, want 201", second.StatusCode)
+	}
+
+	resp, err := http.Get(ts.URL + "/api/v1/lookup/oshash/e3e3e")
+	if err != nil {
+		t.Fatalf("GET lookup: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	got := decodeJSON[[]lookupRelease](t, resp)
+	if len(got) != 1 || len(got[0].StashIDs) != 2 {
+		t.Fatalf("got = %+v, want 1 release with 2 stash ids", got)
 	}
 }

@@ -114,7 +114,7 @@ func runImport(ctx context.Context, s *store.Store, r io.Reader, out io.Writer) 
 			if err := json.Unmarshal(raw, &rl); err != nil {
 				return stats, fmt.Errorf("line %d: decoding release: %w", line, err)
 			}
-			local, err := importRelease(ctx, s, rl)
+			local, err := importRelease(ctx, s, out, rl)
 			if err != nil {
 				return stats, fmt.Errorf("line %d: %w", line, err)
 			}
@@ -166,8 +166,9 @@ func runImport(ctx context.Context, s *store.Store, r io.Reader, out io.Writer) 
 // importRelease finds-or-creates the local release for rl, the same
 // GetOrCreateRelease path a normal upload uses — including its
 // backfill-only handling of name metadata, so a dump never overwrites what
-// this node already knows about a release.
-func importRelease(ctx context.Context, s *store.Store, rl dumpReleaseLine) (*store.Release, error) {
+// this node already knows about a release — then attaches rl's stash ids
+// (additive, same as AddReleaseStashIDs is everywhere else, WP-C9a).
+func importRelease(ctx context.Context, s *store.Store, out io.Writer, rl dumpReleaseLine) (*store.Release, error) {
 	oh, err := hash.ParseOSHash(rl.OSHash)
 	if err != nil {
 		return nil, fmt.Errorf("release %d: %w", rl.ID, err)
@@ -196,6 +197,31 @@ func importRelease(ctx context.Context, s *store.Store, rl dumpReleaseLine) (*st
 	})
 	if err != nil {
 		return nil, fmt.Errorf("release %d: %w", rl.ID, err)
+	}
+
+	// A withdrawn release stays withdrawn on this node (the caller drops its
+	// tracks below); attaching stash ids to it is harmless but pointless, so
+	// skip the extra work.
+	if release.WithdrawnAt != nil || len(rl.StashIDs) == 0 {
+		return release, nil
+	}
+
+	stashIDs := make([]store.ReleaseStashID, 0, len(rl.StashIDs))
+	for _, sid := range rl.StashIDs {
+		endpoint, err := hash.NormalizeStashEndpoint(sid.Endpoint)
+		if err != nil {
+			_, _ = fmt.Fprintf(out, "release %d: skipping stash id with unparseable endpoint %q: %v\n", rl.ID, sid.Endpoint, err)
+			continue
+		}
+		id, err := hash.ParseStashID(sid.StashID)
+		if err != nil {
+			_, _ = fmt.Fprintf(out, "release %d: skipping malformed stash_id %q: %v\n", rl.ID, sid.StashID, err)
+			continue
+		}
+		stashIDs = append(stashIDs, store.ReleaseStashID{Endpoint: endpoint, EHash: hash.EndpointHash(endpoint), StashID: id})
+	}
+	if err := s.AddReleaseStashIDs(ctx, release.ID, stashIDs); err != nil {
+		return nil, fmt.Errorf("release %d: attaching stash ids: %w", rl.ID, err)
 	}
 	return release, nil
 }

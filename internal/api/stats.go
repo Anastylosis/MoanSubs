@@ -26,7 +26,7 @@ const StatsFlushInterval = 30 * time.Second
 // for, in the order GET /api/v1/stats reports them. The names double as
 // the suffix on both the atomic field lookup below and the persisted
 // "lookups.<level>"/"hits.<level>" stats keys.
-var lookupLevels = []string{"oshash", "phash", "batch", "exact", "match"}
+var lookupLevels = []string{"oshash", "phash", "batch", "exact", "match", "stash"}
 
 // Stats holds moansubs's in-memory, per-process lookup hit-rate counters
 // (WP-A2), plus the store handle Run/Flush need to persist them and the
@@ -53,6 +53,12 @@ type Stats struct {
 	HitsExact     atomic.Int64
 	LookupsMatch  atomic.Int64
 	HitsMatch     atomic.Int64
+	// LookupsStash/HitsStash count GET /api/v1/lookup/stash/{ehash}/{stash_id}
+	// (migration 0011, WP-C9a) — the batch endpoint's stash_ids entries fold
+	// into LookupsBatch/HitsBatch instead, same as its oshash/phash entries
+	// do.
+	LookupsStash atomic.Int64
+	HitsStash    atomic.Int64
 
 	cacheMu     sync.Mutex
 	cached      statsResponse
@@ -81,6 +87,8 @@ func (st *Stats) counters() map[string]*atomic.Int64 {
 		"hits.exact":     &st.HitsExact,
 		"lookups.match":  &st.LookupsMatch,
 		"hits.match":     &st.HitsMatch,
+		"lookups.stash":  &st.LookupsStash,
+		"hits.stash":     &st.HitsStash,
 	}
 }
 

@@ -37,12 +37,20 @@ type lookupTrackSummary struct {
 	Down int `json:"down"`
 }
 
-// lookupRelease is one release as returned by any of the four lookup
-// endpoints. PHash is the full zero-padded 16-hex string (or null), not
-// truncated to a block — the client computes true Hamming distances
-// locally against it (PLAN.md: "the client computes true Hamming distances
-// locally ... the server is not the one filtering by distance except in
-// exact mode").
+// lookupStashID is one stash-box scene identity as echoed on a release
+// (migration 0011, WP-C9a) — the full endpoint (never the ehash: a lookup
+// caller sends the hash to find a release, but every release serialization
+// echoes the real URL back, which a hash alone can't do).
+type lookupStashID struct {
+	Endpoint string `json:"endpoint"`
+	StashID  string `json:"stash_id"`
+}
+
+// lookupRelease is one release as returned by any of the lookup endpoints.
+// PHash is the full zero-padded 16-hex string (or null), not truncated to a
+// block — the client computes true Hamming distances locally against it
+// (PLAN.md: "the client computes true Hamming distances locally ... the
+// server is not the one filtering by distance except in exact mode").
 type lookupRelease struct {
 	ID         int64                `json:"id"`
 	OSHash     string               `json:"oshash"`
@@ -52,20 +60,28 @@ type lookupRelease struct {
 	Height     *int                 `json:"height"`
 	VideoCodec *string              `json:"video_codec"`
 	Tracks     []lookupTrackSummary `json:"tracks"`
+	// StashIDs is migration 0011's stash-box scene identities (WP-C9a),
+	// additive like Downloads/Up/Down above — always present, [] when none.
+	StashIDs []lookupStashID `json:"stash_ids"`
 }
 
-// lookupReleases fetches track summaries for releases in a single query
-// (store.TrackSummariesByReleaseIDs) and assembles the shared response
-// shape. Always returns non-nil slices (both the outer list and each
-// release's Tracks) so an empty result marshals to `[]`, never `null` —
-// callers rely on that to make an empty bucket a plain 200 rather than
-// something a client has to special-case.
+// lookupReleases fetches track summaries and stash ids for releases in two
+// batched queries (store.TrackSummariesByReleaseIDs,
+// store.StashIDsByReleaseIDs) and assembles the shared response shape.
+// Always returns non-nil slices (the outer list, each release's Tracks, and
+// each release's StashIDs) so an empty result marshals to `[]`, never
+// `null` — callers rely on that to make an empty bucket a plain 200 rather
+// than something a client has to special-case.
 func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) ([]lookupRelease, error) {
 	ids := make([]int64, len(releases))
 	for i, r := range releases {
 		ids[i] = r.ID
 	}
 	tracksByRelease, err := s.Store.TrackSummariesByReleaseIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	stashIDsByRelease, err := s.Store.StashIDsByReleaseIDs(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -94,6 +110,12 @@ func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) (
 			})
 		}
 
+		stashIDRows := stashIDsByRelease[r.ID]
+		stashIDs := make([]lookupStashID, 0, len(stashIDRows))
+		for _, sid := range stashIDRows {
+			stashIDs = append(stashIDs, lookupStashID{Endpoint: sid.Endpoint, StashID: sid.StashID})
+		}
+
 		out = append(out, lookupRelease{
 			ID:         r.ID,
 			OSHash:     string(r.OSHash),
@@ -103,6 +125,7 @@ func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) (
 			Height:     r.Height,
 			VideoCodec: r.VideoCodec,
 			Tracks:     tracks,
+			StashIDs:   stashIDs,
 		})
 	}
 	return out, nil
@@ -117,6 +140,13 @@ func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) (
 // here would silently return empty results for a client typo instead of
 // flagging it — hence 400, not a lenient normalize-and-search.
 var oshashPrefixPattern = regexp.MustCompile(`^[0-9a-f]{5}$`)
+
+// ehashPattern enforces the stash lookup's own bucket-key contract
+// literally: the first 12 hex characters of sha256(normalized endpoint)
+// (internal/hash.EndpointHash). Same reasoning as oshashPrefixPattern
+// above — a malformed ehash never matches a stored one, so this is a 400,
+// not a lenient normalize-and-search.
+var ehashPattern = regexp.MustCompile(`^[0-9a-f]{12}$`)
 
 // handleLookupOshashPrefix implements GET /api/v1/lookup/oshash/{prefix}
 // (PLAN.md "Lookup: bucketed by default"). Anonymous, IP rate-limited.
@@ -204,6 +234,48 @@ func (s *Server) handleLookupPhashBlock(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, out) // empty bucket => 200 + [], see handleLookupOshashPrefix's comment
 }
 
+// -- GET /api/v1/lookup/stash/{ehash}/{stash_id} ---------------------------
+
+// handleLookupStash implements GET /api/v1/lookup/stash/{ehash}/{stash_id}
+// (migration 0011, WP-C9a "level 0, identity" match): a Stash scene's own
+// stash-box id identifies it across every encode, which beats phash outright
+// and costs no stash-box API key. ehash is the requester's own precomputed
+// internal/hash.EndpointHash — the server never sees the endpoint URL
+// itself on this path, only the hash a client already derived from it.
+// Anonymous, IP rate-limited like the other lookups.
+func (s *Server) handleLookupStash(w http.ResponseWriter, r *http.Request) {
+	if !s.LookupLimiter.Allow(s.clientIP(r)) {
+		writeError(w, http.StatusTooManyRequests, "lookup rate limit exceeded")
+		return
+	}
+
+	ehash := r.PathValue("ehash")
+	if !ehashPattern.MatchString(ehash) {
+		writeError(w, http.StatusBadRequest, "ehash must be exactly 12 lowercase hex characters")
+		return
+	}
+	stashID, err := hash.ParseStashID(r.PathValue("stash_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	releases, err := s.Store.ReleasesByStashID(r.Context(), ehash, stashID)
+	if err != nil {
+		log.Printf("api: ReleasesByStashID: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	out, err := s.lookupReleases(r.Context(), releases)
+	if err != nil {
+		log.Printf("api: lookupReleases: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	s.Stats.record(&s.Stats.LookupsStash, &s.Stats.HitsStash, len(out) > 0)
+	writeJSON(w, http.StatusOK, out) // no such id => 200 + [], see handleLookupOshashPrefix's comment
+}
+
 // -- POST /api/v1/lookup/batch ---------------------------------------------
 
 // maxBatchEntries caps the combined size of oshash_prefixes + phash_blocks
@@ -218,9 +290,19 @@ type phashBlockQuery struct {
 	Val   string `json:"val"`
 }
 
+// stashIDQuery is one entry of a batch request's stash_ids list: the
+// requester's own precomputed ehash (internal/hash.EndpointHash) plus the
+// stash_id it's paired with — never the endpoint itself (WP-C9a: "keeps
+// URLs out of ... the wire shape").
+type stashIDQuery struct {
+	EHash   string `json:"ehash"`
+	StashID string `json:"stash_id"`
+}
+
 type batchLookupRequest struct {
 	OshashPrefixes []string          `json:"oshash_prefixes"`
 	PhashBlocks    []phashBlockQuery `json:"phash_blocks"`
+	StashIDs       []stashIDQuery    `json:"stash_ids"`
 }
 
 // batchLookupResponse's Results is keyed by a string built from each
@@ -235,6 +317,12 @@ func oshashResultKey(prefix string) string { return "oshash:" + prefix }
 
 func phashResultKey(block int, val string) string {
 	return fmt.Sprintf("phash:%d:%s", block, strings.ToLower(val))
+}
+
+// stashResultKey mirrors GET /api/v1/lookup/stash/{ehash}/{stash_id}'s own
+// path shape in the batch response's key.
+func stashResultKey(ehash, stashID string) string {
+	return fmt.Sprintf("stash:%s:%s", ehash, stashID)
 }
 
 // handleLookupBatch implements POST /api/v1/lookup/batch (PLAN.md "Lookup:
@@ -257,9 +345,9 @@ func (s *Server) handleLookupBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	total := len(req.OshashPrefixes) + len(req.PhashBlocks)
+	total := len(req.OshashPrefixes) + len(req.PhashBlocks) + len(req.StashIDs)
 	if total == 0 {
-		writeError(w, http.StatusBadRequest, "at least one of oshash_prefixes or phash_blocks is required")
+		writeError(w, http.StatusBadRequest, "at least one of oshash_prefixes, phash_blocks or stash_ids is required")
 		return
 	}
 	if total > maxBatchEntries {
@@ -326,6 +414,35 @@ func (s *Server) handleLookupBatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		results[phashResultKey(pb.Block, pb.Val)] = out
+		if len(out) > 0 {
+			batchHit = true
+		}
+	}
+
+	for _, sq := range req.StashIDs {
+		if !ehashPattern.MatchString(sq.EHash) {
+			writeError(w, http.StatusBadRequest,
+				fmt.Sprintf("stash_ids: ehash %q must be exactly 12 lowercase hex characters", sq.EHash))
+			return
+		}
+		stashID, err := hash.ParseStashID(sq.StashID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "stash_ids: "+err.Error())
+			return
+		}
+		releases, err := s.Store.ReleasesByStashID(ctx, sq.EHash, stashID)
+		if err != nil {
+			log.Printf("api: ReleasesByStashID (batch): %v", err)
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		out, err := s.lookupReleases(ctx, releases)
+		if err != nil {
+			log.Printf("api: lookupReleases (batch): %v", err)
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		results[stashResultKey(sq.EHash, stashID)] = out
 		if len(out) > 0 {
 			batchHit = true
 		}

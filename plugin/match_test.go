@@ -83,6 +83,26 @@ func TestRankCandidates(t *testing.T) {
 	})
 }
 
+// TestStashLabel covers WP-C9a's endpoint->label mapping used both for the
+// "same <Label> scene" ranking reason and (mirrored server-side in
+// internal/api/catalogue.go) the release page's "On <Label> ↗" link.
+func TestStashLabel(t *testing.T) {
+	cases := []struct {
+		endpoint string
+		want     string
+	}{
+		{"https://stashdb.org/graphql", "StashDB"},
+		{"https://fansdb.cc/graphql", "FansDB"},
+		{"https://example.stashbox/graphql", "example.stashbox"},
+		{"not a url", "not a url"},
+	}
+	for _, c := range cases {
+		if got := stashLabel(c.endpoint); got != c.want {
+			t.Errorf("stashLabel(%q) = %q, want %q", c.endpoint, got, c.want)
+		}
+	}
+}
+
 // TestNameCandidates_OfferOnly asserts the offer-only guarantee for the v2
 // no-phash fallback: even a server CONFIRMED verdict must not upgrade a
 // name-match candidate to ConfidenceExact/ConfidenceHigh (the only levels

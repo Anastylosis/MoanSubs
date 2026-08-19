@@ -130,6 +130,58 @@ func TestUpload_IdempotentOnRepush(t *testing.T) {
 	}
 }
 
+// TestUpload_StashIDsPushedAndFoundByLookupStashIDs is a round trip against
+// the real server (migration 0011, WP-C9a): a push carrying stash_ids
+// stores them on the release, and LookupStashIDs finds that release back —
+// the exact flow app.stashIdentityCandidates relies on.
+func TestUpload_StashIDsPushedAndFoundByLookupStashIDs(t *testing.T) {
+	c, s := newTestServer(t)
+	ctx := context.Background()
+
+	token := "stash-id-token"
+	sum := sha256.Sum256([]byte(token))
+	if _, err := s.Pool().Exec(ctx,
+		`INSERT INTO accounts (name, token_hash) VALUES ('stash-pusher', $1)`,
+		hex.EncodeToString(sum[:])); err != nil {
+		t.Fatal(err)
+	}
+	c.Token = token
+
+	stashID := StashID{Endpoint: "https://stashdb.org/graphql", StashID: "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"}
+	req := UploadRequest{
+		OSHash:     "00000000deadc0de",
+		DurationMs: 60_000,
+		Lang:       "en",
+		Body:       "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+		StashIDs:   []StashID{stashID},
+	}
+	res, err := c.Upload(ctx, req)
+	if err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+
+	perID, err := c.LookupStashIDs(ctx, []StashID{stashID})
+	if err != nil {
+		t.Fatalf("LookupStashIDs: %v", err)
+	}
+	if len(perID) != 1 || len(perID[0]) != 1 || perID[0][0].ID != res.ReleaseID {
+		t.Fatalf("LookupStashIDs = %+v, want exactly release %d", perID, res.ReleaseID)
+	}
+	if len(perID[0][0].StashIDs) != 1 || perID[0][0].StashIDs[0].StashID != stashID.StashID {
+		t.Errorf("returned release StashIDs = %+v, want the pushed id echoed back", perID[0][0].StashIDs)
+	}
+
+	// A stash id nobody attached anything to must resolve to an empty
+	// slice, not an error or a nil map entry the caller has to special-case.
+	miss, err := c.LookupStashIDs(ctx, []StashID{{Endpoint: "https://fansdb.cc/graphql", StashID: "d83dba4a-1e2b-4f0e-8f3a-1234567890cd"}})
+	if err != nil {
+		t.Fatalf("LookupStashIDs (miss): %v", err)
+	}
+	if len(miss) != 1 || len(miss[0]) != 0 {
+		t.Errorf("LookupStashIDs (miss) = %+v, want [[]] ", miss)
+	}
+}
+
 func TestUpload_RequiresToken(t *testing.T) {
 	c := New("http://localhost:1", "")
 	_, err := c.Upload(context.Background(), UploadRequest{})
@@ -327,7 +379,7 @@ func TestVersion_ParsesVersionAndFeatures(t *testing.T) {
 	if v.Version != "dev" {
 		t.Errorf("Version.Version = %q, want %q", v.Version, "dev")
 	}
-	want := map[string]bool{"lookup": true, "match": true, "withdraw": true, "stats": true, "srt": true, "votes": true}
+	want := map[string]bool{"lookup": true, "match": true, "withdraw": true, "stats": true, "srt": true, "votes": true, "stash_ids": true}
 	if len(v.Features) != len(want) {
 		t.Fatalf("Features = %v, want exactly %v", v.Features, want)
 	}

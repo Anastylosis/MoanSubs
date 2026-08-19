@@ -50,7 +50,7 @@ func (a *app) badge(ctx context.Context, sceneIDs []string) (any, error) {
 			logInfo("badge: scene %s: %v", id, err)
 			continue
 		}
-		oh, ph, durationMs, _, err := sceneKeys(scene)
+		oh, ph, durationMs, _, _, err := sceneKeys(scene)
 		if err != nil {
 			continue
 		}

@@ -159,6 +159,17 @@ type Performer struct {
 	Name string `json:"name"`
 }
 
+// StashID is one of a scene's stash-box identities (WP-C9a): Endpoint is
+// the stash-box GraphQL URL exactly as Stash reports it (normalized by
+// internal/hash before it goes anywhere near the moansubs server), StashID
+// its scene id on that stash-box. `stash_ids { endpoint stash_id }` has
+// existed on Scene since Stash 0.10 — unlike captions, this needs no probe:
+// it's safe to request unconditionally.
+type StashID struct {
+	Endpoint string `json:"endpoint"`
+	StashID  string `json:"stash_id"`
+}
+
 // Scene is the subset of Scene the plugin needs.
 type Scene struct {
 	ID    string `json:"id"`
@@ -169,6 +180,7 @@ type Scene struct {
 	Performers []Performer `json:"performers"`
 	Files      []SceneFile `json:"files"`
 	Captions   []Caption   `json:"captions"`
+	StashIDs   []StashID   `json:"stash_ids"`
 }
 
 // StudioName returns the scene's studio name, or "" when it has none.
@@ -196,7 +208,7 @@ func (s Scene) PerformerNames() []string {
 // FindScene fetches one scene by id. Caption fields are only requested when
 // ProbeCaptions established they exist.
 func (c *Client) FindScene(ctx context.Context, id string) (*Scene, error) {
-	fields := `id title date studio { name } performers { name } files { path duration fingerprints { type value } }`
+	fields := `id title date studio { name } performers { name } files { path duration fingerprints { type value } } stash_ids { endpoint stash_id }`
 	if c.SupportsCaptions {
 		fields += ` captions { language_code caption_type }`
 	}
@@ -218,7 +230,7 @@ func (c *Client) FindScene(ctx context.Context, id string) (*Scene, error) {
 // FindScenesPage returns one page of all scenes, id-ascending, plus the
 // total count — the iteration backbone for library-wide tasks.
 func (c *Client) FindScenesPage(ctx context.Context, page, perPage int) ([]Scene, int, error) {
-	fields := `id title date studio { name } performers { name } files { path duration fingerprints { type value } }`
+	fields := `id title date studio { name } performers { name } files { path duration fingerprints { type value } } stash_ids { endpoint stash_id }`
 	if c.SupportsCaptions {
 		fields += ` captions { language_code caption_type }`
 	}

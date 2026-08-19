@@ -91,6 +91,23 @@
     <label for="performers">Performers</label>
     <input type="text" id="performers" name="performers" value="{{.Values.Performers}}" placeholder="comma-separated">
 
+    <div class="two">
+      <div>
+        <label for="stash_id">Stash-box scene id <span class="hint" style="display:inline;font-weight:400">optional</span></label>
+        <input type="text" id="stash_id" name="stash_id" class="mono" value="{{.Values.StashID}}" placeholder="c72cba4a-1e2b-4f0e-8f3a-1234567890ab" autocomplete="off">
+        <p class="hint">Stash: scene → Edit → the stash-box id shown next to its logo. This is the scene's identity across every encode, so it beats a fingerprint match outright when it's known.</p>
+      </div>
+      <div>
+        <label for="stash_endpoint">On which stash-box</label>
+        <select id="stash_endpoint" name="stash_endpoint">
+          {{$se := .Values.StashEndpoint}}
+          {{range .StashEndpoints}}<option value="{{.}}"{{if or (eq . $se) (and (eq $se "") (eq . (index $.StashEndpoints 0)))}} selected{{end}}>{{.}}</option>{{end}}
+          <option value="other"{{if eq $se "other"}} selected{{end}}>other</option>
+        </select>
+        <input type="text" id="stash_endpoint_other" name="stash_endpoint_other" class="mono" value="{{.Values.StashEndpointOther}}" placeholder="https://example.stashbox/graphql" autocomplete="off" style="margin-top:.35rem">
+      </div>
+    </div>
+
     <button type="submit">Upload</button>
   </form>
   <script src="/static/phash.js" defer></script>

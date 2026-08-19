@@ -135,20 +135,23 @@ func hasFeature(features []string, name string) bool {
 	return slices.Contains(features, name)
 }
 
-// sceneKeys extracts the lookup keys from a scene's primary file.
-func sceneKeys(s *stash.Scene) (hash.OSHash, *hash.PHash, int64, string, error) {
+// sceneKeys extracts the lookup keys from a scene's primary file, plus the
+// scene's own stash-box ids (WP-C9a level 0 "identity" match) — these come
+// straight off s rather than the file, but are returned here so every
+// caller derives a scene's full lookup key set from one function.
+func sceneKeys(s *stash.Scene) (hash.OSHash, *hash.PHash, int64, string, []stash.StashID, error) {
 	if len(s.Files) == 0 {
-		return "", nil, 0, "", fmt.Errorf("scene %s has no files", s.ID)
+		return "", nil, 0, "", nil, fmt.Errorf("scene %s has no files", s.ID)
 	}
 	f := s.Files[0]
 
 	oshashStr := f.Fingerprint("oshash")
 	if oshashStr == "" {
-		return "", nil, 0, "", fmt.Errorf("scene %s has no oshash fingerprint", s.ID)
+		return "", nil, 0, "", nil, fmt.Errorf("scene %s has no oshash fingerprint", s.ID)
 	}
 	oh, err := hash.ParseOSHash(oshashStr)
 	if err != nil {
-		return "", nil, 0, "", fmt.Errorf("scene %s: %w", s.ID, err)
+		return "", nil, 0, "", nil, fmt.Errorf("scene %s: %w", s.ID, err)
 	}
 
 	var ph *hash.PHash
@@ -164,7 +167,57 @@ func sceneKeys(s *stash.Scene) (hash.OSHash, *hash.PHash, int64, string, error) 
 	}
 
 	durationMs := int64(f.Duration * 1000)
-	return oh, ph, durationMs, f.Path, nil
+	return oh, ph, durationMs, f.Path, s.StashIDs, nil
+}
+
+// msclientStashIDs converts a scene's stash.StashID list (as read from
+// Stash's GraphQL) into msclient's wire shape — the same two fields, just a
+// different package boundary (plugin/stash reads from Stash, plugin/msclient
+// writes to the moansubs server).
+func msclientStashIDs(ids []stash.StashID) []msclient.StashID {
+	if len(ids) == 0 {
+		return nil
+	}
+	out := make([]msclient.StashID, len(ids))
+	for i, id := range ids {
+		out[i] = msclient.StashID{Endpoint: id.Endpoint, StashID: id.StashID}
+	}
+	return out
+}
+
+// stashIdentityCandidates resolves the scene's own stash-box ids against
+// the server (WP-C9a level 0, "identity"): a hit here is ranked above every
+// hash-based candidate with Confidence ConfidenceExact and a reason naming
+// which stash-box scene it matched, even when the release's hashes differ
+// from this scene's — that's exactly the case a hash-only comparison can't
+// see, since the same scene re-encoded still carries the same stash-box id.
+func (a *app) stashIdentityCandidates(ctx context.Context, ids []stash.StashID, sceneDurationMs int64) []Candidate {
+	query := msclientStashIDs(ids)
+	perID, err := a.ms.LookupStashIDs(ctx, query)
+	if err != nil {
+		logInfo("stash id lookup failed: %v", err)
+		return nil
+	}
+
+	var out []Candidate
+	seen := map[int64]bool{}
+	for i, releases := range perID {
+		label := stashLabel(query[i].Endpoint)
+		for _, r := range releases {
+			if seen[r.ID] {
+				continue
+			}
+			seen[r.ID] = true
+			out = append(out, Candidate{
+				Release:         r,
+				Confidence:      ConfidenceExact,
+				HammingDistance: -1, // not applicable — matched by stash-box id, not a fingerprint
+				DurationDeltaMs: sceneDurationMs - r.DurationMs,
+				Reasons:         []string{"same " + label + " scene"},
+			})
+		}
+	}
+	return out
 }
 
 // fileStem returns a file's basename without its extension — the "primary
@@ -202,9 +255,17 @@ func (a *app) search(ctx context.Context, sceneID string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	oh, ph, durationMs, path, err := sceneKeys(scene)
+	oh, ph, durationMs, path, stashIDs, err := sceneKeys(scene)
 	if err != nil {
 		return nil, err
+	}
+
+	// Level 0, "identity": the scene's own stash-box ids, resolved BEFORE
+	// any hash lookup runs — they identify the same scene across every
+	// encode by construction, which beats even an exact oshash match (WP-C9a).
+	var stashCandidates []Candidate
+	if len(stashIDs) > 0 {
+		stashCandidates = a.stashIdentityCandidates(ctx, stashIDs, durationMs)
 	}
 
 	var releases []msclient.Release
@@ -218,11 +279,32 @@ func (a *app) search(ctx context.Context, sceneID string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	hashCandidates := rankCandidates(releases, oh, ph, durationMs, fromExact)
+
+	// stash-identity hits are de-duplicated against hash hits by release id
+	// and always come first — the whole point of ranking them ahead is that
+	// a stash-box hit stands even when hashes differ (a re-encode, say), so
+	// dropping it in favor of a hash hit on the same release would lose the
+	// stronger evidence, not just reorder it.
+	candidates := stashCandidates
+	if len(stashCandidates) > 0 {
+		seen := make(map[int64]bool, len(stashCandidates))
+		for _, c := range stashCandidates {
+			seen[c.Release.ID] = true
+		}
+		for _, c := range hashCandidates {
+			if !seen[c.Release.ID] {
+				candidates = append(candidates, c)
+			}
+		}
+	} else {
+		candidates = hashCandidates
+	}
 
 	res := searchResult{
 		SceneID:    sceneID,
 		PHashKnown: ph != nil,
-		Candidates: rankCandidates(releases, oh, ph, durationMs, fromExact),
+		Candidates: candidates,
 		HasToken:   a.ms.Token != "",
 	}
 	if v, verr := a.serverVersion(ctx); verr == nil {

@@ -62,10 +62,15 @@ across different people's libraries is nearly never.
 ## What you see
 
 - **Scene page → "Subtitles" section**: *Find subtitles* lists candidates
-  with their evidence — **Exact match** (identical file), **Different
+  with their evidence — **Exact match** (identical file, or the scene's own
+  stash-box id — StashDB, FansDB, … — matching a release's, shown first and
+  labelled with the reason "same StashDB scene" even when the fingerprints
+  themselves differ, since the id identifies the scene across every
+  encode), **Different
   encode** (near phash, duration agrees; flagged **sync?** because timing
   may be off by a few seconds), **Possible match** (full-hash mode only;
-  never auto-applied). If hash-based lookup finds nothing at all, and the
+  never auto-applied). A candidate carrying a stash-box id shows a
+  "StashDB ↗" (or "FansDB ↗", …) link straight to that scene. If hash-based lookup finds nothing at all, and the
   scene's title/filename was pushed with name metadata, a **Name match**
   candidate may appear instead — a title/filename score from the server,
   always offer-only regardless of how confident the server is, shown with
@@ -110,6 +115,9 @@ across different people's libraries is nearly never.
   filename stem, date, studio, performers) — this is what later lets a
   scene with no phash still turn up a **Name match** on someone else's
   server (see above); a scene missing a field simply pushes without it.
+  The scene's stash-box ids (StashDB, FansDB, …), when Stash reports any,
+  go along too — this is what lets **Exact match** rank a same-scene,
+  different-encode hit ahead of ordinary phash matching (see above).
 
 ## Troubleshooting
 

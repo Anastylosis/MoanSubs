@@ -33,7 +33,20 @@ type uploadFormValues struct {
 	Date       string
 	Studio     string
 	Performers string
+	// StashID/StashEndpoint/StashEndpointOther are WP-C9a's two "About the
+	// scene" fields: a single stash-box id (the web form sends at most one,
+	// unlike the JSON API's up-to-5 list) plus which stash-box it's from.
+	// StashEndpointOther backs the <select>'s "other" option's free-text
+	// endpoint, mirroring how LangOther backs the language <select> above.
+	StashID            string
+	StashEndpoint      string
+	StashEndpointOther string
 }
+
+// stashEndpointOptions is /upload's stash_endpoint <select> — the same two
+// well-known stash-boxes API.md documents, plus "other" for anything else
+// (backed by stash_endpoint_other, a free-text field).
+var stashEndpointOptions = []string{"https://stashdb.org/graphql", "https://fansdb.cc/graphql"}
 
 // uploadResultData is /upload's success state: enough to tell the uploader
 // what landed, without repeating oshash/phash/md5 back at them.
@@ -53,11 +66,13 @@ type uploadResultData struct {
 // with an error and the previously-typed values) or the result of a
 // successful submission, never both.
 type uploadPageData struct {
-	Title  string
-	Langs  []string
-	Error  string
-	Values uploadFormValues
-	Result *uploadResultData
+	Title string
+	Langs []string
+	// StashEndpoints is the stash_endpoint <select>'s options (WP-C9a).
+	StashEndpoints []string
+	Error          string
+	Values         uploadFormValues
+	Result         *uploadResultData
 }
 
 // handleUploadForm implements GET /upload (WP-D1): session-only, like /me —
@@ -69,8 +84,9 @@ func (s *Server) handleUploadForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.renderPage(w, r, http.StatusOK, "upload.html", uploadPageData{
-		Title: "Upload a subtitle",
-		Langs: uploadLangs,
+		Title:          "Upload a subtitle",
+		Langs:          uploadLangs,
+		StashEndpoints: stashEndpointOptions,
 	}, false)
 }
 
@@ -148,8 +164,9 @@ func (s *Server) handleUploadSubmit(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusOK
 	}
 	s.renderPage(w, r, status, "upload.html", uploadPageData{
-		Title: "Upload complete",
-		Langs: uploadLangs,
+		Title:          "Upload complete",
+		Langs:          uploadLangs,
+		StashEndpoints: stashEndpointOptions,
 		Result: &uploadResultData{
 			TrackID:        resp.TrackID,
 			ReleaseID:      resp.ReleaseID,
@@ -166,10 +183,11 @@ func (s *Server) handleUploadSubmit(w http.ResponseWriter, r *http.Request) {
 // re-shows its Name.
 func (s *Server) renderUploadForm(w http.ResponseWriter, r *http.Request, status int, msg string, values uploadFormValues) {
 	s.renderPage(w, r, status, "upload.html", uploadPageData{
-		Title:  "Upload a subtitle",
-		Langs:  uploadLangs,
-		Error:  msg,
-		Values: values,
+		Title:          "Upload a subtitle",
+		Langs:          uploadLangs,
+		StashEndpoints: stashEndpointOptions,
+		Error:          msg,
+		Values:         values,
 	}, false)
 }
 
@@ -177,17 +195,20 @@ func (s *Server) renderUploadForm(w http.ResponseWriter, r *http.Request, status
 // echoing into a re-shown form after a failed submission.
 func formValuesFromRequest(r *http.Request) uploadFormValues {
 	return uploadFormValues{
-		OSHash:     r.PostFormValue("oshash"),
-		DurationMs: r.PostFormValue("duration_ms"),
-		PHash:      r.PostFormValue("phash"),
-		MD5:        r.PostFormValue("md5"),
-		Lang:       r.PostFormValue("lang"),
-		LangOther:  r.PostFormValue("lang_other"),
-		Title:      r.PostFormValue("title"),
-		Stem:       r.PostFormValue("stem"),
-		Date:       r.PostFormValue("date"),
-		Studio:     r.PostFormValue("studio"),
-		Performers: r.PostFormValue("performers"),
+		OSHash:             r.PostFormValue("oshash"),
+		DurationMs:         r.PostFormValue("duration_ms"),
+		PHash:              r.PostFormValue("phash"),
+		MD5:                r.PostFormValue("md5"),
+		Lang:               r.PostFormValue("lang"),
+		LangOther:          r.PostFormValue("lang_other"),
+		Title:              r.PostFormValue("title"),
+		Stem:               r.PostFormValue("stem"),
+		Date:               r.PostFormValue("date"),
+		Studio:             r.PostFormValue("studio"),
+		Performers:         r.PostFormValue("performers"),
+		StashID:            r.PostFormValue("stash_id"),
+		StashEndpoint:      r.PostFormValue("stash_endpoint"),
+		StashEndpointOther: r.PostFormValue("stash_endpoint_other"),
 	}
 }
 
@@ -215,6 +236,19 @@ func uploadRequestFromForm(r *http.Request, body string) (uploadRequest, *apiErr
 		}
 	}
 
+	// stash_id (WP-C9a): the web form carries at most one, unlike the JSON
+	// API's up-to-5 list. Only sent when an id was actually typed — an
+	// empty stash_id with, say, the default endpoint selected must not
+	// manufacture a spurious entry.
+	var stashIDs []stashIDInput
+	if stashID := strings.TrimSpace(r.PostFormValue("stash_id")); stashID != "" {
+		endpoint := strings.TrimSpace(r.PostFormValue("stash_endpoint"))
+		if endpoint == "other" {
+			endpoint = strings.TrimSpace(r.PostFormValue("stash_endpoint_other"))
+		}
+		stashIDs = append(stashIDs, stashIDInput{Endpoint: endpoint, StashID: stashID})
+	}
+
 	return uploadRequest{
 		OSHash:     strings.TrimSpace(r.PostFormValue("oshash")),
 		PHash:      strings.TrimSpace(r.PostFormValue("phash")),
@@ -227,6 +261,7 @@ func uploadRequestFromForm(r *http.Request, body string) (uploadRequest, *apiErr
 		Date:       strings.TrimSpace(r.PostFormValue("date")),
 		Studio:     r.PostFormValue("studio"),
 		Performers: performers,
+		StashIDs:   stashIDs,
 	}, nil
 }
 

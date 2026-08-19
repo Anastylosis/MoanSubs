@@ -50,6 +50,16 @@ type dumpReleaseLine struct {
 	ReleaseDate *string  `json:"date,omitempty"`
 	Studio      *string  `json:"studio,omitempty"`
 	Performers  []string `json:"performers,omitempty"`
+	// StashIDs is migration 0011's stash-box scene identities (WP-C9a),
+	// additive like the rest of this line — dump format stays 1.
+	StashIDs []dumpStashID `json:"stash_ids,omitempty"`
+}
+
+// dumpStashID mirrors internal/api's lookupStashID: the full endpoint (not
+// its ehash — the dump is a trusted export, not a lookup query).
+type dumpStashID struct {
+	Endpoint string `json:"endpoint"`
+	StashID  string `json:"stash_id"`
 }
 
 // dumpTrackLine is one non-withdrawn track. Uploader is the account's
@@ -164,8 +174,17 @@ func writeDump(ctx context.Context, s *store.Store, enc *json.Encoder) (dumpStat
 		if len(batch) == 0 {
 			break
 		}
+		ids := make([]int64, len(batch))
+		for i, r := range batch {
+			ids[i] = r.ID
+		}
+		stashIDsByRelease, err := s.StashIDsByReleaseIDs(ctx, ids)
+		if err != nil {
+			return stats, fmt.Errorf("fetching stash ids: %w", err)
+		}
+
 		for _, r := range batch {
-			if err := enc.Encode(dumpReleaseFrom(r)); err != nil {
+			if err := enc.Encode(dumpReleaseFrom(r, stashIDsByRelease[r.ID])); err != nil {
 				return stats, fmt.Errorf("writing release %d: %w", r.ID, err)
 			}
 			stats.releases++
@@ -194,11 +213,15 @@ func writeDump(ctx context.Context, s *store.Store, enc *json.Encoder) (dumpStat
 	return stats, nil
 }
 
-func dumpReleaseFrom(r store.Release) dumpReleaseLine {
+func dumpReleaseFrom(r store.Release, stashIDs []store.ReleaseStashID) dumpReleaseLine {
 	var phash *string
 	if r.PHash != nil {
 		v := r.PHash.String()
 		phash = &v
+	}
+	var dumpedStashIDs []dumpStashID
+	for _, sid := range stashIDs {
+		dumpedStashIDs = append(dumpedStashIDs, dumpStashID{Endpoint: sid.Endpoint, StashID: sid.StashID})
 	}
 	return dumpReleaseLine{
 		Kind:        "release",
@@ -214,6 +237,7 @@ func dumpReleaseFrom(r store.Release) dumpReleaseLine {
 		ReleaseDate: r.ReleaseDate,
 		Studio:      r.Studio,
 		Performers:  r.Performers,
+		StashIDs:    dumpedStashIDs,
 	}
 }
 

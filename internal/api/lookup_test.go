@@ -670,3 +670,157 @@ func TestLookupPhashBlocks_EndToEnd_SimulatesClientFlow(t *testing.T) {
 		t.Error("far (Hamming 6) not found via exact mode with max_distance=8, though it's within the cap")
 	}
 }
+
+// -- GET /api/v1/lookup/stash/{ehash}/{stash_id} (WP-C9a) -------------------
+
+// attachStashID normalizes endpoint/stashID the same way the upload path
+// does and attaches it to releaseID, returning the (ehash, stashID) pair a
+// test needs to build the lookup URL or batch entry.
+func attachStashID(t *testing.T, st *store.Store, releaseID int64, endpoint, stashID string) (ehash, id string) {
+	t.Helper()
+	norm, err := hash.NormalizeStashEndpoint(endpoint)
+	if err != nil {
+		t.Fatalf("NormalizeStashEndpoint(%q): %v", endpoint, err)
+	}
+	id, err = hash.ParseStashID(stashID)
+	if err != nil {
+		t.Fatalf("ParseStashID(%q): %v", stashID, err)
+	}
+	ehash = hash.EndpointHash(norm)
+	if err := st.AddReleaseStashIDs(context.Background(), releaseID, []store.ReleaseStashID{
+		{ReleaseID: releaseID, Endpoint: norm, EHash: ehash, StashID: id},
+	}); err != nil {
+		t.Fatalf("AddReleaseStashIDs: %v", err)
+	}
+	return ehash, id
+}
+
+func TestLookupStash_RejectsBadEHash(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/api/v1/lookup/stash/not-hex/c72cba4a-1e2b-4f0e-8f3a-1234567890ab")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestLookupStash_RejectsBadStashID(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/api/v1/lookup/stash/aaaaaaaaaaaa/not-a-uuid")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestLookupStash_NoMatchReturns200EmptyList(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	resp, err := http.Get(ts.URL + "/api/v1/lookup/stash/aaaaaaaaaaaa/c72cba4a-1e2b-4f0e-8f3a-1234567890ab")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	got := decodeJSON[[]lookupRelease](t, resp)
+	if len(got) != 0 {
+		t.Errorf("len(got) = %d, want 0", len(got))
+	}
+}
+
+func TestLookupStash_FindsAttachedRelease(t *testing.T) {
+	ts, st, _ := newTestServer(t)
+	ctx := context.Background()
+
+	releaseID, err := st.CreateRelease(ctx, store.Release{OSHash: mustOSHash(t, "f0f0f0f0f0f0f0f0"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	ehash, id := attachStashID(t, st, releaseID, "https://stashdb.org/graphql", "c72cba4a-1e2b-4f0e-8f3a-1234567890ab")
+
+	resp, err := http.Get(ts.URL + "/api/v1/lookup/stash/" + ehash + "/" + id)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	got := decodeJSON[[]lookupRelease](t, resp)
+	if len(got) != 1 || got[0].ID != releaseID {
+		t.Fatalf("got = %+v, want exactly release %d", got, releaseID)
+	}
+	if len(got[0].StashIDs) != 1 || got[0].StashIDs[0].Endpoint != "https://stashdb.org/graphql" || got[0].StashIDs[0].StashID != id {
+		t.Errorf("StashIDs = %+v, want [{https://stashdb.org/graphql %s}]", got[0].StashIDs, id)
+	}
+}
+
+func TestLookupStash_ExcludesWithdrawnRelease(t *testing.T) {
+	ts, st, _ := newTestServer(t)
+	ctx := context.Background()
+
+	releaseID, err := st.CreateRelease(ctx, store.Release{OSHash: mustOSHash(t, "f1f1f1f1f1f1f1f1"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	ehash, id := attachStashID(t, st, releaseID, "https://stashdb.org/graphql", "c72cba4a-1e2b-4f0e-8f3a-1234567890ab")
+	if err := st.WithdrawRelease(ctx, releaseID, "test"); err != nil {
+		t.Fatalf("WithdrawRelease: %v", err)
+	}
+
+	resp, err := http.Get(ts.URL + "/api/v1/lookup/stash/" + ehash + "/" + id)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	got := decodeJSON[[]lookupRelease](t, resp)
+	if len(got) != 0 {
+		t.Errorf("got = %+v, want empty (release withdrawn)", got)
+	}
+}
+
+// TestLookupBatch_StashIDsKeyAndHit covers the batch endpoint's stash_ids
+// form: request field {ehash, stash_id}, response key "stash:<ehash>:<id>".
+func TestLookupBatch_StashIDsKeyAndHit(t *testing.T) {
+	ts, st, _ := newTestServer(t)
+	ctx := context.Background()
+
+	releaseID, err := st.CreateRelease(ctx, store.Release{OSHash: mustOSHash(t, "f2f2f2f2f2f2f2f2"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	ehash, id := attachStashID(t, st, releaseID, "https://stashdb.org/graphql", "c72cba4a-1e2b-4f0e-8f3a-1234567890ab")
+
+	resp := doPostJSON(t, ts, "/api/v1/lookup/batch", map[string]any{
+		"stash_ids": []map[string]string{{"ehash": ehash, "stash_id": id}},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	got := decodeJSON[batchLookupResponse](t, resp)
+	key := "stash:" + ehash + ":" + id
+	releases, ok := got.Results[key]
+	if !ok {
+		t.Fatalf("Results missing key %q; got keys %v", key, got.Results)
+	}
+	if len(releases) != 1 || releases[0].ID != releaseID {
+		t.Errorf("Results[%q] = %+v, want exactly release %d", key, releases, releaseID)
+	}
+}
+
+func TestLookupBatch_RejectsBadStashID(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	resp := doPostJSON(t, ts, "/api/v1/lookup/batch", map[string]any{
+		"stash_ids": []map[string]string{{"ehash": "aaaaaaaaaaaa", "stash_id": "not-a-uuid"}},
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}

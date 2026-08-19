@@ -50,7 +50,7 @@ leaks the same, explicitly.
 
 ### `GET /api/v1/version`
 
-`{"version": "<semver or dev>", "features": ["lookup", "match", "withdraw", "stats", "srt", "votes"]}`. Anonymous
+`{"version": "<semver or dev>", "features": ["lookup", "match", "withdraw", "stats", "srt", "votes", "stash_ids"]}`. Anonymous
 and unthrottled — it never touches the database. Lets a client discover the
 node's version and API surface up front and degrade a missing feature
 gracefully (skip with one log line) instead of tripping over a 404 mid-task.
@@ -71,16 +71,31 @@ a 404.
 blocks 0–3, `fff` for block 4; 400 outside the range). Returns releases in
 that block bucket.
 
+### `GET /api/v1/lookup/stash/{ehash}/{stash_id}`
+
+The level-0 "identity" match (migration 0011, WP-C9a): a Stash scene's own
+stash-box id (StashDB, FansDB, …) identifies it across every encode, which
+beats phash outright and costs no stash-box API key. `ehash` is the first 12
+hex characters of `sha256(normalized endpoint)` — the client computes this
+locally (the normalizer + hasher live in `internal/hash`, shared by server
+and plugin) so a full stash-box URL never appears in a URL or an access log;
+the server has no way to invert `ehash` back into the endpoint it hashes
+from. `stash_id` is the lowercased 36-character UUID. Returns the same
+release list shape as the other bucketed lookups (withdrawn excluded, `200`
+with `[]` on no match — never `404`).
+
 ### `POST /api/v1/lookup/batch`
 
 ```json
-{"oshash_prefixes": ["7a604"], "phash_blocks": [{"block": 0, "val": "1fe0"}]}
+{"oshash_prefixes": ["7a604"], "phash_blocks": [{"block": 0, "val": "1fe0"}],
+ "stash_ids": [{"ehash": "a1b2c3d4e5f6", "stash_id": "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"}]}
 ```
 
 At most 100 entries combined. Response keys mirror the request entries:
 
 ```json
-{"results": {"oshash:7a604": [<release>...], "phash:0:1fe0": [<release>...]}}
+{"results": {"oshash:7a604": [<release>...], "phash:0:1fe0": [<release>...],
+             "stash:a1b2c3d4e5f6:c72cba4a-1e2b-4f0e-8f3a-1234567890ab": [<release>...]}}
 ```
 
 Exists so a wall of scene cards costs one request, not forty.
@@ -111,7 +126,8 @@ poll without hitting the database on every call):
     "phash":  {"total": 4200, "hits": 1900},
     "batch":  {"total": 300, "hits": 180},
     "exact":  {"total": 50, "hits": 12},
-    "match":  {"total": 90, "hits": 33}
+    "match":  {"total": 90, "hits": 33},
+    "stash":  {"total": 20, "hits": 15}
   }
 }
 ```
@@ -187,7 +203,9 @@ what the score was computed against, including a date disagreement via
   "width": null, "height": null, "video_codec": null,
   "tracks": [{"id": 1, "lang": "pt-BR", "generated": false,
               "license": "CC0", "has_provenance": false,
-              "downloads": 42, "up": 3, "down": 0, "created_at": "..."}]
+              "downloads": 42, "up": 3, "down": 0, "created_at": "..."}],
+  "stash_ids": [{"endpoint": "https://stashdb.org/graphql",
+                 "stash_id": "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"}]
 }
 ```
 
@@ -200,6 +218,10 @@ do its tracks, even the ones not individually marked.
 `downloads` (migration 0006) is additive: a plugin built before it simply
 ignores the field. See `GET /api/v1/subtitles/{id}` for what increments it.
 `up`/`down` (migration 0008, "Votes" below) are additive the same way.
+`stash_ids` (migration 0011, WP-C9a) is additive too — always present,
+`[]` when the release carries none — and lists every stash-box scene id
+ever attached to the release, not just the one a `/lookup/stash` call
+matched on.
 
 Within one release, a track list's default order — here and everywhere
 else a release's tracks are listed (lookup responses, the catalogue's
@@ -342,7 +364,9 @@ cookie regardless, then redirects (`303`) to `/`.
 {"oshash": "7a604bd1a3800e67", "phash": "ff00454c6e3f1333",
  "md5": "…", "duration_ms": 1857470, "lang": "en", "body": "1\n00:00:01,000 --> …",
  "title": "Some Scene", "stem": "some-scene-2023-1080p", "date": "2023-05-23",
- "studio": "Some Studio", "performers": ["A Performer"]}
+ "studio": "Some Studio", "performers": ["A Performer"],
+ "stash_ids": [{"endpoint": "https://stashdb.org/graphql",
+                "stash_id": "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"}]}
 ```
 
 `oshash`, `duration_ms` (>0), `lang` (parseable BCP-47) and `body` are
@@ -353,6 +377,14 @@ metadata at all yet, never overwritten or merged column-by-column on a
 release that already has some, so two uploaders' descriptions of the same
 file can't blend into an inconsistent record. Omit a field entirely if
 Stash didn't report it — an empty string is a value, not "absent".
+
+`stash_ids` (migration 0011, WP-C9a) is optional, at most 5 entries.
+`endpoint` is normalized (trimmed, scheme and host lowercased, path kept as
+given) before storage; `stash_id` is validated as a 36-character UUID shape
+and lowercased — either malformed rejects the whole upload with `400`.
+Unlike name metadata this is **additive, not backfill-only**: like votes and
+downloads, a later upload can add a stash id to a release that already has
+some, on top of whatever was there before; nothing here ever removes one.
 See MANUAL.md "Upload semantics" for the sanitization pipeline. Responses:
 
 - `201` `{"track_id": n, "release_id": n, "generated": bool}` — stored.

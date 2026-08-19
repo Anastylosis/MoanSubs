@@ -9,6 +9,11 @@ Subtitles are matched to *content*, not filenames: an exact `oshash` match
 means the byte-identical file, and a near `phash` (perceptual hash) match
 gated by duration finds the same scene in a different encode. One person's
 subtitle reaches another person's library even though their files differ.
+Matching levels, strongest first: **0** the scene's own stash-box id
+(StashDB, FansDB, …) — identifies the scene across every encode, ahead of
+hash matching itself; **1–4** oshash/phash, exact down to a near match;
+**5** a title/filename score, offered but never auto-applied, for when a
+scene has no phash at all. See [API.md](API.md) for the exact contract.
 
 ## How it works
 

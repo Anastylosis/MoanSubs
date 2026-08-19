@@ -134,6 +134,10 @@ func (a *app) pushScene(ctx context.Context, scene *stash.Scene, dryRun bool, st
 			Date:       scene.Date,
 			Studio:     scene.StudioName(),
 			Performers: scene.PerformerNames(),
+			// The scene's stash-box ids (WP-C9a) — sent with every upload so
+			// the server can attach them to the release, additive like the
+			// name metadata above.
+			StashIDs: msclientStashIDs(scene.StashIDs),
 		})
 		if err != nil {
 			st.Errors++

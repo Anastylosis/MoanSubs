@@ -49,6 +49,13 @@ func TestDumpImportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateRelease(r1): %v", err)
 	}
+	// WP-C9a: a stash id on r1 must survive dump -> import intact, endpoint
+	// and all.
+	if err := s.AddReleaseStashIDs(ctx, r1, []store.ReleaseStashID{
+		{Endpoint: "https://stashdb.org/graphql", EHash: "ehashplaceho", StashID: "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+	}); err != nil {
+		t.Fatalf("AddReleaseStashIDs: %v", err)
+	}
 	r2, err := s.CreateRelease(ctx, store.Release{OSHash: mustOSHash(t, "f000000000000002"), DurationMs: 2000})
 	if err != nil {
 		t.Fatalf("CreateRelease(r2): %v", err)
@@ -108,6 +115,8 @@ func TestDumpImportRoundTrip(t *testing.T) {
 		t.Errorf("imported r1.DurationMs = %d, want 1000", got1.DurationMs)
 	}
 	assertNameMeta(t, got1, title, studio, "A Performer")
+	assertStashIDRoundTrip(t, s, got1.ID)
+
 	got2, err := s.GetReleaseByOshash(ctx, mustOSHash(t, "f000000000000002"))
 	if err != nil {
 		t.Fatalf("GetReleaseByOshash(r2): %v", err)
@@ -149,6 +158,23 @@ func TestDumpImportRoundTrip(t *testing.T) {
 	}
 	if noUploaderTrack.Source == nil || *noUploaderTrack.Source != "mirror" {
 		t.Errorf("track imported from an uploader-less dump line: Source = %v, want \"mirror\"", noUploaderTrack.Source)
+	}
+}
+
+// assertStashIDRoundTrip checks that the stash id attached on the origin
+// node (WP-C9a) survived dump -> import intact, endpoint and all. Its own
+// function, not inlined into TestDumpImportRoundTrip, partly for the same
+// single-purpose reason as assertNameMeta below and partly to keep that
+// test's own cyclomatic complexity under the lint threshold.
+func assertStashIDRoundTrip(t *testing.T, s *store.Store, releaseID int64) {
+	t.Helper()
+	got, err := s.StashIDsByReleaseIDs(context.Background(), []int64{releaseID})
+	if err != nil {
+		t.Fatalf("StashIDsByReleaseIDs: %v", err)
+	}
+	if len(got[releaseID]) != 1 || got[releaseID][0].Endpoint != "https://stashdb.org/graphql" ||
+		got[releaseID][0].StashID != "c72cba4a-1e2b-4f0e-8f3a-1234567890ab" {
+		t.Errorf("imported stash ids = %+v, want the one attached on the origin node", got[releaseID])
 	}
 }
 

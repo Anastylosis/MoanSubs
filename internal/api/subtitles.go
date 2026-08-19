@@ -38,7 +38,24 @@ type uploadRequest struct {
 	Date       string   `json:"date"` // YYYY-MM-DD
 	Studio     string   `json:"studio"`
 	Performers []string `json:"performers"`
+
+	// StashIDs are the scene's stash-box identities (migration 0011,
+	// WP-C9a) — additive on the release, like name metadata never removed,
+	// only ever added to. Capped at maxUploadStashIDs per request.
+	StashIDs []stashIDInput `json:"stash_ids"`
 }
+
+// stashIDInput is one entry of uploadRequest.StashIDs.
+type stashIDInput struct {
+	Endpoint string `json:"endpoint"`
+	StashID  string `json:"stash_id"`
+}
+
+// maxUploadStashIDs caps how many stash_ids one upload can carry (WP-C9a
+// spec: "Max 5 per request") — a scene realistically has one id per
+// stash-box it's tagged on (StashDB, FansDB, ...), so 5 is generous
+// headroom, not a limit anyone should ever brush up against.
+const maxUploadStashIDs = 5
 
 type uploadResponse struct {
 	TrackID   int64 `json:"track_id"`
@@ -62,6 +79,34 @@ func optString(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// parseUploadStashIDs validates and normalizes an upload's stash_ids
+// (migration 0011, WP-C9a), pulled out of ingest as its own function so
+// that function's cyclomatic complexity stays under the lint threshold —
+// this is pure validation with no dependency on ingest's other state.
+func parseUploadStashIDs(ids []stashIDInput) ([]store.ReleaseStashID, *apiError) {
+	if len(ids) > maxUploadStashIDs {
+		return nil, &apiError{http.StatusBadRequest,
+			fmt.Sprintf("stash_ids: at most %d per request", maxUploadStashIDs)}
+	}
+	out := make([]store.ReleaseStashID, 0, len(ids))
+	for _, sid := range ids {
+		endpoint, err := hash.NormalizeStashEndpoint(sid.Endpoint)
+		if err != nil {
+			return nil, &apiError{http.StatusBadRequest, "stash_ids: " + err.Error()}
+		}
+		id, err := hash.ParseStashID(sid.StashID)
+		if err != nil {
+			return nil, &apiError{http.StatusBadRequest, "stash_ids: " + err.Error()}
+		}
+		out = append(out, store.ReleaseStashID{
+			Endpoint: endpoint,
+			EHash:    hash.EndpointHash(endpoint),
+			StashID:  id,
+		})
+	}
+	return out, nil
 }
 
 // authenticateStateChange is the shared auth step for every state-changing
@@ -220,6 +265,11 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	if req.Date != "" && !datePattern.MatchString(req.Date) {
 		return nil, &apiError{http.StatusBadRequest, "date: want YYYY-MM-DD"}
 	}
+	stashIDs, aerr := parseUploadStashIDs(req.StashIDs)
+	if aerr != nil {
+		return nil, aerr
+	}
+
 	release, err := s.Store.GetOrCreateRelease(ctx, store.Release{
 		OSHash:     oshash,
 		PHash:      phash,
@@ -244,6 +294,16 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	// content that was taken down (WP-A1).
 	if release.WithdrawnAt != nil {
 		return nil, &apiError{http.StatusGone, "release withdrawn"}
+	}
+
+	// Stash ids are release-level, not track-level, and additive like name
+	// metadata — stored regardless of whether this upload's subtitle body
+	// turns out to be a duplicate track below.
+	if len(stashIDs) > 0 {
+		if err := s.Store.AddReleaseStashIDs(ctx, release.ID, stashIDs); err != nil {
+			log.Printf("api: AddReleaseStashIDs: %v", err)
+			return nil, &apiError{http.StatusInternalServerError, "internal error"}
+		}
 	}
 
 	// Idempotent upload: a byte-identical track for the same release and

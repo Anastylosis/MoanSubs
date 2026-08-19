@@ -311,6 +311,33 @@
         c.reasons && c.reasons.length
           ? '<div class="text-muted small">' + esc(reasonsText) + "</div>"
           : "";
+      // Stash-box links (WP-C9a): every stash id the release carries, not
+      // just the one that matched — a candidate can carry several (e.g.
+      // both StashDB and FansDB). endpoint minus its trailing "/graphql"
+      // plus "/scenes/<id>" is the scene page on that stash-box.
+      const stashLinks = (c.release.stash_ids || [])
+        .map((s) => {
+          const url =
+            String(s.endpoint).replace(/\/graphql\/?$/, "") +
+            "/scenes/" +
+            encodeURIComponent(s.stash_id);
+          const host = (function () {
+            try {
+              return new URL(s.endpoint).host;
+            } catch (e) {
+              return s.endpoint;
+            }
+          })();
+          const label =
+            host === "stashdb.org" ? "StashDB" : host === "fansdb.cc" ? "FansDB" : host;
+          return (
+            '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(label) + " ↗</a>"
+          );
+        })
+        .join(" ");
+      const stashLinksHTML = stashLinks
+        ? '<div class="small mt-1">' + stashLinks + "</div>"
+        : "";
       const tracks = (c.release.tracks || [])
         .map((t) => {
           const ai = t.generated
@@ -339,6 +366,7 @@
           '<div class="mb-1">' + confidenceBadge(c.confidence) + dated + sync +
           ' <span class="text-muted small">' + esc(meta) + "</span></div>" +
           reasons +
+          stashLinksHTML +
           tracks +
           "</div>"
       );

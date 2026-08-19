@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -58,6 +59,54 @@ type catalogueRelease struct {
 	Resolution  string // "" when unknown, else "WIDTHxHEIGHT"
 	Performers  []string
 	Tracks      []catalogueTrack
+	// StashLinks is migration 0011's stash-box scene identities (WP-C9a),
+	// rendered as "On StashDB ↗" links — populated only by
+	// renderReleasePage (browse/search never show it, so their callers
+	// leave this nil, same pattern as IsOwn/MyVote above).
+	StashLinks []stashLink
+}
+
+// stashLink is one "On <Label> ↗" link on the release page.
+type stashLink struct {
+	Label string
+	URL   string
+}
+
+// stashLabel maps a stash-box endpoint to a short display label (WP-C9a
+// spec: "endpoint host-derived label: stashdb.org → StashDB, fansdb.cc →
+// FansDB, else the host"). Falls back to the raw endpoint when it doesn't
+// even parse as a URL — should never happen for a value NormalizeStashEndpoint
+// already accepted, but a display helper degrades rather than panics.
+func stashLabel(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" {
+		return endpoint
+	}
+	switch u.Host {
+	case "stashdb.org":
+		return "StashDB"
+	case "fansdb.cc":
+		return "FansDB"
+	default:
+		return u.Host
+	}
+}
+
+// stashSceneURL builds the scene page a stash id links to: the endpoint
+// with its trailing "/graphql" removed, plus "/scenes/<id>" (WP-C9a spec).
+func stashSceneURL(endpoint, stashID string) string {
+	return strings.TrimSuffix(endpoint, "/graphql") + "/scenes/" + stashID
+}
+
+// buildStashLinks converts stored stash ids into the release page's
+// rendering shape, in stored order (StashIDsByReleaseIDs already orders by
+// endpoint, stash_id, so this is deterministic).
+func buildStashLinks(ids []store.ReleaseStashID) []stashLink {
+	out := make([]stashLink, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, stashLink{Label: stashLabel(id.Endpoint), URL: stashSceneURL(id.Endpoint, id.StashID)})
+	}
+	return out
 }
 
 // displayTitle picks what to head a release with. CatalogueRelease and
@@ -349,6 +398,14 @@ func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id in
 	}
 
 	rendered := buildCatalogueRelease(*release, tracksByRelease[release.ID])
+
+	stashIDsByRelease, err := s.Store.StashIDsByReleaseIDs(ctx, []int64{release.ID})
+	if err != nil {
+		log.Printf("api: StashIDsByReleaseIDs (release page): %v", err)
+	} else {
+		rendered.StashLinks = buildStashLinks(stashIDsByRelease[release.ID])
+	}
+
 	data := releasePageData{Title: rendered.Title, Release: rendered, Error: formError}
 
 	if ares, err := authenticate(ctx, s.Store, r); err == nil {
