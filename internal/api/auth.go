@@ -24,6 +24,24 @@ var (
 type authResult struct {
 	Account   *store.Account
 	ViaCookie bool
+	// Role mirrors Account.Role — carried separately so a caller can read
+	// it without going through Account, the same way ViaCookie is broken
+	// out rather than left implicit (WP-C7a: "authResult.Role filled from
+	// accounts.role").
+	Role string
+}
+
+// roleRank orders roles for requireRole's "at least" comparison: an
+// unrecognized role (there shouldn't be one — the column has a CHECK
+// constraint) ranks below "user", never above a real role by accident.
+var roleRank = map[string]int{"user": 0, "mod": 1, "admin": 2}
+
+// requireRole reports whether ares's role meets or exceeds want —
+// requireRole(ares, "mod") is true for both "mod" and "admin". Defined
+// now (WP-C7a) for WP-C7b's moderation endpoints; nothing in this package
+// calls it yet besides /me's own invite-disable permission check.
+func requireRole(ares *authResult, want string) bool {
+	return roleRank[ares.Role] >= roleRank[want]
 }
 
 // authenticate identifies the caller behind r: a Bearer token if present,
@@ -48,7 +66,7 @@ func authenticate(ctx context.Context, s *store.Store, r *http.Request) (*authRe
 		if err != nil {
 			return nil, err
 		}
-		return &authResult{Account: account}, nil
+		return &authResult{Account: account, Role: account.Role}, nil
 	}
 
 	cookie, err := r.Cookie(sessionCookieName)
@@ -65,7 +83,7 @@ func authenticate(ctx context.Context, s *store.Store, r *http.Request) (*authRe
 	if account.Disabled {
 		return nil, errAccountDisabled
 	}
-	return &authResult{Account: account, ViaCookie: true}, nil
+	return &authResult{Account: account, ViaCookie: true, Role: account.Role}, nil
 }
 
 // lookupByToken is the Bearer half of authenticate, and POST /login's own

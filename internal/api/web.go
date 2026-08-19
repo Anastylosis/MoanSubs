@@ -56,9 +56,14 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 type registerData struct {
 	Title string
 	Open  bool
-	Name  string
-	Token string
-	Error string
+	// InviteRequired shows the invite field: true only in invite mode
+	// (WP-C7a spec — the field is entirely absent in open mode, since a
+	// code there is optional accountability, not a gate).
+	InviteRequired bool
+	Invite         string
+	Name           string
+	Token          string
+	Error          string
 }
 
 // renderPage writes one page, composing the named body template into the
@@ -156,7 +161,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := indexPageData{Title: "Home", Open: s.OpenRegistration, DumpURL: s.DumpURL}
+	data := indexPageData{Title: "Home", Open: s.OpenForStrangers(), DumpURL: s.DumpURL}
 	// Stats are best-effort here: a snapshot error omits the numbers rather
 	// than failing the whole front page (WP-C2 spec) — this is the node's
 	// front door, and it must render even when the stats aggregate query
@@ -171,30 +176,38 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleRegisterForm serves the registration form (or the closed notice).
+// GET /register?invite=CODE prefills the invite field (WP-C7a spec) — the
+// link an inviter hands out.
 func (s *Server) handleRegisterForm(w http.ResponseWriter, r *http.Request) {
 	status := http.StatusOK
-	if !s.OpenRegistration {
+	if !s.OpenForStrangers() {
 		status = http.StatusForbidden
 	}
-	s.renderPage(w, r, status, "register.html", registerData{Title: "Register", Open: s.OpenRegistration}, false)
+	s.renderPage(w, r, status, "register.html", registerData{
+		Title: "Register", Open: s.OpenForStrangers(), InviteRequired: s.Registration == RegistrationInvite,
+		Invite: r.URL.Query().Get("invite"),
+	}, false)
 }
 
 // handleRegisterSubmit handles the form POST. Deliberately a form post
 // rather than fetch(): it works with JavaScript disabled, and the token
 // comes back in a response body rather than anywhere it could be logged.
 func (s *Server) handleRegisterSubmit(w http.ResponseWriter, r *http.Request) {
+	inviteRequired := s.Registration == RegistrationInvite
 	if err := r.ParseForm(); err != nil {
 		s.renderPage(w, r, http.StatusBadRequest, "register.html", registerData{
-			Title: "Register", Open: s.OpenRegistration, Error: "could not read the submitted form",
+			Title: "Register", Open: s.OpenForStrangers(), InviteRequired: inviteRequired, Error: "could not read the submitted form",
 		}, false)
 		return
 	}
 	name := r.PostFormValue("name")
+	invite := r.PostFormValue("invite")
 
-	got, rerr := s.register(r.Context(), s.clientIP(r), name)
+	got, rerr := s.register(r.Context(), s.clientIP(r), name, invite)
 	if rerr != nil {
 		s.renderPage(w, r, rerr.status, "register.html", registerData{
-			Title: "Register", Open: s.OpenRegistration, Name: name, Error: rerr.msg,
+			Title: "Register", Open: s.OpenForStrangers(), InviteRequired: inviteRequired,
+			Name: name, Invite: invite, Error: rerr.msg,
 		}, false)
 		return
 	}

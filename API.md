@@ -250,23 +250,49 @@ SHA-256. People with a browser can use the node's own form at `/register`
 instead; it is the same code path, rendered as HTML.
 
 ```json
-{"name": "somebody"}
+{"name": "somebody", "invite": "aB3dEfGhJkLm"}
 ```
 
 Names are 3–64 characters of letters, digits, and `_ - .` — no spaces, no
 control or invisible characters, so a name cannot be dressed up to look
 like somebody else's. Uniqueness is case-insensitive.
 
+`invite` is a registration code from an existing member (or the operator's
+own, via `moansubs invite create`). Its meaning depends on the node's
+`MOANSUBS_REGISTRATION` mode (MANUAL.md):
+
+- `open` (the default) — `invite` is optional. Omit it and registration
+  works exactly as before invites existed. Send one anyway and, if it's
+  valid, it's still redeemed and the new account's `invited_by` still
+  records who sent it — the code is accountability here, not a gate, so an
+  invalid one is silently ignored rather than refusing the registration.
+- `invite` — `invite` is required and must currently redeem: enabled,
+  unexpired, and under its use limit. A missing, unknown, disabled,
+  expired, or exhausted code is refused the same way (403), so guessing
+  codes learns nothing about which case failed.
+- `closed` — registration is refused outright (403); `invite` is not
+  consulted.
+
+Redeeming a code and creating the account happen atomically: a
+registration that fails for another reason (e.g. the name is taken) never
+consumes the invite, and two simultaneous registrations racing the same
+single-use code leave exactly one winner.
+
 - `201` `{"id": n, "name": "somebody", "token": "<64 hex chars>"}`. Sent
   `Cache-Control: no-store`; treat the token like a password.
 - `400` — name missing, too short/long, or containing disallowed characters.
 - `409` — that name is taken.
-- `403` — registration is closed on this node; ask the operator.
+- `403` — registration is closed on this node (ask the operator), or the
+  node requires an invite and `{"error":"invite code is not valid"}` —
+  missing, unknown, disabled, expired, or exhausted.
 - `429` — over the per-IP registration budget
-  (`MOANSUBS_REGISTER_RATE_PER_HOUR`, default 5).
+  (`MOANSUBS_REGISTER_RATE_PER_HOUR`, default 5). On an invite-only node
+  this budget also covers invite-code guessing: every attempt, right code
+  or wrong, spends one of it.
 
 Nothing else is collected: no email, no password. The token *is* the
-account, and a lost one means registering again under a new name.
+account; an invite code just records who vouched for it. A lost token
+means registering again under a new name.
 
 ### `POST /login`
 

@@ -228,8 +228,45 @@ var accountPurgeCmd = &cobra.Command{
 	},
 }
 
+// validAccountRoles mirrors migration 0009's CHECK constraint — checked
+// here too so a typo gets a clean CLI error instead of a raw
+// constraint-violation message from Postgres.
+var validAccountRoles = map[string]bool{"user": true, "mod": true, "admin": true}
+
+// accountRoleCmd is the operator's only way to grant mod/admin (WP-C7a) —
+// nothing in this package uses the distinction yet beyond the CLI's own
+// gating of who may disable someone else's invite code; WP-C7b's
+// moderation surfaces are the actual consumer.
+var accountRoleCmd = &cobra.Command{
+	Use:   "role <name> <user|mod|admin>",
+	Short: "Set an account's role",
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		role := args[1]
+		if !validAccountRoles[role] {
+			return fmt.Errorf("moansubs account role: invalid role %q (want user, mod, or admin)", role)
+		}
+
+		s, ctx, cancel, err := openStore(cmd, "account role")
+		if err != nil {
+			return err
+		}
+		defer cancel()
+		defer s.Close()
+
+		if err := s.SetAccountRole(ctx, args[0], role); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return fmt.Errorf("moansubs account role: no account named %q", args[0])
+			}
+			return fmt.Errorf("moansubs account role: %w", err)
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Account %q role set to %q.\n", args[0], role)
+		return nil
+	},
+}
+
 func init() {
 	accountPurgeCmd.Flags().StringVar(&accountPurgeReason, "reason", "", "reason recorded for the withdrawal")
-	accountCmd.AddCommand(accountCreateCmd, accountListCmd, accountDisableCmd, accountEnableCmd, accountRotateTokenCmd, accountPurgeCmd)
+	accountCmd.AddCommand(accountCreateCmd, accountListCmd, accountDisableCmd, accountEnableCmd, accountRotateTokenCmd, accountPurgeCmd, accountRoleCmd)
 	rootCmd.AddCommand(accountCmd)
 }

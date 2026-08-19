@@ -40,4 +40,39 @@
 </table>
 <p class="hint">Rotating the token is the fix for a leaked one: uploads and the plugin need the new value; this browser session stays logged in.</p>
 {{end}}
+
+<h2>Invite others</h2>
+{{if not .Invites}}
+<p class="empty">No invite codes yet.</p>
+{{else}}
+<table>
+  <thead><tr><th>Code</th><th class="n">Uses</th><th>Status</th><th>Share link</th><th></th></tr></thead>
+  <tbody>
+  {{range .Invites}}
+  <tr>
+    <td><code class="mono">{{.Code}}</code></td>
+    <td class="n">{{if .MaxUses}}{{.Uses}}/{{.MaxUses}}{{else}}{{.Uses}}/&infin;{{end}}</td>
+    <td>{{if .DisabledAt}}<span class="hint" style="display:inline;color:var(--danger)">disabled</span>{{else}}active{{end}}</td>
+    <td class="mono">/register?invite={{.Code}}</td>
+    <td>{{if not .DisabledAt}}<form method="post" action="/me/invites/{{.Code}}/disable" style="margin:0"><button type="submit" class="quiet sm">Disable</button></form>{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+<p class="hint">Anyone with one of these codes registers at the link in "Share link" above; each is single-use unless minted otherwise.</p>
+{{end}}
+
+<h2>Members you invited</h2>
+{{if not .InvitedMembers}}
+<p class="empty">Nobody yet.</p>
+{{else}}
+<table>
+  <thead><tr><th>Name</th><th>Joined</th></tr></thead>
+  <tbody>
+  {{range .InvitedMembers}}
+  <tr><td>{{.Name}}</td><td class="mono">{{.JoinedAt.Format "2006-01-02"}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
 {{end}}

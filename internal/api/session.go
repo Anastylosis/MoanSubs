@@ -33,7 +33,8 @@ type loginData struct {
 	Error string
 }
 
-// meData is /me's data: the caller's own account summary and uploads.
+// meData is /me's data: the caller's own account summary, uploads, and
+// invite codes.
 type meData struct {
 	Title          string
 	Name           string
@@ -44,6 +45,13 @@ type meData struct {
 	// same one-time-display contract registration uses — nil the rest of
 	// the time, including a plain GET /me right after.
 	RotatedToken string
+	// Invites is this account's own codes (both lazily-minted and, for an
+	// admin, any minted by hand), newest first — WP-C7a's /me invite
+	// table.
+	Invites []store.Invite
+	// InvitedMembers is who joined through one of Invites — WP-C7a's
+	// "members you invited" list.
+	InvitedMembers []store.InvitedMember
 }
 
 // handleLoginForm serves the login form.
@@ -172,7 +180,10 @@ func (s *Server) handleRotateToken(w http.ResponseWriter, r *http.Request) {
 
 // meDataFor builds /me's page data, shared by handleMe and
 // handleRotateToken so the two can't drift on how upload count and total
-// downloads are computed.
+// downloads are computed. It also lazily tops up the account's own invite
+// allotment (EnsureInvites, WP-C7a) — /me is the one page every account
+// eventually visits, which is why that's where the lazy mint happens
+// rather than at registration or login.
 func (s *Server) meDataFor(ctx context.Context, account *store.Account, rotatedToken string) (meData, error) {
 	tracks, err := s.Store.TracksByAccount(ctx, account.ID)
 	if err != nil {
@@ -182,6 +193,21 @@ func (s *Server) meDataFor(ctx context.Context, account *store.Account, rotatedT
 	for _, t := range tracks {
 		totalDownloads += t.Downloads
 	}
+
+	if s.InvitesPerAccount > 0 {
+		if err := s.Store.EnsureInvites(ctx, account.ID, s.InvitesPerAccount); err != nil {
+			return meData{}, err
+		}
+	}
+	invites, err := s.Store.InvitesByCreator(ctx, account.ID)
+	if err != nil {
+		return meData{}, err
+	}
+	members, err := s.Store.MembersInvitedBy(ctx, account.ID)
+	if err != nil {
+		return meData{}, err
+	}
+
 	return meData{
 		Title:          "My account",
 		Name:           account.Name,
@@ -189,7 +215,50 @@ func (s *Server) meDataFor(ctx context.Context, account *store.Account, rotatedT
 		TotalDownloads: totalDownloads,
 		Tracks:         tracks,
 		RotatedToken:   rotatedToken,
+		Invites:        invites,
+		InvitedMembers: members,
 	}, nil
+}
+
+// handleDisableInvite implements POST /me/invites/{code}/disable: turns
+// off one invite code so it can no longer be redeemed. Only the code's
+// own creator or an admin (requireRole, WP-C7a) may do this — a stranger
+// who merely guesses another member's code should not be able to grief
+// them by disabling it, but an admin needs to be able to shut an abused
+// one down regardless of who minted it. Session-only like /logout and
+// /me/rotate-token, so the Origin check is unconditional.
+func (s *Server) handleDisableInvite(w http.ResponseWriter, r *http.Request) {
+	ares, err := authenticate(r.Context(), s.Store, r)
+	if err != nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	if !checkOrigin(w, r) {
+		return
+	}
+
+	code := r.PathValue("code")
+	inv, err := s.Store.GetInvite(r.Context(), code)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		log.Printf("api: GetInvite: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if inv.CreatedBy != ares.Account.ID && !requireRole(ares, "admin") {
+		http.Error(w, "not your invite code", http.StatusForbidden)
+		return
+	}
+
+	if err := s.Store.DisableInvite(r.Context(), code); err != nil {
+		log.Printf("api: DisableInvite: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/me", http.StatusSeeOther)
 }
 
 // sameOrigin reports whether r's Origin header (or Referer, as a fallback

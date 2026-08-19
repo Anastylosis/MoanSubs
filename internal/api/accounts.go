@@ -22,6 +22,10 @@ const (
 
 type registerRequest struct {
 	Name string `json:"name"`
+	// Invite is required when the node's Registration is
+	// RegistrationInvite, ignored (but still redeemed and recorded, if
+	// non-empty) when it's RegistrationOpen — WP-C7a spec.
+	Invite string `json:"invite"`
 }
 
 type registerResponse struct {
@@ -73,14 +77,18 @@ type apiError struct {
 
 // register is the whole of registration — gate, rate limit, validate,
 // create — shared by POST /api/v1/accounts and the HTML form so the two can
-// never drift on what a valid name is or when a node is closed.
+// never drift on what a valid name is, when a node is closed, or how an
+// invite code is handled.
 //
 // Rate-limited per IP rather than per account for the obvious reason: there
 // is no account yet. That makes the limit only as good as the client IP the
 // node can see — see clientIP's trust caveat. Behind a reverse proxy setting
-// X-Forwarded-For it is sound; on a bare node it is advisory.
-func (s *Server) register(ctx context.Context, ip, rawName string) (*registerResponse, *apiError) {
-	if !s.OpenRegistration {
+// X-Forwarded-For it is sound; on a bare node it is advisory. The same
+// per-IP budget also covers invite-code guessing (WP-C7a spec) — every
+// attempt, right code or wrong, costs one of this IP's registration
+// attempts, so there's no separate limiter to keep in sync with this one.
+func (s *Server) register(ctx context.Context, ip, rawName, rawInvite string) (*registerResponse, *apiError) {
+	if !s.OpenForStrangers() {
 		return nil, &apiError{http.StatusForbidden, "registration is closed on this node; ask the operator for an account"}
 	}
 	if !s.RegisterLimiter.Allow(ip) {
@@ -92,12 +100,37 @@ func (s *Server) register(ctx context.Context, ip, rawName string) (*registerRes
 		return nil, &apiError{http.StatusBadRequest, err.Error()}
 	}
 
-	id, token, err := s.Store.CreateAccount(ctx, name)
-	if err != nil {
-		if errors.Is(err, store.ErrNameTaken) {
+	invite := strings.TrimSpace(rawInvite)
+	if s.Registration == RegistrationInvite && invite == "" {
+		return nil, &apiError{http.StatusForbidden, "invite code is not valid"}
+	}
+
+	var (
+		id        int64
+		token     string
+		createErr error
+	)
+	if invite != "" {
+		id, token, _, createErr = s.Store.CreateInvitedAccount(ctx, name, invite)
+		if errors.Is(createErr, store.ErrInviteInvalid) {
+			if s.Registration == RegistrationInvite {
+				return nil, &apiError{http.StatusForbidden, "invite code is not valid"}
+			}
+			// Open mode: a bad code riding along with an otherwise valid
+			// registration doesn't block it — here the code is
+			// accountability, not a gate (WP-C7a spec: "a code sent
+			// anyway is still redeemed and recorded — it costs nothing").
+			// An invalid one just means there's nothing to record.
+			id, token, createErr = s.Store.CreateAccount(ctx, name)
+		}
+	} else {
+		id, token, createErr = s.Store.CreateAccount(ctx, name)
+	}
+	if createErr != nil {
+		if errors.Is(createErr, store.ErrNameTaken) {
 			return nil, &apiError{http.StatusConflict, "that name is already taken"}
 		}
-		log.Printf("api: CreateAccount: %v", err)
+		log.Printf("api: CreateAccount: %v", createErr)
 		return nil, &apiError{http.StatusInternalServerError, "internal error"}
 	}
 	return &registerResponse{ID: id, Name: name, Token: token}, nil
@@ -112,7 +145,7 @@ func (s *Server) handleRegisterAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	got, rerr := s.register(r.Context(), s.clientIP(r), req.Name)
+	got, rerr := s.register(r.Context(), s.clientIP(r), req.Name, req.Invite)
 	if rerr != nil {
 		writeError(w, rerr.status, rerr.msg)
 		return

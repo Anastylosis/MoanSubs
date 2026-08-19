@@ -58,11 +58,11 @@ func (s *Store) CreateSession(ctx context.Context, accountID int64, ttl time.Dur
 func (s *Store) GetSessionAccount(ctx context.Context, sessionID string) (*Account, error) {
 	var a Account
 	err := s.pool.QueryRow(ctx, `
-		SELECT a.id, a.name, a.token_hash, a.disabled, a.created_at
+		SELECT a.id, a.name, a.token_hash, a.disabled, a.created_at, a.role
 		FROM sessions se
 		JOIN accounts a ON a.id = se.account_id
 		WHERE se.id = $1 AND se.expires_at > now()`, sessionID,
-	).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Disabled, &a.CreatedAt)
+	).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Disabled, &a.CreatedAt, &a.Role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

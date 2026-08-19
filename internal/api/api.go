@@ -7,6 +7,7 @@
 package api
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"time"
@@ -43,6 +44,36 @@ const SearchRateLimitPerMinute = 30
 // script can't grind a track's score by hammering re-votes.
 const VoteRateLimitPerHour = 60
 
+// DefaultInvitesPerAccount is MOANSUBS_INVITES_PER_ACCOUNT's default
+// (WP-C7a): enough for a member to bring in a handful of people without
+// asking the operator, small enough that a compromised account can't mint
+// an unbounded pool of registration codes.
+const DefaultInvitesPerAccount = 5
+
+// RegistrationMode is how a node treats POST /api/v1/accounts and
+// GET/POST /register (WP-C7a, MOANSUBS_REGISTRATION): open lets any
+// visitor create an account outright, invite requires a code from an
+// existing member, closed leaves account creation to the operator's own
+// `moansubs account create`.
+type RegistrationMode string
+
+const (
+	RegistrationOpen   RegistrationMode = "open"
+	RegistrationInvite RegistrationMode = "invite"
+	RegistrationClosed RegistrationMode = "closed"
+)
+
+// ParseRegistrationMode parses MOANSUBS_REGISTRATION's value (or the
+// value MOANSUBS_OPEN_REGISTRATION's deprecated alias maps onto).
+func ParseRegistrationMode(s string) (RegistrationMode, error) {
+	switch RegistrationMode(s) {
+	case RegistrationOpen, RegistrationInvite, RegistrationClosed:
+		return RegistrationMode(s), nil
+	default:
+		return "", fmt.Errorf("invalid registration mode %q (want open, invite, or closed)", s)
+	}
+}
+
 // Server holds the dependencies HTTP handlers need.
 type Server struct {
 	Store *store.Store
@@ -65,10 +96,17 @@ type Server struct {
 	// SearchLimiter is the per-IP limiter for GET /search (WP-C2), also
 	// exported for the same reason as Limiter.
 	SearchLimiter *RateLimiter
-	// OpenRegistration allows strangers to create their own upload accounts
-	// (POST /api/v1/accounts). A node that leaves this off is invite-only:
-	// the operator mints accounts with `moansubs account create`.
-	OpenRegistration bool
+	// Registration governs POST /api/v1/accounts and /register (WP-C7a,
+	// MOANSUBS_REGISTRATION): open, invite, or closed. Code that only
+	// needs "can a stranger register here at all" (the old OpenRegistration
+	// bool's question) should call OpenForStrangers rather than compare
+	// this directly — that is true for open and invite alike.
+	Registration RegistrationMode
+	// InvitesPerAccount is how many single-use invite codes EnsureInvites
+	// lazily mints for an account on its first /me visit
+	// (MOANSUBS_INVITES_PER_ACCOUNT). 0 disables auto-minting entirely —
+	// an admin can still hand out codes via `invite create`.
+	InvitesPerAccount int
 	// Version is the running build's semver (or "dev"), reported by
 	// GET /api/v1/version. Set from cmd/moansubs's ldflags-stamped version
 	// var; NewServer's default keeps a bare-Go build honest about being
@@ -107,12 +145,23 @@ func NewServer(s *store.Store) *Server {
 		SearchLimiter:   NewRateLimiterPerMinute(SearchRateLimitPerMinute),
 		// Open by default: a subtitle database with no contributors is a
 		// mirror. Operators running a private node close it with
-		// MOANSUBS_OPEN_REGISTRATION=false.
-		OpenRegistration: true,
-		Version:          "dev",
-		Stats:            NewStats(s),
-		VoteLimiter:      NewRateLimiter(VoteRateLimitPerHour),
+		// MOANSUBS_REGISTRATION=closed.
+		Registration:      RegistrationOpen,
+		InvitesPerAccount: DefaultInvitesPerAccount,
+		Version:           "dev",
+		Stats:             NewStats(s),
+		VoteLimiter:       NewRateLimiter(VoteRateLimitPerHour),
 	}
+}
+
+// OpenForStrangers reports whether a visitor with no existing account can
+// register at all — true for open and invite, false for closed. This is
+// what the old OpenRegistration bool used to mean; call sites that only
+// care about "is registration reachable" (the register form's gate, the
+// front page's link) use this rather than comparing Registration
+// directly.
+func (s *Server) OpenForStrangers() bool {
+	return s.Registration == RegistrationOpen || s.Registration == RegistrationInvite
 }
 
 // NewMux builds the moansubs HTTP mux.
@@ -126,6 +175,7 @@ func NewMux(s *Server) *http.ServeMux {
 	mux.HandleFunc("POST /logout", s.handleLogout)
 	mux.HandleFunc("GET /me", s.handleMe)
 	mux.HandleFunc("POST /me/rotate-token", s.handleRotateToken)
+	mux.HandleFunc("POST /me/invites/{code}/disable", s.handleDisableInvite)
 	mux.HandleFunc("GET /upload", s.handleUploadForm)
 	mux.HandleFunc("POST /upload", s.handleUploadSubmit)
 	mux.HandleFunc("GET /static/upload.js", s.handleUploadJS)

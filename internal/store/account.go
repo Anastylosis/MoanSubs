@@ -27,6 +27,11 @@ type Account struct {
 	TokenHash string // SHA-256 hex digest; the plaintext token is never stored.
 	Disabled  bool
 	CreatedAt time.Time
+	// Role is one of "user", "mod", "admin" (migration 0009). Every
+	// account defaults to "user"; nothing in this package grants mod/admin
+	// any privilege yet — that's WP-C7b — but the field is plumbed
+	// through now so auth.authResult can carry it.
+	Role string
 }
 
 // tokenBytes is the size of the random token CreateAccount generates —
@@ -69,7 +74,7 @@ func (s *Store) CreateAccount(ctx context.Context, name string) (id int64, token
 // unrecoverable by construction.
 func (s *Store) ListAccounts(ctx context.Context) ([]Account, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, name, token_hash, disabled, created_at FROM accounts ORDER BY id`)
+		`SELECT id, name, token_hash, disabled, created_at, role FROM accounts ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("store: ListAccounts: %w", err)
 	}
@@ -78,7 +83,7 @@ func (s *Store) ListAccounts(ctx context.Context) ([]Account, error) {
 	var out []Account
 	for rows.Next() {
 		var a Account
-		if err := rows.Scan(&a.ID, &a.Name, &a.TokenHash, &a.Disabled, &a.CreatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.TokenHash, &a.Disabled, &a.CreatedAt, &a.Role); err != nil {
 			return nil, fmt.Errorf("store: ListAccounts: %w", err)
 		}
 		out = append(out, a)
@@ -112,9 +117,9 @@ func (s *Store) SetAccountDisabled(ctx context.Context, name string, disabled bo
 func (s *Store) GetAccountByName(ctx context.Context, name string) (*Account, error) {
 	var a Account
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, name, token_hash, disabled, created_at FROM accounts WHERE lower(name) = lower($1)`,
+		`SELECT id, name, token_hash, disabled, created_at, role FROM accounts WHERE lower(name) = lower($1)`,
 		name,
-	).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Disabled, &a.CreatedAt)
+	).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Disabled, &a.CreatedAt, &a.Role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -141,9 +146,9 @@ func HashToken(token string) string {
 func (s *Store) GetAccountByTokenHash(ctx context.Context, tokenHash string) (*Account, error) {
 	var a Account
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, name, token_hash, disabled, created_at FROM accounts WHERE token_hash = $1`,
+		`SELECT id, name, token_hash, disabled, created_at, role FROM accounts WHERE token_hash = $1`,
 		tokenHash,
-	).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Disabled, &a.CreatedAt)
+	).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Disabled, &a.CreatedAt, &a.Role)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -175,4 +180,21 @@ func (s *Store) RotateAccountToken(ctx context.Context, name string) (token stri
 		return "", ErrNotFound
 	}
 	return token, nil
+}
+
+// SetAccountRole sets name's role (case-insensitive match, like
+// SetAccountDisabled) — the CLI's `account role NAME ROLE` (WP-C7a). The
+// column's CHECK constraint (migration 0009) is the actual gate on what a
+// role can be; callers still validate before calling so a typo gets a
+// clean CLI error instead of a raw constraint-violation message.
+func (s *Store) SetAccountRole(ctx context.Context, name, role string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE accounts SET role = $2 WHERE lower(name) = lower($1)`, name, role)
+	if err != nil {
+		return fmt.Errorf("store: SetAccountRole: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

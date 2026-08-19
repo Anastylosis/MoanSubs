@@ -138,7 +138,7 @@ func TestRegisterAccount_RejectsBadNames(t *testing.T) {
 func TestRegisterAccount_ClosedRegistrationIsForbidden(t *testing.T) {
 	st := openTestStore(t)
 	srv := NewServer(st)
-	srv.OpenRegistration = false
+	srv.Registration = RegistrationClosed
 	ts := httptest.NewServer(NewMux(srv))
 	t.Cleanup(ts.Close)
 

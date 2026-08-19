@@ -15,8 +15,13 @@
     <p>No email, no password. Pick a name and you get a token — the token <em>is</em> the account. You only need one to upload or vote; searching and downloading never ask.</p>
   </div>
   <form method="post" action="/register" class="stack">
+    {{if .InviteRequired}}
+    <label for="invite">Invite code</label>
+    <input type="text" id="invite" name="invite" value="{{.Invite}}" class="mono" required autocomplete="off" autofocus>
+    <p class="hint">Invites come from existing members. Ask whoever sent you here for the code, or the operator for one.</p>
+    {{end}}
     <label for="name">Name</label>
-    <input type="text" id="name" name="name" value="{{.Name}}" autofocus required minlength="3" maxlength="64" autocomplete="off">
+    <input type="text" id="name" name="name" value="{{.Name}}" required minlength="3" maxlength="64" autocomplete="off"{{if not .InviteRequired}} autofocus{{end}}>
     <p class="hint">3–64 characters: letters, digits, underscore, hyphen, dot. It's public — it appears on every subtitle you upload and in mirrors of this database, and old copies keep it even if the account is purged later.</p>
     <button type="submit">Create account</button>
   </form>

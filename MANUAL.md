@@ -15,8 +15,10 @@ Runs the HTTP server. Reads:
 | `DATABASE_URL` | *(required)* | Postgres DSN, e.g. `postgres://moansubs:pw@host:5432/moansubs?sslmode=disable` |
 | `MOANSUBS_LISTEN` | `:8080` | Listen address |
 | `MOANSUBS_UPLOAD_RATE_PER_HOUR` | `30` | Upload budget per account token. The default assumes strangers on a public node; raise it (e.g. `10000`) when seeding your own node from a large library, then set it back. |
-| `MOANSUBS_OPEN_REGISTRATION` | `true` | Whether strangers may create their own upload accounts via `POST /api/v1/accounts`. Set `false` for an invite-only node, where accounts exist only through `moansubs account create`. |
-| `MOANSUBS_REGISTER_RATE_PER_HOUR` | `5` | Registration budget per IP. A person needs one account; anything much above this from a single address is name-minting, not signing up. |
+| `MOANSUBS_REGISTRATION` | `open` | `open`, `invite`, or `closed`. Open: anyone can create an account via `POST /api/v1/accounts` or `/register`. Invite: the same, but a valid invite code (below) is required. Closed: accounts exist only through `moansubs account create`. |
+| `MOANSUBS_OPEN_REGISTRATION` | *(unset)* | **Deprecated**, kept working for one release: `true`/`false` map to `MOANSUBS_REGISTRATION=open`/`closed` when `MOANSUBS_REGISTRATION` itself is unset (a startup line on stderr says so); `MOANSUBS_REGISTRATION` wins when both are set. |
+| `MOANSUBS_INVITES_PER_ACCOUNT` | `5` | How many single-use invite codes an account gets, minted lazily the first time it visits `/me` (so an account from before this existed still gets its allotment). `0` disables auto-minting; an operator can still hand out codes with `moansubs invite create`. |
+| `MOANSUBS_REGISTER_RATE_PER_HOUR` | `5` | Registration budget per IP. A person needs one account; anything much above this from a single address is name-minting, not signing up. On an invite-only node this budget also covers invite-code guessing — every attempt, right code or wrong, spends one of it. |
 | `MOANSUBS_LOGIN_RATE_PER_HOUR` | `20` | Login budget per IP, same shape as `MOANSUBS_REGISTER_RATE_PER_HOUR` — the abuse case is a stranger guessing tokens against `POST /login`. |
 | `MOANSUBS_SESSION_TTL` | `720h` | How long a browser session (the `moansubs_session` cookie from `POST /login`) stays valid, parsed with Go's `time.ParseDuration`. |
 | `MOANSUBS_TRUSTED_PROXY_CIDRS` | *(unset)* | Comma-separated CIDRs (e.g. `172.28.0.0/24,10.0.0.0/8`). The rate limiters' `X-Forwarded-For` handling only trusts the header when the request's direct peer address falls inside one of these — see "Reverse proxies" below. It also gates whether `X-Forwarded-Proto: https` is believed for the session cookie's `Secure` flag. Unset means none are trusted. |
@@ -28,7 +30,9 @@ Runs the HTTP server. Reads:
 Pages served for humans, none of them needing an account to read:
 `/` (what this node is, with catalogue stats and a search box),
 `/register` (the registration form, showing the new token once, exactly
-like the API does), `/browse` and `/search` (the subtitle catalogue,
+like the API does — on an invite-only node the invite field comes first,
+prefilled from `?invite=CODE` when the link came from another member's
+`/me`), `/browse` and `/search` (the subtitle catalogue,
 keyset-paginated and optionally filtered by `lang`), `/release/{id}` (one
 release's tracks, each linking to its `format=srt` download — a logged-in
 visitor also gets up/down-vote forms per track, `POST /release/{id}/vote`,
@@ -37,7 +41,12 @@ the same validation and rules as the API's `PUT`/`DELETE
 contributions). `/login` and `/me`
 are the logged-in account's own view — upload count, total downloads,
 own tracks including withdrawn ones, a "rotate token" button that shows
-the new token once, and a link to `/upload`. `/upload` (session required,
+the new token once, this account's own invite codes with a share link
+(`/register?invite=CODE`) and a "Disable" button per code
+(`POST /me/invites/{code}/disable`, session + Origin-checked like
+rotate-token, restricted to the code's own creator or an admin), the list
+of members who joined through one of them, and a link to `/upload`.
+`/upload` (session required,
 redirects to `/login` otherwise) is a multipart form for the same
 `POST /api/v1/subtitles` upload — same fields, same rate limit
 (`MOANSUBS_UPLOAD_RATE_PER_HOUR`), same validation, same dedup — for a
@@ -87,8 +96,9 @@ the token's SHA-256 is stored, so a lost token means creating a new
 account. Paste the token into the plugin's settings.
 
 This is the operator's route, and the only one on a node with
-`MOANSUBS_OPEN_REGISTRATION=false`. Otherwise people register themselves
-against `POST /api/v1/accounts` (API.md).
+`MOANSUBS_REGISTRATION=closed`. Otherwise people register themselves
+against `POST /api/v1/accounts` or `/register` (API.md) — with a valid
+invite code too, on a node running `MOANSUBS_REGISTRATION=invite`.
 
 ### `moansubs account list`
 
@@ -113,6 +123,42 @@ gets `401` — and the new token is printed once and must be stored. Existing
 uploads keep their attribution and the account stays enabled. Rotation is
 "my token leaked", not "log me out": browser sessions are unaffected — use
 `POST /logout` (or `/me`'s "log out" button) for that.
+
+### `moansubs account role <name> <user|mod|admin>`
+
+Sets an account's role, matched case-insensitively like the other `account`
+commands. Every account starts as `user`. Nothing in this version of the
+server grants `mod` or `admin` any privilege beyond who may disable
+someone else's invite code (below) — the role exists now so a future
+moderation surface has somewhere to read it from.
+
+### `moansubs invite create --for <name> [--uses N | --unlimited] [--expires DURATION]`
+
+Mints an invite code attributed to `--for` (required) and prints it along
+with the link to hand out: `/register?invite=CODE`. Exactly one of
+`--uses N` (redeemable N times) or `--unlimited` is required.
+`--expires` (a Go duration, e.g. `720h`) makes the code stop working after
+that long from creation; omitted, it never expires. An operator's own
+standing invite is just `moansubs invite create --for <operator-account>
+--unlimited`.
+
+Every account additionally gets `MOANSUBS_INVITES_PER_ACCOUNT` single-use
+codes of its own automatically (see above) — `invite create` is for an
+operator minting something different: unlimited, time-limited, or
+attributed to an account that hasn't visited `/me` yet.
+
+### `moansubs invite list [--for <name>]`
+
+Tab-separated: code, uses/limit, status (`active`/`disabled`), expiry, and
+creation time — plus who created it, when `--for` is omitted and every
+code on the node is listed instead of one account's own.
+
+### `moansubs invite disable <code>`
+
+Disables a code so it can no longer be redeemed, regardless of who
+created it or how many uses it has left — the operator's blunt instrument,
+unlike `/me`'s own "Disable" button which only lets a code's creator (or
+an admin) turn off their own.
 
 ### `moansubs track resanitize [--dry-run] [--id N]`
 

@@ -23,6 +23,32 @@ import (
 // MOANSUBS_LISTEN (default :8080) and DATABASE_URL".
 const defaultListen = ":8080"
 
+// resolveRegistrationMode implements MOANSUBS_REGISTRATION's precedence
+// over the deprecated MOANSUBS_OPEN_REGISTRATION alias (WP-C7a spec): the
+// new variable wins whenever it's set; the old boolean maps
+// true→open, false→closed for one release. usedLegacy tells the caller
+// whether to print the one-line deprecation notice.
+func resolveRegistrationMode(explicit, legacy string) (mode api.RegistrationMode, usedLegacy bool, err error) {
+	if explicit != "" {
+		mode, err = api.ParseRegistrationMode(explicit)
+		if err != nil {
+			return "", false, fmt.Errorf("invalid MOANSUBS_REGISTRATION %q: %w", explicit, err)
+		}
+		return mode, false, nil
+	}
+	if legacy != "" {
+		b, err := strconv.ParseBool(legacy)
+		if err != nil {
+			return "", false, fmt.Errorf("invalid MOANSUBS_OPEN_REGISTRATION %q: %w", legacy, err)
+		}
+		if b {
+			return api.RegistrationOpen, true, nil
+		}
+		return api.RegistrationClosed, true, nil
+	}
+	return api.RegistrationOpen, false, nil
+}
+
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Run the moansubs HTTP server",
@@ -51,14 +77,25 @@ var serveCmd = &cobra.Command{
 		}
 
 		// Registration is open by default; a node that wants to stay
-		// invite-only closes it here rather than in code.
-		openRegistration := true
-		if v := os.Getenv("MOANSUBS_OPEN_REGISTRATION"); v != "" {
-			b, err := strconv.ParseBool(v)
-			if err != nil {
-				return fmt.Errorf("moansubs serve: invalid MOANSUBS_OPEN_REGISTRATION %q", v)
+		// invite-only or fully closed sets MOANSUBS_REGISTRATION here
+		// rather than in code.
+		registration, legacyRegistration, err := resolveRegistrationMode(
+			os.Getenv("MOANSUBS_REGISTRATION"), os.Getenv("MOANSUBS_OPEN_REGISTRATION"))
+		if err != nil {
+			return fmt.Errorf("moansubs serve: %w", err)
+		}
+		if legacyRegistration {
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(),
+				"moansubs serve: MOANSUBS_OPEN_REGISTRATION is deprecated; set MOANSUBS_REGISTRATION=open|invite|closed instead")
+		}
+
+		invitesPerAccount := api.DefaultInvitesPerAccount
+		if v := os.Getenv("MOANSUBS_INVITES_PER_ACCOUNT"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 0 {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_INVITES_PER_ACCOUNT %q", v)
 			}
-			openRegistration = b
+			invitesPerAccount = n
 		}
 
 		registerRate := api.RegisterRateLimitPerHour
@@ -154,7 +191,8 @@ var serveCmd = &cobra.Command{
 		apiSrv.LoginLimiter = api.NewRateLimiter(loginRate)
 		apiSrv.SessionTTL = sessionTTL
 		apiSrv.SearchLimiter = api.NewRateLimiterPerMinute(searchRate)
-		apiSrv.OpenRegistration = openRegistration
+		apiSrv.Registration = registration
+		apiSrv.InvitesPerAccount = invitesPerAccount
 		apiSrv.DumpURL = dumpURL
 		apiSrv.VoteLimiter = api.NewRateLimiter(voteRate)
 		// version is main.go's ldflags-stamped build var ("dev" when built
@@ -183,7 +221,7 @@ var serveCmd = &cobra.Command{
 		errCh := make(chan error, 1)
 		go func() {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "moansubs serve: listening on %s (registration %s)\n",
-				listen, map[bool]string{true: "open", false: "closed"}[openRegistration])
+				listen, registration)
 			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				errCh <- err
 				return

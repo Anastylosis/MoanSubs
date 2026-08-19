@@ -26,7 +26,29 @@ working with the new one. Existing uploads keep their attribution.
 (`POST /api/v1/accounts`), rate-limited per IP. It collects nothing but a
 name — no email, no password — so the token *is* the account, and an
 operator's remedy for abuse is `account disable`, not a password reset.
-Run with `MOANSUBS_OPEN_REGISTRATION=false` for an invite-only node.
+Run with `MOANSUBS_REGISTRATION=closed` for an operator-only node, or
+`=invite` for one that requires an invite code but otherwise stays open.
+
+**Invites.** An invite code is a capability token, not a secret like an
+account token — it is stored and shown as-is (never hashed), the same
+reasoning as the session id below: it's already unguessable, single-use
+by default, and a hash would buy nothing but a lookup cost. Treat a code
+you're handed like a key: anyone who has it can redeem it (once, unless
+minted with a higher limit) up to the node's `MOANSUBS_REGISTER_RATE_PER_HOUR`
+guessing budget per IP either way. A code's own creator can disable it at
+any time from `/me`, and an admin can disable *any* code (`requireRole`,
+`moansubs invite disable`) regardless of who minted it — an abused code
+doesn't need its creator's cooperation to shut off. `invited_by` is kept
+on the invited account permanently, even if the inviter is later
+disabled or purged: it's a moderation trail, not a live permission, so it
+outlives the relationship it recorded.
+
+**Roles.** Every account has a role (`user`, `mod`, or `admin`; default
+`user`), set by the operator with `moansubs account role`. This version of
+the server does not gate any behavior on role beyond who may disable
+someone else's invite code — the column exists ahead of the moderation
+surfaces that will read it, not as a currently-enforced privilege
+boundary.
 
 **Web pages.** The node serves HTML pages (`/`, `/register`, `/login`,
 `/me`), built with `html/template` so anything reflected back into the

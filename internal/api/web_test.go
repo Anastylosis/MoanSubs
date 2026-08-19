@@ -11,12 +11,18 @@ import (
 	"github.com/Anastylosis/MoanSubs/internal/store"
 )
 
-// webServer builds a test server with registration in the requested state.
+// webServer builds a test server with registration open or closed — the
+// two states every existing caller of this helper cares about. Tests that
+// need invite mode specifically build their own Server (see
+// internal/api/invite_test.go).
 func webServer(t *testing.T, open bool) (*httptest.Server, *store.Store) {
 	t.Helper()
 	st := openTestStore(t)
 	srv := NewServer(st)
-	srv.OpenRegistration = open
+	srv.Registration = RegistrationClosed
+	if open {
+		srv.Registration = RegistrationOpen
+	}
 	ts := httptest.NewServer(NewMux(srv))
 	t.Cleanup(ts.Close)
 	return ts, st

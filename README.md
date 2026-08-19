@@ -76,13 +76,22 @@ overrides the computed one if you paste it. Without JavaScript, or if the
 browser can't decode the container, all the fields are plain text you fill
 in yourself, exactly as before.
 Operators can mint an account directly, which is also the only route on a
-node running with `MOANSUBS_OPEN_REGISTRATION=false`:
+node running with `MOANSUBS_REGISTRATION=closed`:
 
 ```sh
 docker compose exec moansubs moansubs account create <name>
 docker compose exec moansubs moansubs account list
 docker compose exec moansubs moansubs account disable <name>
 ```
+
+`MOANSUBS_REGISTRATION` picks the node's registration mode: `open` (the
+default — anyone can register), `invite` (registering needs a code from an
+existing member or the operator's own `moansubs invite create --unlimited`
+— every account also gets a handful of single-use codes of its own,
+visible on `/me` with a ready-to-share `/register?invite=CODE` link), or
+`closed` (accounts only via `moansubs account create` above). See
+[MANUAL.md](MANUAL.md) for the invite CLI and the deprecated
+`MOANSUBS_OPEN_REGISTRATION` boolean it replaces.
 
 Any account can up- or down-vote a track it didn't upload itself — a
 down-vote requires picking a reason from a short fixed list (out of sync,

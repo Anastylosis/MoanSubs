@@ -87,3 +87,56 @@ func TestAccountPurge_UnknownName(t *testing.T) {
 		t.Fatal("Execute(account purge nonexistent): want error, got nil")
 	}
 }
+
+// TestAccountRole_RoundTrip is WP-C7a's named test: `account role` sets
+// the role and it's visible through the store afterward.
+func TestAccountRole_RoundTrip(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if _, _, err := s.CreateAccount(ctx, "future-mod"); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	out := runAccount(t, "role", "future-mod", "mod")
+	if !strings.Contains(out, `"mod"`) {
+		t.Errorf("output = %q, want it to mention the new role", out)
+	}
+
+	got, err := s.GetAccountByName(ctx, "future-mod")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+	if got.Role != "mod" {
+		t.Errorf("Role = %q, want mod", got.Role)
+	}
+}
+
+func TestAccountRole_InvalidRoleRejected(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if _, _, err := s.CreateAccount(ctx, "someone"); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	buf := &bytes.Buffer{}
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"account", "role", "someone", "superuser"})
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatal("Execute(account role someone superuser): want error, got nil")
+	}
+}
+
+func TestAccountRole_UnknownName(t *testing.T) {
+	openTestStore(t) // starts from a clean slate
+
+	buf := &bytes.Buffer{}
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"account", "role", "nonexistent", "mod"})
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatal("Execute(account role nonexistent mod): want error, got nil")
+	}
+}
