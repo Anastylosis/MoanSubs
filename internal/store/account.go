@@ -147,6 +147,14 @@ func (s *Store) CreateAccount(ctx context.Context, name string) (id int64, token
 // password, not just a token. pw must already satisfy MinPasswordLen/
 // MaxPasswordLen — this function hashes it (HashPassword) and does not
 // re-validate length itself.
+// CreateAccountWithHash is CreateAccountWithPassword for a caller that has
+// already hashed the password — the register handler hashes once and then
+// may try two creation paths (invited, then plain), and must not pay for
+// PBKDF2 twice.
+func (s *Store) CreateAccountWithHash(ctx context.Context, name, passwordHash string) (id int64, token string, err error) {
+	return s.createAccount(ctx, name, &passwordHash)
+}
+
 func (s *Store) CreateAccountWithPassword(ctx context.Context, name, pw string) (id int64, token string, err error) {
 	hash, err := HashPassword(pw)
 	if err != nil {
@@ -415,6 +423,11 @@ func mustHashPassword(pw string) string {
 // hash>" so the parameters travel with the hash and a future iteration
 // count change needs no migration to reinterpret already-stored rows.
 func HashPassword(pw string) (string, error) {
+	// Same ceiling as VerifyPassword: registration is anonymous and hashing
+	// is the expensive step, so it must not be the one path around the gate.
+	pbkdf2Gate <- struct{}{}
+	defer func() { <-pbkdf2Gate }()
+
 	salt := make([]byte, pbkdf2SaltBytes)
 	if _, err := rand.Read(salt); err != nil {
 		return "", fmt.Errorf("store: HashPassword: generating salt: %w", err)

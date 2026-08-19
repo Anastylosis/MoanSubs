@@ -143,10 +143,21 @@ func (s *Server) register(ctx context.Context, ip, rawName, rawInvite, rawPasswo
 		id        int64
 		token     string
 		createErr error
+		pwHash    string
 	)
+	if rawPassword != "" {
+		// Hash once, up front: the invite-then-plain fallback below must
+		// not cost a second PBKDF2 pass.
+		h, err := store.HashPassword(rawPassword)
+		if err != nil {
+			log.Printf("api: HashPassword: %v", err)
+			return nil, &apiError{http.StatusInternalServerError, "internal error"}
+		}
+		pwHash = h
+	}
 	if invite != "" {
-		if rawPassword != "" {
-			id, token, _, createErr = s.Store.CreateInvitedAccountWithPassword(ctx, name, invite, rawPassword)
+		if pwHash != "" {
+			id, token, _, createErr = s.Store.CreateInvitedAccountWithHash(ctx, name, invite, pwHash)
 		} else {
 			id, token, _, createErr = s.Store.CreateInvitedAccount(ctx, name, invite)
 		}
@@ -159,14 +170,14 @@ func (s *Server) register(ctx context.Context, ip, rawName, rawInvite, rawPasswo
 			// accountability, not a gate (WP-C7a spec: "a code sent
 			// anyway is still redeemed and recorded — it costs nothing").
 			// An invalid one just means there's nothing to record.
-			if rawPassword != "" {
-				id, token, createErr = s.Store.CreateAccountWithPassword(ctx, name, rawPassword)
+			if pwHash != "" {
+				id, token, createErr = s.Store.CreateAccountWithHash(ctx, name, pwHash)
 			} else {
 				id, token, createErr = s.Store.CreateAccount(ctx, name)
 			}
 		}
-	} else if rawPassword != "" {
-		id, token, createErr = s.Store.CreateAccountWithPassword(ctx, name, rawPassword)
+	} else if pwHash != "" {
+		id, token, createErr = s.Store.CreateAccountWithHash(ctx, name, pwHash)
 	} else {
 		id, token, createErr = s.Store.CreateAccount(ctx, name)
 	}

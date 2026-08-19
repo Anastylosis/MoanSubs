@@ -21,5 +21,29 @@
   <button type="submit">Withdraw</button>
 </form>
 {{end}}
+<h2>Stash-box ids</h2>
+{{if not .StashIDs}}
+<p class="hint">None attached.</p>
+{{else}}
+<table>
+  <thead><tr><th>Endpoint</th><th>Scene id</th><th>Added by</th><th>When</th><th></th></tr></thead>
+  <tbody>
+  {{range .StashIDs}}
+  <tr>
+    <td class="mono">{{.Endpoint}}</td>
+    <td class="mono">{{.StashID}}</td>
+    <td>{{if .AddedByName}}<a href="/u/{{.AddedByName}}">{{.AddedByName}}</a>{{else}}<span class="hint" style="display:inline">import</span>{{end}}</td>
+    <td class="mono">{{.CreatedAt.Format "2006-01-02"}}</td>
+    <td><form method="post" action="/mod/release/{{$.Release.ID}}/stash/remove" style="margin:0">
+      <input type="hidden" name="endpoint" value="{{.Endpoint}}">
+      <input type="hidden" name="stash_id" value="{{.StashID}}">
+      <button type="submit" class="quiet sm">Remove</button>
+    </form></td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+<p class="hint">A stash-box id makes the plugin treat this release as the same scene for everyone who has that id — remove one that points at the wrong scene.</p>
+{{end}}
 <p class="hint"><a href="/release/{{.Release.ID}}">View the public release page</a></p>
 {{end}}

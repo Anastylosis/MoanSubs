@@ -53,7 +53,7 @@ func TestDumpImportRoundTrip(t *testing.T) {
 	// and all.
 	if err := s.AddReleaseStashIDs(ctx, r1, []store.ReleaseStashID{
 		{Endpoint: "https://stashdb.org/graphql", EHash: "ehashplaceho", StashID: "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("AddReleaseStashIDs: %v", err)
 	}
 	r2, err := s.CreateRelease(ctx, store.Release{OSHash: mustOSHash(t, "f000000000000002"), DurationMs: 2000})

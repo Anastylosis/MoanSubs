@@ -459,6 +459,11 @@ same as `/me`'s own buttons.
   disable button which only lets a code's creator or an admin turn off
   their own).
 
+Stash-box ids attached to a release are listed on `/mod/release/{id}` with
+who attached them; a wrong one (it makes the plugin treat the release as
+the same scene for every Stash that carries that id) is removed there.
+That is the only non-additive operation on stash ids.
+
 ## Operations
 
 **Backups.** All state lives in Postgres. Dump with `pg_dump`; the

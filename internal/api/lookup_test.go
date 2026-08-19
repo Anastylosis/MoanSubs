@@ -689,7 +689,7 @@ func attachStashID(t *testing.T, st *store.Store, releaseID int64, endpoint, sta
 	ehash = hash.EndpointHash(norm)
 	if err := st.AddReleaseStashIDs(context.Background(), releaseID, []store.ReleaseStashID{
 		{ReleaseID: releaseID, Endpoint: norm, EHash: ehash, StashID: id},
-	}); err != nil {
+	}, nil); err != nil {
 		t.Fatalf("AddReleaseStashIDs: %v", err)
 	}
 	return ehash, id

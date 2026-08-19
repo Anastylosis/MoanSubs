@@ -384,7 +384,7 @@ given) before storage; `stash_id` is validated as a 36-character UUID shape
 and lowercased — either malformed rejects the whole upload with `400`.
 Unlike name metadata this is **additive, not backfill-only**: like votes and
 downloads, a later upload can add a stash id to a release that already has
-some, on top of whatever was there before; nothing here ever removes one.
+some, on top of whatever was there before; a moderator can remove one from the moderation page; uploads never do.
 See MANUAL.md "Upload semantics" for the sanitization pipeline. Responses:
 
 - `201` `{"track_id": n, "release_id": n, "generated": bool}` — stored.

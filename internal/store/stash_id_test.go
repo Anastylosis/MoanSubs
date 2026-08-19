@@ -42,10 +42,10 @@ func TestStore_AddReleaseStashIDs_IdempotentOnConflict(t *testing.T) {
 
 	// Adding the same id twice (a repeated push, e.g.) must not error and
 	// must not duplicate the row.
-	if err := s.AddReleaseStashIDs(ctx, releaseID, []ReleaseStashID{id}); err != nil {
+	if err := s.AddReleaseStashIDs(ctx, releaseID, []ReleaseStashID{id}, nil); err != nil {
 		t.Fatalf("AddReleaseStashIDs (first): %v", err)
 	}
-	if err := s.AddReleaseStashIDs(ctx, releaseID, []ReleaseStashID{id}); err != nil {
+	if err := s.AddReleaseStashIDs(ctx, releaseID, []ReleaseStashID{id}, nil); err != nil {
 		t.Fatalf("AddReleaseStashIDs (second, same id): %v", err)
 	}
 
@@ -73,10 +73,10 @@ func TestStore_AddReleaseStashIDs_Additive(t *testing.T) {
 	first := stashIDFixture(t, releaseID, "https://stashdb.org/graphql", "c72cba4a-1e2b-4f0e-8f3a-1234567890ab")
 	second := stashIDFixture(t, releaseID, "https://fansdb.cc/graphql", "d83dba4a-1e2b-4f0e-8f3a-1234567890cd")
 
-	if err := s.AddReleaseStashIDs(ctx, releaseID, []ReleaseStashID{first}); err != nil {
+	if err := s.AddReleaseStashIDs(ctx, releaseID, []ReleaseStashID{first}, nil); err != nil {
 		t.Fatalf("AddReleaseStashIDs (first): %v", err)
 	}
-	if err := s.AddReleaseStashIDs(ctx, releaseID, []ReleaseStashID{second}); err != nil {
+	if err := s.AddReleaseStashIDs(ctx, releaseID, []ReleaseStashID{second}, nil); err != nil {
 		t.Fatalf("AddReleaseStashIDs (second): %v", err)
 	}
 
@@ -98,7 +98,7 @@ func TestStore_ReleasesByStashID_FindsAttachedRelease(t *testing.T) {
 		t.Fatalf("CreateRelease: %v", err)
 	}
 	id := stashIDFixture(t, releaseID, "https://stashdb.org/graphql", "c72cba4a-1e2b-4f0e-8f3a-1234567890ab")
-	if err := s.AddReleaseStashIDs(ctx, releaseID, []ReleaseStashID{id}); err != nil {
+	if err := s.AddReleaseStashIDs(ctx, releaseID, []ReleaseStashID{id}, nil); err != nil {
 		t.Fatalf("AddReleaseStashIDs: %v", err)
 	}
 
@@ -131,7 +131,7 @@ func TestStore_ReleasesByStashID_ExcludesWithdrawn(t *testing.T) {
 		t.Fatalf("CreateRelease: %v", err)
 	}
 	id := stashIDFixture(t, releaseID, "https://stashdb.org/graphql", "c72cba4a-1e2b-4f0e-8f3a-1234567890ab")
-	if err := s.AddReleaseStashIDs(ctx, releaseID, []ReleaseStashID{id}); err != nil {
+	if err := s.AddReleaseStashIDs(ctx, releaseID, []ReleaseStashID{id}, nil); err != nil {
 		t.Fatalf("AddReleaseStashIDs: %v", err)
 	}
 	if err := s.WithdrawRelease(ctx, releaseID, "test"); err != nil {

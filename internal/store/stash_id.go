@@ -20,6 +20,11 @@ type ReleaseStashID struct {
 	EHash     string
 	StashID   string
 	CreatedAt time.Time
+	// AddedBy is the account that first attached this id (migration 0012),
+	// nil for dump imports; AddedByName is filled by StashIDsByReleaseIDs
+	// for moderation pages.
+	AddedBy     *int64
+	AddedByName string
 }
 
 // AddReleaseStashIDs idempotently attaches ids to releaseID: INSERT ... ON
@@ -28,7 +33,7 @@ type ReleaseStashID struct {
 // a silent no-op rather than an error. Like release name metadata, this is
 // additive-only — a later upload can add an id but nothing here ever
 // removes one.
-func (s *Store) AddReleaseStashIDs(ctx context.Context, releaseID int64, ids []ReleaseStashID) error {
+func (s *Store) AddReleaseStashIDs(ctx context.Context, releaseID int64, ids []ReleaseStashID, addedBy *int64) error {
 	if len(ids) == 0 {
 		return nil
 	}
@@ -41,10 +46,10 @@ func (s *Store) AddReleaseStashIDs(ctx context.Context, releaseID int64, ids []R
 
 	for _, id := range ids {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO release_stash_ids (release_id, endpoint, ehash, stash_id)
-			VALUES ($1, $2, $3, $4)
+			INSERT INTO release_stash_ids (release_id, endpoint, ehash, stash_id, added_by)
+			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (release_id, endpoint, stash_id) DO NOTHING`,
-			releaseID, id.Endpoint, id.EHash, id.StashID); err != nil {
+			releaseID, id.Endpoint, id.EHash, id.StashID, addedBy); err != nil {
 			return fmt.Errorf("store: AddReleaseStashIDs: %w", err)
 		}
 	}
@@ -69,10 +74,11 @@ func (s *Store) StashIDsByReleaseIDs(ctx context.Context, releaseIDs []int64) (m
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT release_id, endpoint, ehash, stash_id, created_at
-		FROM release_stash_ids
-		WHERE release_id = ANY($1)
-		ORDER BY release_id, endpoint, stash_id`, releaseIDs)
+		SELECT r.release_id, r.endpoint, r.ehash, r.stash_id, r.created_at, r.added_by, COALESCE(a.name, '')
+		FROM release_stash_ids r
+		LEFT JOIN accounts a ON a.id = r.added_by
+		WHERE r.release_id = ANY($1)
+		ORDER BY r.release_id, r.endpoint, r.stash_id`, releaseIDs)
 	if err != nil {
 		return nil, fmt.Errorf("store: StashIDsByReleaseIDs: %w", err)
 	}
@@ -80,7 +86,7 @@ func (s *Store) StashIDsByReleaseIDs(ctx context.Context, releaseIDs []int64) (m
 
 	for rows.Next() {
 		var v ReleaseStashID
-		if err := rows.Scan(&v.ReleaseID, &v.Endpoint, &v.EHash, &v.StashID, &v.CreatedAt); err != nil {
+		if err := rows.Scan(&v.ReleaseID, &v.Endpoint, &v.EHash, &v.StashID, &v.CreatedAt, &v.AddedBy, &v.AddedByName); err != nil {
 			return nil, fmt.Errorf("store: StashIDsByReleaseIDs: scanning: %w", err)
 		}
 		out[v.ReleaseID] = append(out[v.ReleaseID], v)
@@ -116,4 +122,17 @@ func (s *Store) ReleasesByStashID(ctx context.Context, ehash, stashID string) ([
 	}
 	defer rows.Close()
 	return scanReleases(rows)
+}
+
+// RemoveReleaseStashID detaches one id from a release — the moderation
+// remedy for a wrong or malicious attachment (the id is what makes the
+// plugin rank a release "exact", so a wrong one misdirects every user with
+// that scene). Removing an id that isn't there is not an error.
+func (s *Store) RemoveReleaseStashID(ctx context.Context, releaseID int64, endpoint, stashID string) error {
+	if _, err := s.pool.Exec(ctx,
+		`DELETE FROM release_stash_ids WHERE release_id = $1 AND endpoint = $2 AND stash_id = $3`,
+		releaseID, endpoint, stashID); err != nil {
+		return fmt.Errorf("store: RemoveReleaseStashID: %w", err)
+	}
+	return nil
 }

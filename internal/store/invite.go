@@ -301,6 +301,12 @@ func (s *Store) CreateInvitedAccount(ctx context.Context, name, code string) (id
 // the web registration form's invite-mode + password combination, still one
 // atomic redeem-then-create transaction. pw must already satisfy
 // MinPasswordLen/MaxPasswordLen.
+// CreateInvitedAccountWithHash is the precomputed-hash form of
+// CreateInvitedAccountWithPassword (see CreateAccountWithHash).
+func (s *Store) CreateInvitedAccountWithHash(ctx context.Context, name, code, passwordHash string) (id int64, token string, invitedBy int64, err error) {
+	return s.createInvitedAccount(ctx, name, code, &passwordHash)
+}
+
 func (s *Store) CreateInvitedAccountWithPassword(ctx context.Context, name, code, pw string) (id int64, token string, invitedBy int64, err error) {
 	hash, err := HashPassword(pw)
 	if err != nil {

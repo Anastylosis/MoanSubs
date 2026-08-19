@@ -300,7 +300,7 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	// metadata — stored regardless of whether this upload's subtitle body
 	// turns out to be a duplicate track below.
 	if len(stashIDs) > 0 {
-		if err := s.Store.AddReleaseStashIDs(ctx, release.ID, stashIDs); err != nil {
+		if err := s.Store.AddReleaseStashIDs(ctx, release.ID, stashIDs, &account.ID); err != nil {
 			log.Printf("api: AddReleaseStashIDs: %v", err)
 			return nil, &apiError{http.StatusInternalServerError, "internal error"}
 		}

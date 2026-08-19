@@ -409,9 +409,10 @@ func newModReleaseView(r *store.Release) modReleaseView {
 }
 
 type modReleaseData struct {
-	Title   string
-	Release modReleaseView
-	Error   string
+	Title    string
+	Release  modReleaseView
+	StashIDs []store.ReleaseStashID
+	Error    string
 }
 
 // handleModRelease implements GET /mod/release/{id} (WP-C7b, "minimal").
@@ -440,9 +441,53 @@ func (s *Server) renderModRelease(w http.ResponseWriter, r *http.Request, id int
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	byRelease, err := s.Store.StashIDsByReleaseIDs(r.Context(), []int64{id})
+	if err != nil {
+		log.Printf("api: StashIDsByReleaseIDs (mod): %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	s.renderPage(w, r, status, "mod_release.html", modReleaseData{
-		Title: "Release #" + strconv.FormatInt(id, 10), Release: newModReleaseView(release), Error: formErr,
+		Title: "Release #" + strconv.FormatInt(id, 10), Release: newModReleaseView(release),
+		StashIDs: byRelease[id], Error: formErr,
 	}, true)
+}
+
+// handleModReleaseStashRemove implements POST /mod/release/{id}/stash/remove:
+// the remedy for a wrong or malicious stash id (review finding on WP-C9a —
+// ids are attached by any uploader and make the plugin rank the release
+// "exact", so a wrong one misdirects everyone with that scene). Removal is
+// the only non-additive operation on release_stash_ids, and it is mod-only.
+func (s *Server) handleModReleaseStashRemove(w http.ResponseWriter, r *http.Request) {
+	ares, ok := s.requireWebRole(w, r, "mod")
+	if !ok {
+		return
+	}
+	if !checkOrigin(w, r) {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "could not read the submitted form", http.StatusBadRequest)
+		return
+	}
+	endpoint := r.PostFormValue("endpoint")
+	stashID := r.PostFormValue("stash_id")
+	if endpoint == "" || stashID == "" {
+		s.renderModRelease(w, r, id, http.StatusBadRequest, "endpoint and stash_id are required")
+		return
+	}
+	if err := s.Store.RemoveReleaseStashID(r.Context(), id, endpoint, stashID); err != nil {
+		log.Printf("api: RemoveReleaseStashID: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("api: mod %q removed stash id %s (%s) from release %d", ares.Account.Name, stashID, endpoint, id)
+	http.Redirect(w, r, "/mod/release/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
 }
 
 // handleModReleaseWithdraw implements POST /mod/release/{id}/withdraw

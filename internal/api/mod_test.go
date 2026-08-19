@@ -344,3 +344,53 @@ func mustSecondVoter(t *testing.T, st *store.Store) int64 {
 }
 
 func ptr(s string) *string { return &s }
+
+// TestModRelease_RemoveStashID: a mod can detach a wrong stash id from a
+// release (review finding on WP-C9a); the page lists the id first.
+func TestModRelease_RemoveStashID(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	releaseID, _ := modFixture(t, st, "d6d6d6d6d6d6d6d6")
+	if err := st.SetAccountRole(context.Background(), "webuser", "mod"); err != nil {
+		t.Fatalf("SetAccountRole: %v", err)
+	}
+	id := "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"
+	if err := st.AddReleaseStashIDs(context.Background(), releaseID, []store.ReleaseStashID{
+		{Endpoint: "https://stashdb.org/graphql", EHash: "abcdefabcdef", StashID: id},
+	}, nil); err != nil {
+		t.Fatalf("AddReleaseStashIDs: %v", err)
+	}
+
+	page, err := client.Get(ts.URL + "/mod/release/" + strconv.FormatInt(releaseID, 10))
+	if err != nil {
+		t.Fatalf("GET mod release: %v", err)
+	}
+	body, _ := io.ReadAll(page.Body)
+	_ = page.Body.Close()
+	if !strings.Contains(string(body), id) {
+		t.Fatalf("mod release page does not list the stash id")
+	}
+
+	form := url.Values{"endpoint": {"https://stashdb.org/graphql"}, "stash_id": {id}}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/mod/release/"+strconv.FormatInt(releaseID, 10)+"/stash/remove",
+		strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", ts.URL)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST remove: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST stash remove = %d, want 303", resp.StatusCode)
+	}
+	left, err := st.StashIDsByReleaseIDs(context.Background(), []int64{releaseID})
+	if err != nil {
+		t.Fatalf("StashIDsByReleaseIDs: %v", err)
+	}
+	if len(left[releaseID]) != 0 {
+		t.Errorf("stash id still attached after remove: %+v", left[releaseID])
+	}
+}

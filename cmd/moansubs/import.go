@@ -220,7 +220,7 @@ func importRelease(ctx context.Context, s *store.Store, out io.Writer, rl dumpRe
 		}
 		stashIDs = append(stashIDs, store.ReleaseStashID{Endpoint: endpoint, EHash: hash.EndpointHash(endpoint), StashID: id})
 	}
-	if err := s.AddReleaseStashIDs(ctx, release.ID, stashIDs); err != nil {
+	if err := s.AddReleaseStashIDs(ctx, release.ID, stashIDs, nil); err != nil {
 		return nil, fmt.Errorf("release %d: attaching stash ids: %w", rl.ID, err)
 	}
 	return release, nil

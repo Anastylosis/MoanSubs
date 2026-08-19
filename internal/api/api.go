@@ -243,6 +243,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("GET /mod/release/{id}", s.page(s.handleModRelease))
 	mux.HandleFunc("POST /mod/release/{id}/withdraw", s.page(s.handleModReleaseWithdraw))
 	mux.HandleFunc("POST /mod/release/{id}/restore", s.page(s.handleModReleaseRestore))
+	mux.HandleFunc("POST /mod/release/{id}/stash/remove", s.page(s.handleModReleaseStashRemove))
 	mux.HandleFunc("GET /admin", s.page(s.handleAdminIndex))
 	mux.HandleFunc("GET /admin/accounts", s.page(s.handleAdminAccounts))
 	mux.HandleFunc("POST /admin/accounts/{name}/disable", s.page(s.handleAdminAccountDisable))
