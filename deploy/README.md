@@ -5,7 +5,7 @@ A reference compose stack for running a public moansubs node: `caddy`
 (all state), and `backup` (nightly `pg_dump | gzip | rclone rcat`, 30-day
 retention). Generic on purpose — no real hostnames, buckets or credentials
 are checked in here; every placeholder needs a real value before you start
-the stack (CLAUDE.md: private infra details never enter tracked files).
+the stack — private infrastructure details never enter tracked files.
 
 ## Layout
 
