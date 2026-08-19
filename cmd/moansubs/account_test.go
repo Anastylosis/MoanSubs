@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -138,5 +139,96 @@ func TestAccountRole_UnknownName(t *testing.T) {
 	rootCmd.SetArgs([]string{"account", "role", "nonexistent", "mod"})
 	if err := rootCmd.Execute(); err == nil {
 		t.Fatal("Execute(account role nonexistent mod): want error, got nil")
+	}
+}
+
+// -- account set-password / account show (WP-C8) --------------------------
+
+// TestAccountSetPassword_EnablesLogin is WP-C8's named test: an account
+// created without a password can't be verified until `account
+// set-password` gives it one.
+func TestAccountSetPassword_EnablesLogin(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if _, _, err := s.CreateAccount(ctx, "needs-password"); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	if _, err := s.VerifyAccountPassword(ctx, "needs-password", "whatever-1234"); !errors.Is(err, store.ErrNoPassword) {
+		t.Fatalf("VerifyAccountPassword before set-password: got %v, want ErrNoPassword", err)
+	}
+
+	buf := &bytes.Buffer{}
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetIn(strings.NewReader("a-fresh-password\n"))
+	rootCmd.SetArgs([]string{"account", "set-password", "needs-password"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("rootCmd.Execute(account set-password): %v\noutput:\n%s", err, buf.String())
+	}
+
+	got, err := s.VerifyAccountPassword(ctx, "needs-password", "a-fresh-password")
+	if err != nil {
+		t.Fatalf("VerifyAccountPassword after set-password: %v", err)
+	}
+	if got.Name != "needs-password" {
+		t.Errorf("VerifyAccountPassword returned %q, want needs-password", got.Name)
+	}
+}
+
+func TestAccountSetPassword_RejectsShortPassword(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	if _, _, err := s.CreateAccount(ctx, "short-pw-test"); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	buf := &bytes.Buffer{}
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetIn(strings.NewReader("short\n"))
+	rootCmd.SetArgs([]string{"account", "set-password", "short-pw-test"})
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatal("Execute(account set-password, short password): want error, got nil")
+	}
+}
+
+func TestAccountSetPassword_UnknownName(t *testing.T) {
+	openTestStore(t) // starts from a clean slate
+
+	buf := &bytes.Buffer{}
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetIn(strings.NewReader("a-long-enough-password\n"))
+	rootCmd.SetArgs([]string{"account", "set-password", "nonexistent"})
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatal("Execute(account set-password nonexistent): want error, got nil")
+	}
+}
+
+func TestAccountShow_PrintsExpectedFields(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	if _, _, err := s.CreateAccount(ctx, "show-me"); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	out := runAccount(t, "show", "show-me")
+	for _, want := range []string{"show-me", "user", "Has password:       no"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("account show output = %q, want it to contain %q", out, want)
+		}
+	}
+}
+
+func TestAccountShow_UnknownName(t *testing.T) {
+	openTestStore(t) // starts from a clean slate
+
+	buf := &bytes.Buffer{}
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"account", "show", "nonexistent"})
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatal("Execute(account show nonexistent): want error, got nil")
 	}
 }

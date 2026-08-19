@@ -19,29 +19,65 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_OPEN_REGISTRATION` | *(unset)* | **Deprecated**, kept working for one release: `true`/`false` map to `MOANSUBS_REGISTRATION=open`/`closed` when `MOANSUBS_REGISTRATION` itself is unset (a startup line on stderr says so); `MOANSUBS_REGISTRATION` wins when both are set. |
 | `MOANSUBS_INVITES_PER_ACCOUNT` | `5` | How many single-use invite codes an account gets, minted lazily the first time it visits `/me` (so an account from before this existed still gets its allotment). `0` disables auto-minting; an operator can still hand out codes with `moansubs invite create`. |
 | `MOANSUBS_REGISTER_RATE_PER_HOUR` | `5` | Registration budget per IP. A person needs one account; anything much above this from a single address is name-minting, not signing up. On an invite-only node this budget also covers invite-code guessing — every attempt, right code or wrong, spends one of it. |
-| `MOANSUBS_LOGIN_RATE_PER_HOUR` | `20` | Login budget per IP, same shape as `MOANSUBS_REGISTER_RATE_PER_HOUR` — the abuse case is a stranger guessing tokens against `POST /login`. |
+| `MOANSUBS_LOGIN_RATE_PER_HOUR` | `20` | Login budget per IP, same shape as `MOANSUBS_REGISTER_RATE_PER_HOUR` — the abuse case is a stranger guessing passwords against `POST /login`. |
 | `MOANSUBS_SESSION_TTL` | `720h` | How long a browser session (the `moansubs_session` cookie from `POST /login`) stays valid, parsed with Go's `time.ParseDuration`. |
 | `MOANSUBS_TRUSTED_PROXY_CIDRS` | *(unset)* | Comma-separated CIDRs (e.g. `172.28.0.0/24,10.0.0.0/8`). The rate limiters' `X-Forwarded-For` handling only trusts the header when the request's direct peer address falls inside one of these — see "Reverse proxies" below. It also gates whether `X-Forwarded-Proto: https` is believed for the session cookie's `Secure` flag. Unset means none are trusted. |
 
 | `MOANSUBS_SEARCH_RATE_PER_MINUTE` | `30` | Per-IP budget for `GET /search`. The only catalogue page where an anonymous visitor makes the database do real work (a GIN array-overlap query), rather than an indexed lookup by prefix or id. |
 | `MOANSUBS_DUMP_URL` | *(unset)* | Link the front page shows under "download the latest dump". Publishing a dump (WP-B2, `moansubs dump`) is an out-of-band operator choice; unset hides the link entirely. |
 | `MOANSUBS_VOTE_RATE_PER_HOUR` | `60` | Per-account budget for `PUT`/`DELETE /api/v1/subtitles/{id}/vote` (API.md "Votes"). Generous enough for a person triaging their own downloads in one sitting, tight enough to stop a script grinding a track's score. |
+| `MOANSUBS_TOKEN_KEY` | *(unset)* | 64 hex characters (32 bytes; generate with `openssl rand -hex 32`) — the AES-256-GCM key `/me` needs to show an account's API token again after this process restarts (it's stored encrypted, alongside the one-way hash every lookup actually uses). Unset: tokens are never re-displayable — `/me` says so and offers "Rotate" instead. An invalid value (wrong length, not hex) refuses to start rather than silently running without encryption. |
+| `MOANSUBS_ADMIN_NAME` | `admin` | The name the first-run admin bootstrap (below) creates, when one runs at all. |
+| `MOANSUBS_BOOTSTRAP_ADMIN` | `true` | Set to `false` to disable the automatic first-run admin creation below — for an operator who'd rather keep credentials out of container logs entirely and mint the account by hand with `moansubs admin bootstrap` (via `docker compose exec`) instead. |
+
+**First-run admin.** Right after migrations, if no account on the node holds
+role `admin`, `serve` creates one — name `admin` (or `MOANSUBS_ADMIN_NAME`),
+a random 24-character password, and an API token — and prints both **once**,
+to stdout (not the log), with a reminder to change the password at `/me`:
+
+```
+moansubs: created initial admin account "admin" (id 1)
+  password: <24 random characters>
+  API token: <64 hex characters>
+  log in and change the password at /me soon: this line stays in the container logs
+```
+
+Every start after that finds an admin already present and stays silent —
+the trigger is "no admin exists", not "first run" specifically, so promoting
+an existing account with `moansubs account role NAME admin` also permanently
+retires this step. If `MOANSUBS_ADMIN_NAME` collides with an account that
+already exists and isn't an admin, `serve` refuses to start with a message
+pointing at `moansubs account role NAME admin` instead — it never silently
+takes over or promotes someone else's account. See `moansubs admin
+bootstrap` and `MOANSUBS_BOOTSTRAP_ADMIN` above for doing this on demand
+instead of automatically at every `serve` startup.
 
 Pages served for humans, none of them needing an account to read:
 `/` (what this node is, with catalogue stats and a search box),
-`/register` (the registration form, showing the new token once, exactly
-like the API does — on an invite-only node the invite field comes first,
-prefilled from `?invite=CODE` when the link came from another member's
-`/me`), `/browse` and `/search` (the subtitle catalogue,
+`/register` (name + password + password-again, plus an invite code where
+the node requires one — the result page shows the new API token once,
+exactly like the API does, and says it stays visible on `/me` after that;
+on an invite-only node the invite field comes first, prefilled from
+`?invite=CODE` when the link came from another member's `/me`), `/browse`
+and `/search` (the subtitle catalogue,
 keyset-paginated and optionally filtered by `lang`), `/release/{id}` (one
 release's tracks, each linking to its `format=srt` download — a logged-in
 visitor also gets up/down-vote forms per track, `POST /release/{id}/vote`,
 the same validation and rules as the API's `PUT`/`DELETE
 /api/v1/subtitles/{id}/vote`), and `/u/{name}` (an uploader's credited
-contributions). `/login` and `/me`
-are the logged-in account's own view — upload count, total downloads,
-own tracks including withdrawn ones, a "rotate token" button that shows
-the new token once, this account's own invite codes with a share link
+contributions). `/login` (name + password only — there is no token-login
+form; an account with no password set, e.g. created purely via
+`POST /api/v1/accounts`, can't log in here until an admin runs
+`moansubs account set-password`) and `/me`
+are the logged-in account's own view — role, upload count, total
+downloads, own tracks including withdrawn ones, the API token in a copy
+box (or a note that this node can't show it, when no `MOANSUBS_TOKEN_KEY`
+is configured or it changed since the token was last minted), a "rotate
+token" button that shows the new token once, a "Change password" form
+(`current`/`password`/`password2`, `POST /me/password`, session +
+Origin-checked — success kills every *other* session on the account while
+the one that made the change stays logged in), this account's own invite
+codes with a share link
 (`/register?invite=CODE`) and a "Disable" button per code
 (`POST /me/invites/{code}/disable`, session + Origin-checked like
 rotate-token, restricted to the code's own creator or an admin), the list
@@ -131,6 +167,41 @@ commands. Every account starts as `user`. Nothing in this version of the
 server grants `mod` or `admin` any privilege beyond who may disable
 someone else's invite code (below) — the role exists now so a future
 moderation surface has somewhere to read it from.
+
+### `moansubs account set-password <name>`
+
+Sets (or resets) an account's password, matched case-insensitively like the
+other `account` commands. The password is read from stdin — its first
+line, trimmed — rather than a flag, since a flag value lands in shell
+history. Fails if the line is shorter than 10 characters. This is how an
+account created without one (via `POST /api/v1/accounts` with no
+`password`, or a row from before this feature) becomes able to log in at
+`/login`; it's also the operator's password-reset tool, since there's no
+self-service "forgot password" flow — reset is admin-side, the same as
+`account rotate-token` is for a leaked API token.
+
+```sh
+echo 'a new password here' | moansubs account set-password somebody
+```
+
+### `moansubs account show <name>`
+
+Prints one account's details: name, role, created timestamp,
+active/disabled status, who invited them (or "none"), whether a password is
+set, and whether the API token is currently redisplayable on `/me`
+(`token_enc` present — see `MOANSUBS_TOKEN_KEY` above). Unlike `account
+list`, this never prints anything secret — only these two yes/no facts
+about them.
+
+### `moansubs admin bootstrap`
+
+Creates the node's first admin account on demand — the same
+`bootstrapAdmin` step `serve` normally runs automatically after migrations,
+callable by hand for an operator who set `MOANSUBS_BOOTSTRAP_ADMIN=false`
+specifically to keep credentials out of container logs and would rather
+mint them via `docker compose exec` instead, where the output lands in
+their own terminal. No-ops (prints one line saying so) when an admin
+already exists; reads `MOANSUBS_ADMIN_NAME` the same way `serve` does.
 
 ### `moansubs invite create --for <name> [--uses N | --unlimited] [--expires DURATION]`
 

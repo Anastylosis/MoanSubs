@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -22,6 +23,12 @@ const (
 
 type registerRequest struct {
 	Name string `json:"name"`
+	// Password is optional on the JSON API (WP-C8: an API-only account can
+	// still be minted with no web login ability at all — an admin can
+	// enable one later with `account set-password`), but required on the
+	// HTML form (handleRegisterSubmit passes passwordRequired=true to
+	// register). Same MinPasswordLen/MaxPasswordLen bounds either way.
+	Password string `json:"password"`
 	// Invite is required when the node's Registration is
 	// RegistrationInvite, ignored (but still redeemed and recorded, if
 	// non-empty) when it's RegistrationOpen — WP-C7a spec.
@@ -66,6 +73,18 @@ func validateAccountName(name string) (string, error) {
 	return name, nil
 }
 
+// validatePassword enforces store.MinPasswordLen/MaxPasswordLen — the same
+// bounds registration, POST /me/password, and `account set-password` all
+// check, sourced from the store package so the three can't drift on the
+// numbers themselves.
+func validatePassword(pw string) error {
+	n := len([]rune(pw))
+	if n < store.MinPasswordLen || n > store.MaxPasswordLen {
+		return fmt.Errorf("password must be between %d and %d characters", store.MinPasswordLen, store.MaxPasswordLen)
+	}
+	return nil
+}
+
 // apiError is a handler failure carrying the status and the wording both a
 // JSON endpoint and its HTML-form equivalent should present — shared by
 // registration and upload (WP-D1's ingest) so every path that can fail two
@@ -80,6 +99,12 @@ type apiError struct {
 // never drift on what a valid name is, when a node is closed, or how an
 // invite code is handled.
 //
+// rawPassword is optional on the JSON API and required on the HTML form
+// (WP-C8): passwordRequired distinguishes the two so this one function
+// still gates both. A non-empty password is always validated
+// (MinPasswordLen/MaxPasswordLen) regardless of passwordRequired — a
+// caller that *does* send one gets the same floor/ceiling either way.
+//
 // Rate-limited per IP rather than per account for the obvious reason: there
 // is no account yet. That makes the limit only as good as the client IP the
 // node can see — see clientIP's trust caveat. Behind a reverse proxy setting
@@ -87,7 +112,7 @@ type apiError struct {
 // per-IP budget also covers invite-code guessing (WP-C7a spec) — every
 // attempt, right code or wrong, costs one of this IP's registration
 // attempts, so there's no separate limiter to keep in sync with this one.
-func (s *Server) register(ctx context.Context, ip, rawName, rawInvite string) (*registerResponse, *apiError) {
+func (s *Server) register(ctx context.Context, ip, rawName, rawInvite, rawPassword string, passwordRequired bool) (*registerResponse, *apiError) {
 	if !s.OpenForStrangers() {
 		return nil, &apiError{http.StatusForbidden, "registration is closed on this node; ask the operator for an account"}
 	}
@@ -98,6 +123,15 @@ func (s *Server) register(ctx context.Context, ip, rawName, rawInvite string) (*
 	name, err := validateAccountName(rawName)
 	if err != nil {
 		return nil, &apiError{http.StatusBadRequest, err.Error()}
+	}
+
+	if rawPassword == "" && passwordRequired {
+		return nil, &apiError{http.StatusBadRequest, "password is required"}
+	}
+	if rawPassword != "" {
+		if err := validatePassword(rawPassword); err != nil {
+			return nil, &apiError{http.StatusBadRequest, err.Error()}
+		}
 	}
 
 	invite := strings.TrimSpace(rawInvite)
@@ -111,7 +145,11 @@ func (s *Server) register(ctx context.Context, ip, rawName, rawInvite string) (*
 		createErr error
 	)
 	if invite != "" {
-		id, token, _, createErr = s.Store.CreateInvitedAccount(ctx, name, invite)
+		if rawPassword != "" {
+			id, token, _, createErr = s.Store.CreateInvitedAccountWithPassword(ctx, name, invite, rawPassword)
+		} else {
+			id, token, _, createErr = s.Store.CreateInvitedAccount(ctx, name, invite)
+		}
 		if errors.Is(createErr, store.ErrInviteInvalid) {
 			if s.Registration == RegistrationInvite {
 				return nil, &apiError{http.StatusForbidden, "invite code is not valid"}
@@ -121,8 +159,14 @@ func (s *Server) register(ctx context.Context, ip, rawName, rawInvite string) (*
 			// accountability, not a gate (WP-C7a spec: "a code sent
 			// anyway is still redeemed and recorded — it costs nothing").
 			// An invalid one just means there's nothing to record.
-			id, token, createErr = s.Store.CreateAccount(ctx, name)
+			if rawPassword != "" {
+				id, token, createErr = s.Store.CreateAccountWithPassword(ctx, name, rawPassword)
+			} else {
+				id, token, createErr = s.Store.CreateAccount(ctx, name)
+			}
 		}
+	} else if rawPassword != "" {
+		id, token, createErr = s.Store.CreateAccountWithPassword(ctx, name, rawPassword)
 	} else {
 		id, token, createErr = s.Store.CreateAccount(ctx, name)
 	}
@@ -137,7 +181,9 @@ func (s *Server) register(ctx context.Context, ip, rawName, rawInvite string) (*
 }
 
 // handleRegisterAccount implements POST /api/v1/accounts: self-service
-// registration, returning the account's upload token exactly once.
+// registration, returning the account's upload token exactly once. password
+// is optional here (unlike the HTML form) — WP-C8 spec: "without it the
+// account is API-only until an admin sets one".
 func (s *Server) handleRegisterAccount(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
@@ -145,7 +191,7 @@ func (s *Server) handleRegisterAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	got, rerr := s.register(r.Context(), s.clientIP(r), req.Name, req.Invite)
+	got, rerr := s.register(r.Context(), s.clientIP(r), req.Name, req.Invite, req.Password, false)
 	if rerr != nil {
 		writeError(w, rerr.status, rerr.msg)
 		return

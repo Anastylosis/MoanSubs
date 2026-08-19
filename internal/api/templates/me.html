@@ -1,13 +1,20 @@
 {{define "me.html"}}
 <h1>{{.Name}}</h1>
+<div class="meta"><span>Role: <b>{{.Role}}</b></span></div>
 <div class="stats">
   <div><strong>{{.UploadCount}}</strong>upload{{if ne .UploadCount 1}}s{{end}}</div>
   <div><strong>{{.TotalDownloads}}</strong>downloads of them</div>
 </div>
 
+<h2 style="margin-top:0">API token</h2>
 {{if .RotatedToken}}
-<div class="notice"><strong>New upload token — copy it now.</strong> Only a hash is stored, so it can't be shown again. The old token stopped working the moment this page loaded; this login session continues.</div>
+<div class="notice"><strong>New upload token — copy it now.</strong> The old token stopped working the moment this page loaded; this login session continues. It stays visible here for as long as this node has a token key configured.</div>
 <code class="token">{{.RotatedToken}}</code>
+{{else if .DisplayToken}}
+<p class="hint">Paste this into Stash under <em>Settings → Plugins → moansubs → Upload token</em>.</p>
+<code class="token">{{.DisplayToken}}</code>
+{{else}}
+<p class="hint">This node can't show your token right now — rotate to get a new one.</p>
 {{end}}
 
 <div class="inline" style="gap:.75rem;margin-bottom:2rem">
@@ -20,7 +27,21 @@
   </form>
 </div>
 
-<h2 style="margin-top:0">Your uploads</h2>
+<h2>Change password</h2>
+{{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+{{if .PasswordChanged}}<div class="notice">Password changed. Every other browser session for this account was logged out; this one stays logged in.</div>{{end}}
+<form method="post" action="/me/password" class="stack">
+  <label for="current">Current password</label>
+  <input type="password" id="current" name="current" required autocomplete="current-password">
+  <label for="password">New password</label>
+  <input type="password" id="password" name="password" required minlength="10" maxlength="128" autocomplete="new-password">
+  <label for="password2">New password, again</label>
+  <input type="password" id="password2" name="password2" required minlength="10" maxlength="128" autocomplete="new-password">
+  <p class="hint">10–128 characters. Changing it logs out every other session for this account; this one stays logged in.</p>
+  <button type="submit">Change password</button>
+</form>
+
+<h2>Your uploads</h2>
 {{if not .Tracks}}
 <p class="empty">Nothing yet. <a href="/upload">Upload a subtitle</a>, or push your sidecars from the Stash plugin.</p>
 {{else}}

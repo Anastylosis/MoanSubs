@@ -42,9 +42,15 @@ func getBody(t *testing.T, url string) (*http.Response, string) {
 	return resp, string(b)
 }
 
+// registerFormPassword is every postForm call's password (WP-C8 made the
+// web registration form require one) — long enough to clear MinPasswordLen.
+const registerFormPassword = "a fine registration password"
+
 func postForm(t *testing.T, ts *httptest.Server, name string) (*http.Response, string) {
 	t.Helper()
-	resp, err := http.PostForm(ts.URL+"/register", url.Values{"name": {name}})
+	resp, err := http.PostForm(ts.URL+"/register", url.Values{
+		"name": {name}, "password": {registerFormPassword}, "password2": {registerFormPassword},
+	})
 	if err != nil {
 		t.Fatalf("POST /register: %v", err)
 	}
@@ -169,6 +175,23 @@ func TestRegisterForm_RejectionsKeepTheirStatus(t *testing.T) {
 
 	if resp, _ := postForm(t, ts, "no"); resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("short name = %d, want 400", resp.StatusCode)
+	}
+}
+
+// The web form requires a password now (WP-C8) — mismatched confirmation
+// must be rejected before ever reaching register().
+func TestRegisterForm_MismatchedPasswordsRejected(t *testing.T) {
+	ts, _ := webServer(t, true)
+
+	resp, err := http.PostForm(ts.URL+"/register", url.Values{
+		"name": {"mismatched-pw-user"}, "password": {"first-password-here"}, "password2": {"second-password-here"},
+	})
+	if err != nil {
+		t.Fatalf("POST /register: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("POST /register with mismatched passwords = %d, want 400", resp.StatusCode)
 	}
 }
 

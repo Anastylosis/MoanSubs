@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -170,6 +173,34 @@ var serveCmd = &cobra.Command{
 			}
 		}
 
+		// MOANSUBS_TOKEN_KEY (WP-C8): AES-256-GCM key for accounts.token_enc,
+		// 64 hex characters (32 bytes). Validated before store.Open so a
+		// misconfigured key fails startup immediately rather than silently
+		// leaving every account's token_enc NULL.
+		var tokenKey []byte
+		if v := os.Getenv("MOANSUBS_TOKEN_KEY"); v != "" {
+			key, err := hex.DecodeString(v)
+			if err != nil || len(key) != 32 {
+				return errors.New("moansubs serve: MOANSUBS_TOKEN_KEY must be 64 hex characters (32 bytes); generate one with `openssl rand -hex 32`")
+			}
+			tokenKey = key
+		}
+
+		// The first-run admin bootstrap (WP-C8): MOANSUBS_ADMIN_NAME
+		// overrides the default name "admin"; MOANSUBS_BOOTSTRAP_ADMIN=false
+		// disables the automatic step entirely (for an operator who'd
+		// rather run `moansubs admin bootstrap` by hand than have
+		// credentials land in container logs).
+		adminName := os.Getenv("MOANSUBS_ADMIN_NAME")
+		bootstrapAdminEnabled := true
+		if v := os.Getenv("MOANSUBS_BOOTSTRAP_ADMIN"); v != "" {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_BOOTSTRAP_ADMIN %q", v)
+			}
+			bootstrapAdminEnabled = b
+		}
+
 		// Cancelled on SIGINT/SIGTERM, which also starts the graceful
 		// shutdown below.
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
@@ -184,6 +215,14 @@ var serveCmd = &cobra.Command{
 			return fmt.Errorf("moansubs serve: %w", err)
 		}
 		defer s.Close()
+		s.SetTokenKey(tokenKey)
+
+		bootstrapCtx, bootstrapCancel := context.WithTimeout(ctx, 30*time.Second)
+		_, err = bootstrapAdmin(bootstrapCtx, s, adminName, bootstrapAdminEnabled, cmd.OutOrStdout())
+		bootstrapCancel()
+		if err != nil {
+			return fmt.Errorf("moansubs serve: %w", err)
+		}
 
 		apiSrv := api.NewServer(s)
 		apiSrv.Limiter = api.NewRateLimiter(uploadRate)
@@ -256,4 +295,94 @@ var serveCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(serveCmd)
+}
+
+// adminPasswordAlphabet mirrors invite.go's inviteCodeAlphabet reasoning —
+// no look-alike characters — for a password an operator has to actually
+// type once, off a container log, before changing it.
+const adminPasswordAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+const adminPasswordLen = 24
+
+// randomPassword returns an n-character password drawn uniformly from
+// adminPasswordAlphabet via crypto/rand, using rejection sampling (same
+// technique as internal/store/invite.go's generateInviteCode) so the
+// alphabet's size not evenly dividing 256 doesn't bias the low end of it.
+func randomPassword(n int) (string, error) {
+	limit := 256 - (256 % len(adminPasswordAlphabet))
+	out := make([]byte, 0, n)
+	buf := make([]byte, 1)
+	for len(out) < n {
+		if _, err := rand.Read(buf); err != nil {
+			return "", err
+		}
+		if int(buf[0]) >= limit {
+			continue
+		}
+		out = append(out, adminPasswordAlphabet[int(buf[0])%len(adminPasswordAlphabet)])
+	}
+	return string(out), nil
+}
+
+// bootstrapAdmin creates the node's first admin account when none exists
+// yet (WP-C8). The trigger is "no admin exists", not "first run" — a node
+// that already has an admin (from a previous start, or hand-created with
+// `account role`) always no-ops here, silently and without a query beyond
+// the one existence check. serve's RunE calls this once after migrations,
+// honoring MOANSUBS_BOOTSTRAP_ADMIN via the enabled parameter;
+// `moansubs admin bootstrap` (admin.go) calls it on demand with
+// enabled=true unconditionally, for an operator who set
+// MOANSUBS_BOOTSTRAP_ADMIN=false specifically to avoid credentials in
+// container logs and would rather mint them via `exec` instead.
+//
+// name is MOANSUBS_ADMIN_NAME's value, or "" for the default ("admin").
+// The generated password and API token are printed to out with fmt.Fprintf
+// — not the logger — exactly once, so they appear as plain lines rather
+// than a leveled/timestamped log entry, and never again after this call
+// returns created=true.
+func bootstrapAdmin(ctx context.Context, s *store.Store, name string, enabled bool, out io.Writer) (created bool, err error) {
+	if !enabled {
+		return false, nil
+	}
+	if name == "" {
+		name = "admin"
+	}
+
+	hasAdmin, err := s.HasAdmin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("bootstrapAdmin: %w", err)
+	}
+	if hasAdmin {
+		return false, nil
+	}
+
+	if _, err := s.GetAccountByName(ctx, name); err == nil {
+		// A non-admin account already holds this name — an admin account
+		// would have been caught by HasAdmin above, so this is a genuine
+		// collision, not the account we're about to create. Refuse rather
+		// than silently promoting or overwriting someone else's account.
+		return false, fmt.Errorf(
+			"bootstrapAdmin: account %q already exists and is not an admin; run `moansubs account role %s admin` instead",
+			name, name)
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return false, fmt.Errorf("bootstrapAdmin: %w", err)
+	}
+
+	password, err := randomPassword(adminPasswordLen)
+	if err != nil {
+		return false, fmt.Errorf("bootstrapAdmin: generating password: %w", err)
+	}
+	id, token, err := s.CreateAccountWithPassword(ctx, name, password)
+	if err != nil {
+		return false, fmt.Errorf("bootstrapAdmin: %w", err)
+	}
+	if err := s.SetAccountRole(ctx, name, "admin"); err != nil {
+		return false, fmt.Errorf("bootstrapAdmin: %w", err)
+	}
+
+	_, _ = fmt.Fprintf(out, "moansubs: created initial admin account %q (id %d)\n", name, id)
+	_, _ = fmt.Fprintf(out, "  password: %s\n", password)
+	_, _ = fmt.Fprintf(out, "  API token: %s\n", token)
+	_, _ = fmt.Fprintln(out, "  log in and change the password at /me soon: this line stays in the container logs")
+	return true, nil
 }

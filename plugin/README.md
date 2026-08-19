@@ -51,7 +51,7 @@ want to upload or vote.
 | Setting | Meaning |
 |---|---|
 | **moansubs server URL** | Base URL of a moansubs server. Leave empty for the public node (https://moansubs.org), or set to e.g. `https://subs.example` or `http://moansubs:8080` when both run in Docker on one host (see MANUAL.md on hairpin NAT). |
-| **Upload token** | Your account token — register for one by opening the server's address in a browser (`/register`), or ask the operator on an invite-only node. Only needed for pushing; downloads are anonymous. |
+| **Upload token** | Your account's API token — register by opening the server's address in a browser (`/register`), or ask the operator on an invite-only node; your token is on the account page (`/me`) if you ever need it again. Only needed for pushing; downloads are anonymous. |
 | **Stash API key** | Recommended if your Stash has auth: the session cookie Stash hands plugins expires mid-run on long tasks. |
 | **Full-hash lookup** | Off by default. Sends complete fingerprints to the server for wider fuzzy matching (Hamming ≤8 instead of ≤4) — reveals your exact hashes to the node operator. |
 

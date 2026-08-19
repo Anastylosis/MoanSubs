@@ -192,6 +192,13 @@ func (s *Server) handleRegisterForm(w http.ResponseWriter, r *http.Request) {
 // handleRegisterSubmit handles the form POST. Deliberately a form post
 // rather than fetch(): it works with JavaScript disabled, and the token
 // comes back in a response body rather than anywhere it could be logged.
+//
+// Unlike the JSON API, the web form always requires a password (WP-C8:
+// "web identity becomes name + password") — passwordRequired=true below —
+// and carries its own "password again" field, checked here before ever
+// calling register(), since password confirmation is a form-UX concern
+// register() (shared with the passwordless-capable JSON path) has no
+// business knowing about.
 func (s *Server) handleRegisterSubmit(w http.ResponseWriter, r *http.Request) {
 	inviteRequired := s.Registration == RegistrationInvite
 	if err := r.ParseForm(); err != nil {
@@ -202,8 +209,18 @@ func (s *Server) handleRegisterSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	name := r.PostFormValue("name")
 	invite := r.PostFormValue("invite")
+	password := r.PostFormValue("password")
+	password2 := r.PostFormValue("password2")
 
-	got, rerr := s.register(r.Context(), s.clientIP(r), name, invite)
+	if password != password2 {
+		s.renderPage(w, r, http.StatusBadRequest, "register.html", registerData{
+			Title: "Register", Open: s.OpenForStrangers(), InviteRequired: inviteRequired,
+			Name: name, Invite: invite, Error: "the two passwords do not match",
+		}, false)
+		return
+	}
+
+	got, rerr := s.register(r.Context(), s.clientIP(r), name, invite, password, true)
 	if rerr != nil {
 		s.renderPage(w, r, rerr.status, "register.html", registerData{
 			Title: "Register", Open: s.OpenForStrangers(), InviteRequired: inviteRequired,

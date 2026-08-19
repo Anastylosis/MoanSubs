@@ -245,17 +245,27 @@ exactly like the JSON path; the same `404`/`410` cases apply.
 ### `POST /api/v1/accounts`
 
 Self-service registration. Returns the account's upload token — the only
-time it exists outside your own memory, since the server stores only its
-SHA-256. People with a browser can use the node's own form at `/register`
-instead; it is the same code path, rendered as HTML.
+time it exists outside your own memory this way, since the server stores
+only its SHA-256 (a decryptable copy is kept only when the node configured
+`MOANSUBS_TOKEN_KEY`, MANUAL.md — that's what lets `/me` show it again
+later). People with a browser can use the node's own form at `/register`
+instead; it is the same code path, rendered as HTML, except the form always
+requires a password (below) where this JSON endpoint doesn't.
 
 ```json
-{"name": "somebody", "invite": "aB3dEfGhJkLm"}
+{"name": "somebody", "password": "a password of your choosing", "invite": "aB3dEfGhJkLm"}
 ```
 
 Names are 3–64 characters of letters, digits, and `_ - .` — no spaces, no
 control or invisible characters, so a name cannot be dressed up to look
 like somebody else's. Uniqueness is case-insensitive.
+
+`password` is optional here (unlike the HTML form, which requires one): 10
+to 128 characters, no composition rules. Omit it and the account is
+API-only — it has an upload token but `POST /login` refuses it until an
+admin runs `moansubs account set-password` — a fine choice for a token
+minted purely for the Stash plugin. Send one and the account can log in at
+`/login` immediately with `name` + `password`.
 
 `invite` is a registration code from an existing member (or the operator's
 own, via `moansubs invite create`). Its meaning depends on the node's
@@ -280,7 +290,8 @@ single-use code leave exactly one winner.
 
 - `201` `{"id": n, "name": "somebody", "token": "<64 hex chars>"}`. Sent
   `Cache-Control: no-store`; treat the token like a password.
-- `400` — name missing, too short/long, or containing disallowed characters.
+- `400` — name missing/too short/long/containing disallowed characters, or
+  a `password` that's non-empty but outside 10–128 characters.
 - `409` — that name is taken.
 - `403` — registration is closed on this node (ask the operator), or the
   node requires an invite and `{"error":"invite code is not valid"}` —
@@ -290,19 +301,29 @@ single-use code leave exactly one winner.
   this budget also covers invite-code guessing: every attempt, right code
   or wrong, spends one of it.
 
-Nothing else is collected: no email, no password. The token *is* the
-account; an invite code just records who vouched for it. A lost token
-means registering again under a new name.
+Nothing else is collected: no email. The token is the API/plugin
+credential; the password (when set) is the web login; an invite code just
+records who vouched for it. A lost token is fixed by
+`moansubs account rotate-token` (or `/me`'s own "Rotate token" button); a
+lost password is fixed by `moansubs account set-password` — both are
+admin/self-service resets now, not "register again under a new name".
 
 ### `POST /login`
 
-Form-encoded (`token=<account token>`), not `/api/v1` — this is the
-browser login path, not a JSON endpoint. Verifies exactly like Bearer
-auth (same hash-and-compare, same disabled check) and, on success, sets
-the `moansubs_session` cookie and redirects (`303`) to `/me`.
+Form-encoded (`name=...&password=...`), not `/api/v1` — this is the
+browser login path, not a JSON endpoint. There is no token-based web
+login: the Bearer token remains the API/plugin credential, and the web
+identity is name + password. Verifies via the same constant-time check
+regardless of *why* it fails — unknown name, no password set, or wrong
+password — so a login attempt can't be used to learn which names are
+registered. On success, sets the `moansubs_session` cookie and redirects
+(`303`) to `/me`.
 
 - `303` → `/me` — logged in; cookie set.
-- `401` — invalid token.
+- `401` — invalid name or password, or an account with no password set yet
+  (registered via the JSON API with none, or a row that predates this
+  feature) — `{"error":"this account has no password; ask an admin"}` in
+  that specific case, otherwise a generic invalid-credentials message.
 - `403` — the account is disabled.
 - `429` — over the per-IP login budget (`MOANSUBS_LOGIN_RATE_PER_HOUR`,
   default 20).

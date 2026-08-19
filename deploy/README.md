@@ -25,13 +25,25 @@ the stack — private infrastructure details never enter tracked files.
    issue a certificate.
 3. Set `POSTGRES_PASSWORD` and `MOANSUBS_TAG` (a real released tag; there is
    no default, since no image has been published yet — see the main
-   README's "Status").
+   README's "Status"), and `MOANSUBS_TOKEN_KEY` (`openssl rand -hex 32`) —
+   without it the server still runs fine, it just can't show an account's
+   API token again on `/me` after a restart.
 4. Set up the backup remote: write an `rclone.conf` (`rclone config`, or by
    hand) into `backup/rclone.conf` — it's bind-mounted into the sidecar and
    deliberately not tracked — and set `BACKUP_BUCKET` and, if you're not
    using a remote named `s3`, `RCLONE_REMOTE` in `docker-compose.yml`.
 5. `docker compose up -d`.
 6. `curl https://<DOMAIN>/healthz` → `ok`.
+7. Get the initial admin account's credentials: `serve` creates one
+   automatically the first time it finds none, and prints the name,
+   password, and API token to stdout exactly once —
+   `docker compose logs server | grep -A3 'created initial admin account'`.
+   Log in at `https://<DOMAIN>/me` and change the password there
+   immediately; that's also what makes the credentials in the log stale.
+   Prefer not to have them in the log at all? Set
+   `MOANSUBS_BOOTSTRAP_ADMIN=false` before first boot and run
+   `docker compose exec server moansubs admin bootstrap` by hand instead —
+   same account, same one-time printout, but to your own terminal.
 
 ## Upgrades
 

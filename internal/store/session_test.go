@@ -162,3 +162,48 @@ func TestStore_DeleteSessionsForAccount(t *testing.T) {
 		t.Errorf("other account's session was deleted too: %v", err)
 	}
 }
+
+// DeleteOtherSessions is POST /me/password's "kill every other session but
+// this one" (WP-C8) — the id passed as keepSessionID must survive while
+// every other session on the same account dies, and a different account's
+// session is untouched either way.
+func TestStore_DeleteOtherSessions(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	accountID, _, err := s.CreateAccount(ctx, "grace")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	otherID, _, err := s.CreateAccount(ctx, "henry")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	keep, _, err := s.CreateSession(ctx, accountID, time.Hour)
+	if err != nil {
+		t.Fatalf("CreateSession (keep): %v", err)
+	}
+	other, _, err := s.CreateSession(ctx, accountID, time.Hour)
+	if err != nil {
+		t.Fatalf("CreateSession (other): %v", err)
+	}
+	unrelated, _, err := s.CreateSession(ctx, otherID, time.Hour)
+	if err != nil {
+		t.Fatalf("CreateSession (unrelated account): %v", err)
+	}
+
+	if err := s.DeleteOtherSessions(ctx, accountID, keep); err != nil {
+		t.Fatalf("DeleteOtherSessions: %v", err)
+	}
+
+	if _, err := s.GetSessionAccount(ctx, keep); err != nil {
+		t.Errorf("the kept session was deleted too: %v", err)
+	}
+	if _, err := s.GetSessionAccount(ctx, other); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetSessionAccount(other) after DeleteOtherSessions: got %v, want ErrNotFound", err)
+	}
+	if _, err := s.GetSessionAccount(ctx, unrelated); err != nil {
+		t.Errorf("a different account's session was deleted too: %v", err)
+	}
+}

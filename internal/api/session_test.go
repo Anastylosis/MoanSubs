@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -14,6 +16,11 @@ import (
 
 	"github.com/Anastylosis/MoanSubs/internal/store"
 )
+
+// testAccountPassword is every test account's password (WP-C8 removed
+// token login on the web, so every session-based test now needs a real
+// one) — long enough to satisfy MinPasswordLen with room to spare.
+const testAccountPassword = "correct horse battery staple"
 
 // jarClient returns an http.Client that keeps cookies between requests
 // (login's cookie needs to survive into a later /me request) but does not
@@ -33,11 +40,14 @@ func jarClient(t *testing.T) *http.Client {
 	}
 }
 
-// doLogin POSTs a token to /login with an Origin header matching ts's own
-// host, exactly like a same-site browser form submission would send.
-func doLogin(t *testing.T, client *http.Client, ts *httptest.Server, token string) *http.Response {
+// doLogin POSTs name+password to /login with an Origin header matching
+// ts's own host, exactly like a same-site browser form submission would
+// send — WP-C8 removed the token-login path entirely, so this is name and
+// password now, not a bare token.
+func doLogin(t *testing.T, client *http.Client, ts *httptest.Server, name, password string) *http.Response {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodPost, ts.URL+"/login", strings.NewReader(url.Values{"token": {token}}.Encode()))
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/login",
+		strings.NewReader(url.Values{"name": {name}, "password": {password}}.Encode()))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
@@ -51,6 +61,32 @@ func doLogin(t *testing.T, client *http.Client, ts *httptest.Server, token strin
 	return resp
 }
 
+// createWebAccount registers name with testAccountPassword over the JSON
+// API (the same path a browser's own /register form ultimately calls) and
+// returns its API token — WP-C8 removed web token-login, so every test
+// that used to log in with a bare token now needs a real password account
+// to log in with instead.
+func createWebAccount(t *testing.T, ts *httptest.Server, name string) (token string) {
+	t.Helper()
+	buf, err := json.Marshal(registerRequest{Name: name, Password: testAccountPassword})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	resp, err := http.Post(ts.URL+"/api/v1/accounts", "application/json", bytes.NewReader(buf))
+	if err != nil {
+		t.Fatalf("POST /api/v1/accounts: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /api/v1/accounts(%q) = %d, want 201", name, resp.StatusCode)
+	}
+	var got registerResponse
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return got.Token
+}
+
 // sessionServer wires a DB-backed test server with a fresh account and a
 // logged-in client (cookie already set), like newTestServer but for the
 // session/web surface instead of the JSON API.
@@ -61,13 +97,10 @@ func sessionServer(t *testing.T) (*httptest.Server, *store.Store, *http.Client, 
 	ts := httptest.NewServer(NewMux(srv))
 	t.Cleanup(ts.Close)
 
-	_, token, err := st.CreateAccount(context.Background(), "webuser")
-	if err != nil {
-		t.Fatalf("CreateAccount: %v", err)
-	}
+	token := createWebAccount(t, ts, "webuser")
 
 	client := jarClient(t)
-	resp := doLogin(t, client, ts, token)
+	resp := doLogin(t, client, ts, "webuser", testAccountPassword)
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("POST /login = %d, want 303", resp.StatusCode)
 	}
@@ -97,16 +130,53 @@ func TestLogin_SetsCookieAndReachesMe(t *testing.T) {
 	}
 }
 
-func TestLogin_WrongTokenRejected(t *testing.T) {
+func TestLogin_WrongPasswordRejected(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	createWebAccount(t, ts, "wrongpw-user")
+
+	client := jarClient(t)
+	resp := doLogin(t, client, ts, "wrongpw-user", "not-the-real-password")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("POST /login with a bad password = %d, want 401", resp.StatusCode)
+	}
+}
+
+// Unknown name and wrong password must cost and answer identically (WP-C8
+// spec) — this is the other half of TestLogin_WrongPasswordRejected.
+func TestLogin_UnknownNameRejected(t *testing.T) {
 	st := openTestStore(t)
 	srv := NewServer(st)
 	ts := httptest.NewServer(NewMux(srv))
 	t.Cleanup(ts.Close)
 
 	client := jarClient(t)
-	resp := doLogin(t, client, ts, "not-a-real-token")
+	resp := doLogin(t, client, ts, "no-such-user", "whatever-1234")
 	if resp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("POST /login with a bad token = %d, want 401", resp.StatusCode)
+		t.Errorf("POST /login with an unknown name = %d, want 401", resp.StatusCode)
+	}
+}
+
+// An account created via the API (or a pre-existing row) with no password
+// set cannot log in at all — WP-C8 spec — until an admin runs
+// `account set-password`.
+func TestLogin_NoPasswordAccountCannotLogIn(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	if _, _, err := st.CreateAccount(context.Background(), "api-only-user"); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	client := jarClient(t)
+	resp := doLogin(t, client, ts, "api-only-user", "whatever-1234")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("POST /login for a password-less account = %d, want 401", resp.StatusCode)
 	}
 }
 
@@ -116,16 +186,13 @@ func TestLogin_DisabledAccountCannotLogIn(t *testing.T) {
 	ts := httptest.NewServer(NewMux(srv))
 	t.Cleanup(ts.Close)
 
-	_, token, err := st.CreateAccount(context.Background(), "disabled-user")
-	if err != nil {
-		t.Fatalf("CreateAccount: %v", err)
-	}
+	createWebAccount(t, ts, "disabled-user")
 	if err := st.SetAccountDisabled(context.Background(), "disabled-user", true); err != nil {
 		t.Fatalf("SetAccountDisabled: %v", err)
 	}
 
 	client := jarClient(t)
-	resp := doLogin(t, client, ts, token)
+	resp := doLogin(t, client, ts, "disabled-user", testAccountPassword)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("POST /login for a disabled account = %d, want 403", resp.StatusCode)
 	}
@@ -393,6 +460,111 @@ func TestUpload_ViaBearer_OriginIgnored(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusCreated {
 		t.Errorf("Bearer-authenticated upload with a bad Origin = %d, want 201 (Bearer is exempt)", resp.StatusCode)
+	}
+}
+
+// -- Change password (WP-C8) ------------------------------------------------
+
+func TestChangePassword_KillsOtherSessionsButKeepsThisOne(t *testing.T) {
+	ts, _, client, _ := sessionServer(t)
+
+	// A second, independent login — the "other session" that changing the
+	// password must kill.
+	other := jarClient(t)
+	otherLogin := doLogin(t, other, ts, "webuser", testAccountPassword)
+	if otherLogin.StatusCode != http.StatusSeeOther {
+		t.Fatalf("second login = %d, want 303", otherLogin.StatusCode)
+	}
+
+	const newPassword = "a-brand-new-password-1234"
+	form := url.Values{"current": {testAccountPassword}, "password": {newPassword}, "password2": {newPassword}}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/me/password", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", ts.URL)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST /me/password: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /me/password = %d, want 200", resp.StatusCode)
+	}
+
+	// The session that made the change stays logged in.
+	if r, err := client.Get(ts.URL + "/me"); err != nil {
+		t.Fatalf("GET /me (changing session): %v", err)
+	} else {
+		_ = r.Body.Close()
+		if r.StatusCode != http.StatusOK {
+			t.Errorf("GET /me for the changing session after password change = %d, want 200", r.StatusCode)
+		}
+	}
+
+	// The other, independent session must be dead.
+	if r, err := other.Get(ts.URL + "/me"); err != nil {
+		t.Fatalf("GET /me (other session): %v", err)
+	} else {
+		_ = r.Body.Close()
+		if r.StatusCode != http.StatusSeeOther {
+			t.Errorf("GET /me for the other session after password change = %d, want 303 (killed)", r.StatusCode)
+		}
+	}
+
+	// And the new password actually logs in.
+	fresh := jarClient(t)
+	loginResp := doLogin(t, fresh, ts, "webuser", newPassword)
+	if loginResp.StatusCode != http.StatusSeeOther {
+		t.Errorf("login with the new password = %d, want 303", loginResp.StatusCode)
+	}
+}
+
+func TestChangePassword_WrongCurrentPasswordRejected(t *testing.T) {
+	ts, _, client, _ := sessionServer(t)
+
+	form := url.Values{"current": {"not-the-real-password"}, "password": {"another-fresh-password"}, "password2": {"another-fresh-password"}}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/me/password", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", ts.URL)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST /me/password: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("POST /me/password with a wrong current password = %d, want 400", resp.StatusCode)
+	}
+
+	// The original password must still work.
+	fresh := jarClient(t)
+	loginResp := doLogin(t, fresh, ts, "webuser", testAccountPassword)
+	if loginResp.StatusCode != http.StatusSeeOther {
+		t.Errorf("login with the unchanged password = %d, want 303", loginResp.StatusCode)
+	}
+}
+
+func TestChangePassword_MismatchedNewPasswordsRejected(t *testing.T) {
+	ts, _, client, _ := sessionServer(t)
+
+	form := url.Values{"current": {testAccountPassword}, "password": {"first-fresh-password"}, "password2": {"second-fresh-password"}}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/me/password", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", ts.URL)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST /me/password: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("POST /me/password with mismatched new passwords = %d, want 400", resp.StatusCode)
 	}
 }
 

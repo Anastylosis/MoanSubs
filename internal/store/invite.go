@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -231,9 +230,52 @@ func (s *Store) MembersInvitedBy(ctx context.Context, accountID int64) ([]Invite
 // commit, then re-evaluates the WHERE clause against the
 // now-incremented row and finds it no longer qualifies.
 func (s *Store) CreateInvitedAccount(ctx context.Context, name, code string) (id int64, token string, invitedBy int64, err error) {
+	id, token, invitedBy, err = s.createInvitedAccount(ctx, name, code, nil)
+	if err != nil {
+		if errors.Is(err, ErrInviteInvalid) || errors.Is(err, ErrNameTaken) {
+			return 0, "", 0, err
+		}
+		return 0, "", 0, fmt.Errorf("store: CreateInvitedAccount: %w", err)
+	}
+	return id, token, invitedBy, nil
+}
+
+// CreateInvitedAccountWithPassword is CreateInvitedAccount's WP-C8 variant:
+// the web registration form's invite-mode + password combination, still one
+// atomic redeem-then-create transaction. pw must already satisfy
+// MinPasswordLen/MaxPasswordLen.
+func (s *Store) CreateInvitedAccountWithPassword(ctx context.Context, name, code, pw string) (id int64, token string, invitedBy int64, err error) {
+	hash, err := HashPassword(pw)
+	if err != nil {
+		return 0, "", 0, fmt.Errorf("store: CreateInvitedAccountWithPassword: %w", err)
+	}
+	id, token, invitedBy, err = s.createInvitedAccount(ctx, name, code, &hash)
+	if err != nil {
+		if errors.Is(err, ErrInviteInvalid) || errors.Is(err, ErrNameTaken) {
+			return 0, "", 0, err
+		}
+		return 0, "", 0, fmt.Errorf("store: CreateInvitedAccountWithPassword: %w", err)
+	}
+	return id, token, invitedBy, nil
+}
+
+// createInvitedAccount is CreateInvitedAccount and
+// CreateInvitedAccountWithPassword's shared core — redeeming the code and
+// creating the account happen in one transaction (WP-C7a spec), so a code
+// can never be consumed by a registration that then fails on a taken name.
+// The UPDATE's WHERE clause is the whole redemption gate — enabled,
+// unexpired, under max_uses — and doing that check as part of the row
+// write rather than a separate SELECT is what makes two concurrent
+// redemptions of a max_uses=1 code resolve to exactly one winner: Postgres
+// serializes the second UPDATE behind the first's commit, then
+// re-evaluates the WHERE clause against the now-incremented row and finds
+// it no longer qualifies. passwordHash is nil for the plain (no-password)
+// variant, matching createAccount's own nil-means-API-only convention
+// (account.go).
+func (s *Store) createInvitedAccount(ctx context.Context, name, code string, passwordHash *string) (id int64, token string, invitedBy int64, err error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return 0, "", 0, fmt.Errorf("store: CreateInvitedAccount: beginning tx: %w", err)
+		return 0, "", 0, fmt.Errorf("beginning tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
 
@@ -248,29 +290,31 @@ func (s *Store) CreateInvitedAccount(ctx context.Context, name, code string) (id
 		return 0, "", 0, ErrInviteInvalid
 	}
 	if err != nil {
-		return 0, "", 0, fmt.Errorf("store: CreateInvitedAccount: redeeming invite: %w", err)
+		return 0, "", 0, fmt.Errorf("redeeming invite: %w", err)
 	}
 
-	buf := make([]byte, tokenBytes)
-	if _, err := rand.Read(buf); err != nil {
-		return 0, "", 0, fmt.Errorf("store: CreateInvitedAccount: generating token: %w", err)
+	token, tokenHash, err := generateAccountToken()
+	if err != nil {
+		return 0, "", 0, err
 	}
-	token = hex.EncodeToString(buf)
-	tokenHash := HashToken(token)
+	tokenEnc, err := s.encryptToken(token)
+	if err != nil {
+		return 0, "", 0, fmt.Errorf("encrypting token: %w", err)
+	}
 
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO accounts (name, token_hash, invited_by) VALUES ($1, $2, $3) RETURNING id`,
-		name, tokenHash, invitedBy,
+		`INSERT INTO accounts (name, token_hash, invited_by, password_hash, token_enc) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		name, tokenHash, invitedBy, passwordHash, tokenEnc,
 	).Scan(&id); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return 0, "", 0, ErrNameTaken
 		}
-		return 0, "", 0, fmt.Errorf("store: CreateInvitedAccount: %w", err)
+		return 0, "", 0, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return 0, "", 0, fmt.Errorf("store: CreateInvitedAccount: %w", err)
+		return 0, "", 0, err
 	}
 	return id, token, invitedBy, nil
 }

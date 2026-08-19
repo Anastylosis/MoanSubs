@@ -1,18 +1,18 @@
 {{define "register.html"}}
 {{if .Token}}
   <h1>Account created</h1>
-  <p>Your upload token for <strong>{{.Name}}</strong>. It is shown once:</p>
+  <p>Your API token for <strong>{{.Name}}</strong>. It is shown once here:</p>
   <code class="token">{{.Token}}</code>
-  <div class="notice"><strong>Copy it now.</strong> Only a hash is stored, so it can't be shown again or recovered — lose it and you register a new name.</div>
-  <p>Paste it into Stash under <em>Settings → Plugins → moansubs → Upload token</em>, or <a href="/login">log in here</a> to upload from the browser.</p>
+  <div class="notice"><strong>Copy it now.</strong> Only a hash is stored, so it can't be shown again this way — but it stays visible on <a href="/me">your account page</a> for as long as this node has a token key configured.</div>
+  <p>Paste it into Stash under <em>Settings → Plugins → moansubs → Upload token</em>, or <a href="/login">log in here</a> with your name and password to upload from the browser.</p>
 {{else if not .Open}}
   <h1>Registration is closed</h1>
-  <p class="prose">This node doesn't accept self-registration. Ask whoever runs it for a token, then <a href="/login">log in</a>.</p>
+  <p class="prose">This node doesn't accept self-registration. Ask whoever runs it for an account, then <a href="/login">log in</a>.</p>
 {{else}}
   <h1>Create an account</h1>
   {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
   <div class="prose">
-    <p>No email, no password. Pick a name and you get a token — the token <em>is</em> the account. You only need one to upload or vote; searching and downloading never ask.</p>
+    <p>No email. Pick a name and a password — the password is what you'll use to log in here, and you'll also get an API token for the Stash plugin, shown once on this page and always after that on your account page.</p>
   </div>
   <form method="post" action="/register" class="stack">
     {{if .InviteRequired}}
@@ -21,8 +21,13 @@
     <p class="hint">Invites come from existing members. Ask whoever sent you here for the code, or the operator for one.</p>
     {{end}}
     <label for="name">Name</label>
-    <input type="text" id="name" name="name" value="{{.Name}}" required minlength="3" maxlength="64" autocomplete="off"{{if not .InviteRequired}} autofocus{{end}}>
+    <input type="text" id="name" name="name" value="{{.Name}}" required minlength="3" maxlength="64" autocomplete="username"{{if not .InviteRequired}} autofocus{{end}}>
     <p class="hint">3–64 characters: letters, digits, underscore, hyphen, dot. It's public — it appears on every subtitle you upload and in mirrors of this database, and old copies keep it even if the account is purged later.</p>
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" required minlength="10" maxlength="128" autocomplete="new-password">
+    <label for="password2">Password, again</label>
+    <input type="password" id="password2" name="password2" required minlength="10" maxlength="128" autocomplete="new-password">
+    <p class="hint">10–128 characters, no other rules. This is your login for this website; it never leaves this node.</p>
     <button type="submit">Create account</button>
   </form>
 {{end}}

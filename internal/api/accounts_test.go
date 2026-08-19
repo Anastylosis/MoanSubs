@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -160,6 +161,90 @@ func TestRegisterAccount_RateLimited(t *testing.T) {
 	}
 	if resp := doRegister(t, ts, "second"); resp.StatusCode != http.StatusTooManyRequests {
 		t.Errorf("second registration = %d, want 429", resp.StatusCode)
+	}
+}
+
+// A JSON registration with no password is API-only (WP-C8): it works fine
+// (a Bearer-authenticated upload succeeds) but can't log in on the web
+// until an admin runs `account set-password`.
+func TestRegisterAccount_WithoutPassword_WorksButCannotWebLogin(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+
+	resp := doRegister(t, ts, "api-only-newcomer")
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+	var reg registerResponse
+	if err := json.NewDecoder(resp.Body).Decode(&reg); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	upload := doUpload(t, ts, reg.Token, map[string]any{
+		"oshash":      "b0b0000000000001",
+		"duration_ms": 60000,
+		"lang":        "en",
+		"body":        "1\n00:00:01,000 --> 00:00:02,000\nHello.\n\n",
+	})
+	defer func() { _ = upload.Body.Close() }()
+	if upload.StatusCode != http.StatusCreated {
+		t.Fatalf("upload with the API-only account's token = %d, want 201", upload.StatusCode)
+	}
+
+	loginResp, err := http.PostForm(ts.URL+"/login", url.Values{"name": {"api-only-newcomer"}, "password": {"whatever-1234"}})
+	if err != nil {
+		t.Fatalf("POST /login: %v", err)
+	}
+	defer func() { _ = loginResp.Body.Close() }()
+	if loginResp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("POST /login for a password-less account = %d, want 401", loginResp.StatusCode)
+	}
+}
+
+// A JSON registration with a password can log in on the web immediately.
+func TestRegisterAccount_WithPassword_CanWebLogin(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+
+	buf, err := json.Marshal(registerRequest{Name: "with-password-newcomer", Password: "a fine password here"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	resp, err := http.Post(ts.URL+"/api/v1/accounts", "application/json", bytes.NewReader(buf))
+	if err != nil {
+		t.Fatalf("POST /api/v1/accounts: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+
+	// A plain http.Client follows the 303 automatically, which would hide a
+	// login failure behind /me's own 200 — disable redirects so the login
+	// response itself is what gets asserted on.
+	noRedirect := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	loginResp, err := noRedirect.PostForm(ts.URL+"/login", url.Values{"name": {"with-password-newcomer"}, "password": {"a fine password here"}})
+	if err != nil {
+		t.Fatalf("POST /login: %v", err)
+	}
+	defer func() { _ = loginResp.Body.Close() }()
+	if loginResp.StatusCode != http.StatusSeeOther {
+		t.Errorf("POST /login for a password-registered account = %d, want 303", loginResp.StatusCode)
+	}
+}
+
+func TestRegisterAccount_RejectsShortPassword(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+
+	buf, err := json.Marshal(registerRequest{Name: "short-password-newcomer", Password: "short"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	resp, err := http.Post(ts.URL+"/api/v1/accounts", "application/json", bytes.NewReader(buf))
+	if err != nil {
+		t.Fatalf("POST /api/v1/accounts: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for a too-short password", resp.StatusCode)
 	}
 }
 

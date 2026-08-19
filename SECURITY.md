@@ -15,19 +15,64 @@ except `<i>`/`<b>`, output is re-rendered canonical SRT, and size/cue caps
 apply. Stash additionally converts captions to WebVTT before the player
 sees them.
 
-**Tokens.** Upload tokens are 256-bit random values; the server stores
-only their SHA-256 and compares in constant time. A leaked token can
-upload (rate-limited) but cannot read or delete anything it couldn't read
-anonymously. If a token leaks, rotate it with `moansubs account rotate-token
-<name>` — the old token becomes invalid immediately, and the account continues
-working with the new one. Existing uploads keep their attribution.
+**Two credentials, two purposes.** An account can carry an API token and a
+password, and they unlock different surfaces:
+
+- **The API token** is the plugin's (and any script's) credential:
+  `Authorization: Bearer <token>` on every state-changing API route,
+  nothing else. It never logs you into the website. Every account gets one
+  at creation, whichever way it was created.
+- **The password** is the *web* login only (`POST /login`, name +
+  password) — it never authenticates an API call. Not every account has
+  one: `POST /api/v1/accounts` without a `password` field, or an account
+  that pre-dates this feature, has none, and `/login` refuses it
+  (`"this account has no password; ask an admin"`) until an admin runs
+  `moansubs account set-password <name>`. Registering through the node's
+  own `/register` form always sets one, since that form exists specifically
+  for people who'll come back to `/me` in a browser.
+
+Nothing else is collected — no email, ever, from either path.
+
+**Storage.** The token is stored only as its SHA-256 (`token_hash`,
+compared in constant time) — that hash is the only thing any lookup ever
+touches, so it's what actually gates a Bearer call. A *second*, encrypted
+copy (`token_enc`, AES-256-GCM under the operator's own
+`MOANSUBS_TOKEN_KEY`, MANUAL.md) exists purely so `/me` can show the token
+again after the process restarts; unset that key (the default) and this
+copy is never written at all, and `/me` says so. The password is stored as
+a PBKDF2-SHA256 hash (600,000 iterations, random 16-byte salt) — never the
+plaintext, never reversibly. Login (and `POST /me/password`'s re-check of
+the current password) always runs exactly one PBKDF2 pass, whether the
+name doesn't exist, the account has no password, or the password is simply
+wrong, so a login attempt can't be used to enumerate which names are
+registered or which have a password set.
+
+**Reset is admin-side for both, and self-service where it can be.** A
+leaked token: `moansubs account rotate-token <name>` (or `/me`'s "Rotate
+token" button when logged in) — the old one dies immediately, uploads keep
+their attribution. A forgotten or leaked password: `/me`'s own "Change
+password" form when you can still log in (current + new, and every *other*
+session on the account is killed the moment it succeeds — the one that
+made the change stays logged in); `moansubs account set-password <name>`
+is the operator's way in when you can't. Neither ever emails anyone
+anything, because nothing ever collected an email to send it to; a lost
+credential with no admin available means a new account, same as always.
 
 **Registration.** Nodes accept self-service registration by default
-(`POST /api/v1/accounts`), rate-limited per IP. It collects nothing but a
-name — no email, no password — so the token *is* the account, and an
-operator's remedy for abuse is `account disable`, not a password reset.
-Run with `MOANSUBS_REGISTRATION=closed` for an operator-only node, or
-`=invite` for one that requires an invite code but otherwise stays open.
+(`POST /api/v1/accounts`, or the `/register` form), rate-limited per IP.
+An operator's remedy for abuse is still `account disable`, not a password
+reset — disabling kills every live session and refuses the token
+regardless of which credential a caller presents. Run with
+`MOANSUBS_REGISTRATION=closed` for an operator-only node, or `=invite` for
+one that requires an invite code but otherwise stays open.
+
+**First-run admin.** A node with no `admin` account gets one automatically
+the first time `serve` runs migrations successfully — a random 24-character
+password and a token, printed once to stdout (never the logger) with a
+reminder to change the password at `/me`. `MOANSUBS_BOOTSTRAP_ADMIN=false`
+disables this for an operator who'd rather not have credentials land in
+container logs at all and mint them by hand with `moansubs admin
+bootstrap` instead (MANUAL.md).
 
 **Invites.** An invite code is a capability token, not a secret like an
 account token — it is stored and shown as-is (never hashed), the same
@@ -57,9 +102,9 @@ loads from anywhere, forms post only to this node), `Referrer-Policy:
 no-referrer`, and `Cache-Control: no-store` on any page that displays a
 token or reflects an account's own data.
 
-**Sessions.** `POST /login` verifies a token exactly like Bearer auth
-(same hash-and-compare, same disabled check) and issues a session cookie
-(`moansubs_session`): `HttpOnly` (no JavaScript can read it), `SameSite=Lax`,
+**Sessions.** `POST /login` verifies name + password (see "Two
+credentials" above — there is no token-based web login) and issues a
+session cookie (`moansubs_session`): `HttpOnly` (no JavaScript can read it), `SameSite=Lax`,
 `Path=/`, and `Secure` whenever the connection is TLS or a *trusted* proxy
 (`MOANSUBS_TRUSTED_PROXY_CIDRS`) reports `X-Forwarded-Proto: https` — an
 untrusted peer's claim is ignored, the same trust boundary the rate
@@ -73,11 +118,12 @@ next login.
 
 CSRF is stopped by an Origin/Referer check, not a token: every
 state-changing route that accepts the session cookie (`POST /logout`,
-`POST /me/rotate-token`, and `POST /api/v1/subtitles` when it authenticated
-via cookie rather than Bearer) requires the request's `Origin` (or
-`Referer` as fallback) to name this node's own host, or it's refused with
-`403`. A Bearer-authenticated call is exempt — a script sending its own
-token is not the cross-site-browser case this defends against.
+`POST /me/rotate-token`, `POST /me/password`, and `POST /api/v1/subtitles`
+when it authenticated via cookie rather than Bearer) requires the request's
+`Origin` (or `Referer` as fallback) to name this node's own host, or it's
+refused with `403`. A Bearer-authenticated call is exempt — a script
+sending its own token is not the cross-site-browser case this defends
+against.
 
 Revocation is immediate and three-pronged: `POST /logout` deletes the
 caller's own session; `moansubs account disable <name>` and

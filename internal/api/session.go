@@ -27,9 +27,12 @@ const DefaultSessionTTL = 720 * time.Hour
 // endpoint is exactly the abuse case a hard per-IP ceiling stops.
 const LoginRateLimitPerHour = 20
 
-// loginData is /login's data (both the form and its failure states).
+// loginData is /login's data (both the form and its failure states). Name
+// is echoed back into the form after a failed submission (WP-C8: the field
+// used to be a bare token, nothing to echo) — html/template escapes it.
 type loginData struct {
 	Title string
+	Name  string
 	Error string
 }
 
@@ -38,13 +41,28 @@ type loginData struct {
 type meData struct {
 	Title          string
 	Name           string
+	Role           string
 	UploadCount    int
 	TotalDownloads int64
 	Tracks         []store.AccountTrack
-	// RotatedToken is set only right after POST /me/rotate-token, for the
-	// same one-time-display contract registration uses — nil the rest of
-	// the time, including a plain GET /me right after.
+	// RotatedToken is set only right after POST /me/rotate-token or a
+	// fresh registration's own display, for the one-time-display contract
+	// those two share — nil the rest of the time, including a plain
+	// GET /me right after.
 	RotatedToken string
+	// DisplayToken is the account's own token decrypted from token_enc
+	// (WP-C8: "the token in a copy box when token_enc decrypts"), used
+	// whenever RotatedToken isn't set. Empty when it can't be recovered —
+	// no MOANSUBS_TOKEN_KEY configured, or the key changed since the token
+	// was last minted/rotated — in which case the template shows a
+	// rotate-for-a-new-one notice instead.
+	DisplayToken string
+	// PasswordChanged flags a just-succeeded POST /me/password, so the
+	// page can show a confirmation banner once.
+	PasswordChanged bool
+	// Error is a same-page form failure (currently only
+	// POST /me/password's) to show above the change-password form.
+	Error string
 	// Invites is this account's own codes (both lazily-minted and, for an
 	// admin, any minted by hand), newest first — WP-C7a's /me invite
 	// table.
@@ -59,9 +77,12 @@ func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, r, http.StatusOK, "login.html", loginData{Title: "Log in"}, true)
 }
 
-// handleLogin implements POST /login: verify the posted token exactly as
-// Bearer auth does (lookupByToken, shared with authenticate), then issue a
-// session cookie (WP-C1 spec).
+// handleLogin implements POST /login: name + password only (WP-C8 — there
+// is no token login on the web any more; the Bearer token remains the only
+// API credential). Verification is store.VerifyAccountPassword, which
+// costs the same one PBKDF2 pass whether the name is unknown, the account
+// has no password set, or the password is simply wrong — so this handler
+// can't be used to enumerate which names are registered.
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		s.renderPage(w, r, http.StatusBadRequest, "login.html", loginData{
@@ -77,13 +98,24 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	account, err := lookupByToken(r.Context(), s.Store, r.PostFormValue("token"))
+	name := r.PostFormValue("name")
+	account, err := s.Store.VerifyAccountPassword(r.Context(), name, r.PostFormValue("password"))
 	if err != nil {
-		status, msg := http.StatusUnauthorized, "invalid token"
-		if errors.Is(err, errAccountDisabled) {
-			status, msg = http.StatusForbidden, "account disabled"
+		status, msg := http.StatusUnauthorized, "invalid name or password"
+		switch {
+		case errors.Is(err, store.ErrNoPassword):
+			msg = "this account has no password; ask an admin"
+		case errors.Is(err, store.ErrInvalidCredentials):
+			// default msg above already fits.
+		default:
+			log.Printf("api: VerifyAccountPassword: %v", err)
+			status, msg = http.StatusInternalServerError, "internal error"
 		}
-		s.renderPage(w, r, status, "login.html", loginData{Title: "Log in", Error: msg}, true)
+		s.renderPage(w, r, status, "login.html", loginData{Title: "Log in", Name: name, Error: msg}, true)
+		return
+	}
+	if account.Disabled {
+		s.renderPage(w, r, http.StatusForbidden, "login.html", loginData{Title: "Log in", Name: name, Error: "account disabled"}, true)
 		return
 	}
 
@@ -208,16 +240,109 @@ func (s *Server) meDataFor(ctx context.Context, account *store.Account, rotatedT
 		return meData{}, err
 	}
 
+	// A freshly rotated/registered token is already known plaintext — no
+	// need to decrypt token_enc for it. Otherwise, try to recover the
+	// stored one (WP-C8): DecryptToken reports ok=false uniformly whenever
+	// it can't (no key configured, or the key changed since mint/rotate),
+	// and the template falls back to a rotate-for-a-new-one notice.
+	displayToken := rotatedToken
+	if displayToken == "" {
+		if dec, ok := s.Store.DecryptToken(account.TokenEnc); ok {
+			displayToken = dec
+		}
+	}
+
 	return meData{
 		Title:          "My account",
 		Name:           account.Name,
+		Role:           account.Role,
 		UploadCount:    len(tracks),
 		TotalDownloads: totalDownloads,
 		Tracks:         tracks,
 		RotatedToken:   rotatedToken,
+		DisplayToken:   displayToken,
 		Invites:        invites,
 		InvitedMembers: members,
 	}, nil
+}
+
+// handleChangePassword implements POST /me/password: current + password +
+// password2 (WP-C8). The current password is re-verified through
+// VerifyAccountPassword — the same check /login itself uses — so a stolen
+// session cookie alone can't change the password without also knowing it.
+// On success, every *other* session for this account is killed
+// (DeleteOtherSessions) while the one that just made the change stays
+// logged in.
+func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	ares, err := authenticate(r.Context(), s.Store, r)
+	if err != nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	if !checkOrigin(w, r) {
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		s.renderMeError(w, r, ares.Account, "could not read the submitted form")
+		return
+	}
+
+	current := r.PostFormValue("current")
+	password := r.PostFormValue("password")
+	password2 := r.PostFormValue("password2")
+
+	if _, err := s.Store.VerifyAccountPassword(r.Context(), ares.Account.Name, current); err != nil {
+		s.renderMeError(w, r, ares.Account, "current password is incorrect")
+		return
+	}
+	if password != password2 {
+		s.renderMeError(w, r, ares.Account, "the two new passwords do not match")
+		return
+	}
+	if err := validatePassword(password); err != nil {
+		s.renderMeError(w, r, ares.Account, err.Error())
+		return
+	}
+
+	if err := s.Store.SetAccountPassword(r.Context(), ares.Account.Name, password); err != nil {
+		log.Printf("api: SetAccountPassword: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Keep the session that just made the change; every other one for this
+	// account dies immediately (WP-C8 spec).
+	keep := ""
+	if cookie, err := r.Cookie(sessionCookieName); err == nil {
+		keep = cookie.Value
+	}
+	if err := s.Store.DeleteOtherSessions(r.Context(), ares.Account.ID, keep); err != nil {
+		log.Printf("api: DeleteOtherSessions: %v", err)
+	}
+
+	data, err := s.meDataFor(r.Context(), ares.Account, "")
+	if err != nil {
+		log.Printf("api: meDataFor: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	data.PasswordChanged = true
+	s.renderPage(w, r, http.StatusOK, "me.html", data, true)
+}
+
+// renderMeError re-renders /me with msg shown above the change-password
+// form — a same-page validation failure (wrong current password,
+// mismatched new ones, or a length violation) rather than a redirect, so
+// the visitor doesn't lose their place.
+func (s *Server) renderMeError(w http.ResponseWriter, r *http.Request, account *store.Account, msg string) {
+	data, err := s.meDataFor(r.Context(), account, "")
+	if err != nil {
+		log.Printf("api: meDataFor: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	data.Error = msg
+	s.renderPage(w, r, http.StatusBadRequest, "me.html", data, true)
 }
 
 // handleDisableInvite implements POST /me/invites/{code}/disable: turns

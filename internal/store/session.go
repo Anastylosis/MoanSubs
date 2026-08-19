@@ -58,11 +58,11 @@ func (s *Store) CreateSession(ctx context.Context, accountID int64, ttl time.Dur
 func (s *Store) GetSessionAccount(ctx context.Context, sessionID string) (*Account, error) {
 	var a Account
 	err := s.pool.QueryRow(ctx, `
-		SELECT a.id, a.name, a.token_hash, a.disabled, a.created_at, a.role
+		SELECT a.id, a.name, a.token_hash, a.disabled, a.created_at, a.role, a.token_enc
 		FROM sessions se
 		JOIN accounts a ON a.id = se.account_id
 		WHERE se.id = $1 AND se.expires_at > now()`, sessionID,
-	).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Disabled, &a.CreatedAt, &a.Role)
+	).Scan(&a.ID, &a.Name, &a.TokenHash, &a.Disabled, &a.CreatedAt, &a.Role, &a.TokenEnc)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -91,6 +91,20 @@ func (s *Store) DeleteSession(ctx context.Context, id string) error {
 func (s *Store) DeleteSessionsForAccount(ctx context.Context, accountID int64) error {
 	if _, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE account_id = $1`, accountID); err != nil {
 		return fmt.Errorf("store: DeleteSessionsForAccount: %w", err)
+	}
+	return nil
+}
+
+// DeleteOtherSessions removes every session belonging to accountID except
+// keepSessionID — POST /me/password's "kill every other session" (WP-C8
+// spec), so changing a password revokes any other still-open login (a
+// stale session elsewhere, or a thief's) immediately, without logging out
+// the browser tab that just made the change.
+func (s *Store) DeleteOtherSessions(ctx context.Context, accountID int64, keepSessionID string) error {
+	if _, err := s.pool.Exec(ctx,
+		`DELETE FROM sessions WHERE account_id = $1 AND id <> $2`, accountID, keepSessionID,
+	); err != nil {
+		return fmt.Errorf("store: DeleteOtherSessions: %w", err)
 	}
 	return nil
 }

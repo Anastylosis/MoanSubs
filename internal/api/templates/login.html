@@ -2,9 +2,11 @@
 <h1>Log in</h1>
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
 <form method="post" action="/login" class="stack">
-  <label for="token">Upload token</label>
-  <input type="password" id="token" name="token" class="mono" autofocus required autocomplete="off">
-  <p class="hint">The token you got when the account was created. Logging in sets a cookie for this browser; the token itself isn't kept.</p>
+  <label for="name">Name</label>
+  <input type="text" id="name" name="name" value="{{.Name}}" autofocus required autocomplete="username">
+  <label for="password">Password</label>
+  <input type="password" id="password" name="password" required autocomplete="current-password">
+  <p class="hint">Logging in sets a cookie for this browser. An account created via the API with no password can't log in here until an admin sets one.</p>
   <button type="submit">Log in</button>
 </form>
 <p class="hint" style="margin-top:1.5rem">No account? <a href="/register">Create one</a>.</p>

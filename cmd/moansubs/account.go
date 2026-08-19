@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -265,8 +268,97 @@ var accountRoleCmd = &cobra.Command{
 	},
 }
 
+// accountSetPasswordCmd is WP-C8's answer to "an account with no password
+// (API-created, or a pre-existing row) can't log in": an operator sets one
+// on the account's behalf. The password is read from stdin rather than a
+// flag — a flag value lands in shell history, which defeats the purpose of
+// a password an operator is setting on someone else's behalf.
+var accountSetPasswordCmd = &cobra.Command{
+	Use:   "set-password <name>",
+	Short: "Set (or reset) an account's password, read from stdin",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return fmt.Errorf("moansubs account set-password: reading password: %w", err)
+		}
+		password := strings.TrimRight(line, "\r\n")
+		if n := len([]rune(password)); n < store.MinPasswordLen || n > store.MaxPasswordLen {
+			return fmt.Errorf("moansubs account set-password: password must be between %d and %d characters",
+				store.MinPasswordLen, store.MaxPasswordLen)
+		}
+
+		s, ctx, cancel, err := openStore(cmd, "account set-password")
+		if err != nil {
+			return err
+		}
+		defer cancel()
+		defer s.Close()
+
+		if err := s.SetAccountPassword(ctx, args[0], password); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return fmt.Errorf("moansubs account set-password: no account named %q", args[0])
+			}
+			return fmt.Errorf("moansubs account set-password: %w", err)
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Password set for account %q.\n", args[0])
+		return nil
+	},
+}
+
+// accountShowCmd prints one account's details, including two facts derived
+// rather than stored directly (has a password? is the token
+// recoverable?) — WP-C8 spec's exact field list.
+var accountShowCmd = &cobra.Command{
+	Use:   "show <name>",
+	Short: "Show one account's details",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		s, ctx, cancel, err := openStore(cmd, "account show")
+		if err != nil {
+			return err
+		}
+		defer cancel()
+		defer s.Close()
+
+		d, err := s.AccountDetail(ctx, args[0])
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return fmt.Errorf("moansubs account show: no account named %q", args[0])
+			}
+			return fmt.Errorf("moansubs account show: %w", err)
+		}
+
+		status := "active"
+		if d.Disabled {
+			status = "disabled"
+		}
+		invitedBy := "none"
+		if d.InvitedByName != nil {
+			invitedBy = *d.InvitedByName
+		}
+
+		out := cmd.OutOrStdout()
+		_, _ = fmt.Fprintf(out, "Name:               %s\n", d.Name)
+		_, _ = fmt.Fprintf(out, "Role:               %s\n", d.Role)
+		_, _ = fmt.Fprintf(out, "Created:            %s\n", d.CreatedAt.UTC().Format(time.RFC3339))
+		_, _ = fmt.Fprintf(out, "Status:             %s\n", status)
+		_, _ = fmt.Fprintf(out, "Invited by:         %s\n", invitedBy)
+		_, _ = fmt.Fprintf(out, "Has password:       %s\n", yesNo(d.HasPassword))
+		_, _ = fmt.Fprintf(out, "Displayable token:  %s\n", yesNo(d.HasDisplayableToken))
+		return nil
+	},
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}
+
 func init() {
 	accountPurgeCmd.Flags().StringVar(&accountPurgeReason, "reason", "", "reason recorded for the withdrawal")
-	accountCmd.AddCommand(accountCreateCmd, accountListCmd, accountDisableCmd, accountEnableCmd, accountRotateTokenCmd, accountPurgeCmd, accountRoleCmd)
+	accountCmd.AddCommand(accountCreateCmd, accountListCmd, accountDisableCmd, accountEnableCmd, accountRotateTokenCmd, accountPurgeCmd, accountRoleCmd, accountSetPasswordCmd, accountShowCmd)
 	rootCmd.AddCommand(accountCmd)
 }

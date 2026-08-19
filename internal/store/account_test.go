@@ -178,3 +178,287 @@ func TestStore_RotateAccountToken_NotFound(t *testing.T) {
 		t.Errorf("RotateAccountToken for nonexistent account: got %v, want ErrNotFound", err)
 	}
 }
+
+// -- Passwords (WP-C8) ---------------------------------------------------
+
+func TestHashPassword_VerifyPassword_RoundTrip(t *testing.T) {
+	hash, err := HashPassword("a reasonably long password")
+	if err != nil {
+		t.Fatalf("HashPassword: %v", err)
+	}
+	if !VerifyPassword(hash, "a reasonably long password") {
+		t.Error("VerifyPassword(hash, correct password) = false, want true")
+	}
+	if VerifyPassword(hash, "a different password entirely") {
+		t.Error("VerifyPassword(hash, wrong password) = true, want false")
+	}
+}
+
+func TestHashPassword_DistinctSaltsForSamePassword(t *testing.T) {
+	h1, err := HashPassword("same password twice")
+	if err != nil {
+		t.Fatalf("HashPassword: %v", err)
+	}
+	h2, err := HashPassword("same password twice")
+	if err != nil {
+		t.Fatalf("HashPassword: %v", err)
+	}
+	if h1 == h2 {
+		t.Error("two HashPassword calls on the same password produced identical output — salt is not random")
+	}
+}
+
+func TestVerifyPassword_MalformedEncodingIsAlwaysFalse(t *testing.T) {
+	bad := []string{"", "not-the-right-shape", "pbkdf2-sha256$notanumber$c2FsdA==$aGFzaA==", "wrong-scheme$600000$c2FsdA==$aGFzaA=="}
+	for _, enc := range bad {
+		if VerifyPassword(enc, "anything") {
+			t.Errorf("VerifyPassword(%q, ...) = true, want false for a malformed encoding", enc)
+		}
+	}
+}
+
+func TestStore_VerifyAccountPassword_CorrectCredentials(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	id, _, err := s.CreateAccountWithPassword(ctx, "pw-user", "a fine password here")
+	if err != nil {
+		t.Fatalf("CreateAccountWithPassword: %v", err)
+	}
+
+	got, err := s.VerifyAccountPassword(ctx, "PW-USER", "a fine password here")
+	if err != nil {
+		t.Fatalf("VerifyAccountPassword: %v", err)
+	}
+	if got.ID != id {
+		t.Errorf("got.ID = %d, want %d", got.ID, id)
+	}
+}
+
+func TestStore_VerifyAccountPassword_WrongPassword(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if _, _, err := s.CreateAccountWithPassword(ctx, "pw-user2", "a fine password here"); err != nil {
+		t.Fatalf("CreateAccountWithPassword: %v", err)
+	}
+
+	if _, err := s.VerifyAccountPassword(ctx, "pw-user2", "the wrong password"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Errorf("VerifyAccountPassword with a wrong password: got %v, want ErrInvalidCredentials", err)
+	}
+}
+
+func TestStore_VerifyAccountPassword_UnknownName(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if _, err := s.VerifyAccountPassword(ctx, "nobody-by-this-name", "whatever"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Errorf("VerifyAccountPassword for an unknown name: got %v, want ErrInvalidCredentials", err)
+	}
+}
+
+func TestStore_VerifyAccountPassword_NoPasswordSet(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if _, _, err := s.CreateAccount(ctx, "api-only"); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	if _, err := s.VerifyAccountPassword(ctx, "api-only", "whatever"); !errors.Is(err, ErrNoPassword) {
+		t.Errorf("VerifyAccountPassword for a password-less account: got %v, want ErrNoPassword", err)
+	}
+}
+
+func TestStore_SetAccountPassword_EnablesLogin(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if _, _, err := s.CreateAccount(ctx, "needs-password"); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	if _, err := s.VerifyAccountPassword(ctx, "needs-password", "whatever-1234"); !errors.Is(err, ErrNoPassword) {
+		t.Fatalf("VerifyAccountPassword before SetAccountPassword: got %v, want ErrNoPassword", err)
+	}
+
+	if err := s.SetAccountPassword(ctx, "needs-password", "a freshly set password"); err != nil {
+		t.Fatalf("SetAccountPassword: %v", err)
+	}
+
+	got, err := s.VerifyAccountPassword(ctx, "needs-password", "a freshly set password")
+	if err != nil {
+		t.Fatalf("VerifyAccountPassword after SetAccountPassword: %v", err)
+	}
+	if got.Name != "needs-password" {
+		t.Errorf("got.Name = %q, want needs-password", got.Name)
+	}
+}
+
+func TestStore_SetAccountPassword_NotFound(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if err := s.SetAccountPassword(ctx, "nonexistent", "some password here"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("SetAccountPassword for nonexistent account: got %v, want ErrNotFound", err)
+	}
+}
+
+// -- Token encryption (WP-C8) ---------------------------------------------
+
+func TestStore_TokenEnc_RoundTripWithKey(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i)
+	}
+	s.SetTokenKey(key)
+
+	_, token, err := s.CreateAccount(ctx, "encrypted-token-user")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	got, err := s.GetAccountByName(ctx, "encrypted-token-user")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+	if len(got.TokenEnc) == 0 {
+		t.Fatal("TokenEnc is empty, want an encrypted token when a key is configured")
+	}
+
+	dec, ok := s.DecryptToken(got.TokenEnc)
+	if !ok {
+		t.Fatal("DecryptToken: ok = false, want true")
+	}
+	if dec != token {
+		t.Errorf("DecryptToken round trip = %q, want %q", dec, token)
+	}
+}
+
+func TestStore_TokenEnc_NilWithoutKey(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// No SetTokenKey call: this Store has no key configured.
+	if _, _, err := s.CreateAccount(ctx, "no-key-user"); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	got, err := s.GetAccountByName(ctx, "no-key-user")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+	if got.TokenEnc != nil {
+		t.Errorf("TokenEnc = %v, want nil when no key is configured", got.TokenEnc)
+	}
+
+	if _, ok := s.DecryptToken(got.TokenEnc); ok {
+		t.Error("DecryptToken(nil) = true, want false")
+	}
+}
+
+// A wrong key (e.g. after MOANSUBS_TOKEN_KEY was rotated) must fail closed,
+// not panic or return garbage.
+func TestStore_DecryptToken_WrongKeyFailsClosed(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	key1 := make([]byte, 32)
+	for i := range key1 {
+		key1[i] = byte(i)
+	}
+	s.SetTokenKey(key1)
+
+	if _, _, err := s.CreateAccount(ctx, "rekeyed-user"); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	got, err := s.GetAccountByName(ctx, "rekeyed-user")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+
+	key2 := make([]byte, 32)
+	for i := range key2 {
+		key2[i] = byte(255 - i)
+	}
+	s.SetTokenKey(key2)
+
+	if _, ok := s.DecryptToken(got.TokenEnc); ok {
+		t.Error("DecryptToken with the wrong key: ok = true, want false")
+	}
+}
+
+// -- Admin bootstrap support (WP-C8) --------------------------------------
+
+func TestStore_HasAdmin(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	has, err := s.HasAdmin(ctx)
+	if err != nil {
+		t.Fatalf("HasAdmin: %v", err)
+	}
+	if has {
+		t.Error("HasAdmin = true on a fresh store, want false")
+	}
+
+	if _, _, err := s.CreateAccount(ctx, "future-admin"); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	if err := s.SetAccountRole(ctx, "future-admin", "admin"); err != nil {
+		t.Fatalf("SetAccountRole: %v", err)
+	}
+
+	has, err = s.HasAdmin(ctx)
+	if err != nil {
+		t.Fatalf("HasAdmin: %v", err)
+	}
+	if !has {
+		t.Error("HasAdmin = false after promoting an account to admin, want true")
+	}
+}
+
+func TestStore_AccountDetail(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	inviterID, _, err := s.CreateAccount(ctx, "detail-inviter")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	code, err := s.CreateInvite(ctx, inviterID, nil, nil)
+	if err != nil {
+		t.Fatalf("CreateInvite: %v", err)
+	}
+	if _, _, _, err := s.CreateInvitedAccountWithPassword(ctx, "detail-invitee", code, "a fine password here"); err != nil {
+		t.Fatalf("CreateInvitedAccountWithPassword: %v", err)
+	}
+
+	d, err := s.AccountDetail(ctx, "DETAIL-INVITEE")
+	if err != nil {
+		t.Fatalf("AccountDetail: %v", err)
+	}
+	if d.Name != "detail-invitee" {
+		t.Errorf("Name = %q, want detail-invitee", d.Name)
+	}
+	if !d.HasPassword {
+		t.Error("HasPassword = false, want true")
+	}
+	if d.InvitedByName == nil || *d.InvitedByName != "detail-inviter" {
+		t.Errorf("InvitedByName = %v, want detail-inviter", d.InvitedByName)
+	}
+	if d.Disabled {
+		t.Error("Disabled = true for a fresh account, want false")
+	}
+}
+
+func TestStore_AccountDetail_NotFound(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if _, err := s.AccountDetail(ctx, "nonexistent"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("AccountDetail for nonexistent account: got %v, want ErrNotFound", err)
+	}
+}

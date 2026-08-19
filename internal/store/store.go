@@ -19,6 +19,11 @@ var ErrNotFound = errors.New("store: not found")
 // handles pooling internally.
 type Store struct {
 	pool *pgxpool.Pool
+	// tokenKey is MOANSUBS_TOKEN_KEY (WP-C8), installed via SetTokenKey.
+	// nil means no key was configured: every Create*/Rotate* account method
+	// leaves accounts.token_enc NULL in that case, and DecryptToken always
+	// fails closed.
+	tokenKey []byte
 }
 
 // Open connects to Postgres at dsn and applies any pending migrations.
@@ -48,4 +53,14 @@ func (s *Store) Close() {
 // production code should prefer the typed methods on Store.
 func (s *Store) Pool() *pgxpool.Pool {
 	return s.pool
+}
+
+// SetTokenKey installs the AES-256-GCM key (32 bytes) used to write and
+// read accounts.token_enc (WP-C8): serve.go parses MOANSUBS_TOKEN_KEY (64
+// hex chars) once at startup and calls this before serving any traffic.
+// Never called at all — the CLI's openStore, and tests that don't care —
+// leaves token_enc NULL on every account this Store creates or rotates,
+// and DecryptToken always reports "can't recover it".
+func (s *Store) SetTokenKey(key []byte) {
+	s.tokenKey = key
 }

@@ -51,17 +51,25 @@ curl http://localhost:8080/healthz   # -> ok
 ```
 
 Uploading needs an account. People register their own by visiting the node
-in a browser — `https://moansubs.org/register` — or over the API:
+in a browser — `https://moansubs.org/register` (name, a password, and its
+confirmation) — or over the API:
 
 ```sh
 curl -X POST https://moansubs.org/api/v1/accounts \
-  -H 'Content-Type: application/json' -d '{"name": "somebody"}'
+  -H 'Content-Type: application/json' \
+  -d '{"name": "somebody", "password": "a password of your choosing"}'
 ```
 
-Either way the token is shown once — no email, no password, and no way to
-recover it. Log in at `/login` with that token to reach `/me`: your upload
-count, total downloads, your own tracks, a "rotate token" button for if it
-ever leaks, and a link to `/upload` — a browser upload form for when the
+Either way the API token — the plugin's credential — is shown once here,
+and stays visible after that on `/me`. No email either way. `password` is
+optional over the API (omit it and the account is API-only: it has a
+token but can't log in on the web until an admin runs `moansubs account
+set-password`); the browser form always sets one, since that's how you get
+back into `/me`. Log in at `/login` with your name and password (not the
+token — that's the API/plugin credential only) to reach `/me`: role,
+upload count, total downloads, your own tracks, the token itself, a
+"rotate token" button for if it leaks, a "change password" form, and a
+link to `/upload` — a browser upload form for when the
 plugin isn't handy, going through the exact same checks as the API upload
 path below. Picking the *video* file (a second, separate file picker —
 never the subtitle) computes `oshash` and probes duration right there in
