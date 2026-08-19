@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/Anastylosis/MoanSubs/internal/store"
 )
 
 // inviteModeServer wires a DB-backed test server running in invite mode.
@@ -223,9 +225,14 @@ func TestRegisterForm_OpenMode_HasNoInviteField(t *testing.T) {
 	}
 }
 
-// -- /me invite minting and listing ------------------------------------
+// -- /me invite budget and POST /me/invites (WP-C7c) ---------------------
 
-func TestMe_MintsInvitesOnceAndListsThem(t *testing.T) {
+// TestMe_ShowsInviteBudgetAndDoesNotAutoMint replaces the old
+// EnsureInvites-era test: a fresh account's first /me visit must show the
+// budget (DefaultInvitesInitial earned, nothing minted yet) but must not
+// mint anything on its own any more — minting only happens from
+// POST /me/invites now.
+func TestMe_ShowsInviteBudgetAndDoesNotAutoMint(t *testing.T) {
 	ts, st, client, _ := sessionServer(t)
 
 	resp, err := client.Get(ts.URL + "/me")
@@ -240,8 +247,8 @@ func TestMe_MintsInvitesOnceAndListsThem(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /me = %d, want 200", resp.StatusCode)
 	}
-	if got := strings.Count(string(body), `class="mono">`); got == 0 {
-		t.Error("/me does not render any invite codes")
+	if !strings.Contains(string(body), `action="/me/invites"`) {
+		t.Error("/me does not render the Create invite code form")
 	}
 
 	account, err := st.GetAccountByName(context.Background(), "webuser")
@@ -252,22 +259,243 @@ func TestMe_MintsInvitesOnceAndListsThem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InvitesByCreator: %v", err)
 	}
-	if len(invites) != DefaultInvitesPerAccount {
-		t.Fatalf("InvitesByCreator after one /me visit = %d codes, want %d", len(invites), DefaultInvitesPerAccount)
+	if len(invites) != 0 {
+		t.Fatalf("InvitesByCreator after a plain GET /me = %d codes, want 0 (no auto-minting any more)", len(invites))
 	}
 
-	// A second visit must not mint any more.
-	resp2, err := client.Get(ts.URL + "/me")
+	earned, minted, unusedActive, available, uploads, err := st.InviteBudget(
+		context.Background(), account.ID, DefaultInvitesInitial, DefaultInvitesPerUploads, DefaultInvitesCap)
 	if err != nil {
-		t.Fatalf("GET /me (second visit): %v", err)
+		t.Fatalf("InviteBudget: %v", err)
 	}
-	_ = resp2.Body.Close()
-	invites2, err := st.InvitesByCreator(context.Background(), account.ID)
+	if earned != DefaultInvitesInitial || minted != 0 || unusedActive != 0 || uploads != 0 {
+		t.Errorf("fresh account budget = earned %d minted %d unusedActive %d uploads %d, want %d 0 0 0",
+			earned, minted, unusedActive, uploads, DefaultInvitesInitial)
+	}
+	if available != DefaultInvitesInitial {
+		t.Errorf("available = %d, want %d", available, DefaultInvitesInitial)
+	}
+}
+
+// doCreateInvite POSTs to /me/invites with a same-origin Origin header,
+// like the "Create invite code" button's own form submission.
+func doCreateInvite(t *testing.T, client *http.Client, ts *httptest.Server) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/me/invites", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Origin", ts.URL)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST /me/invites: %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	return resp
+}
+
+func TestCreateInvite_MintsAndDecrementsAvailable(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+
+	resp := doCreateInvite(t, client, ts)
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST /me/invites = %d, want 303", resp.StatusCode)
+	}
+
+	account, err := st.GetAccountByName(context.Background(), "webuser")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+	invites, err := st.InvitesByCreator(context.Background(), account.ID)
 	if err != nil {
 		t.Fatalf("InvitesByCreator: %v", err)
 	}
-	if len(invites2) != DefaultInvitesPerAccount {
-		t.Fatalf("InvitesByCreator after a second /me visit = %d codes, want still %d", len(invites2), DefaultInvitesPerAccount)
+	if len(invites) != 1 {
+		t.Fatalf("InvitesByCreator after one POST /me/invites = %d codes, want 1", len(invites))
+	}
+	if invites[0].MaxUses == nil || *invites[0].MaxUses != 1 {
+		t.Errorf("self-minted invite MaxUses = %v, want *1 (single-use)", invites[0].MaxUses)
+	}
+	if invites[0].ExpiresAt != nil {
+		t.Errorf("self-minted invite ExpiresAt = %v, want nil (never expires)", invites[0].ExpiresAt)
+	}
+
+	_, minted, _, available, _, err := st.InviteBudget(
+		context.Background(), account.ID, DefaultInvitesInitial, DefaultInvitesPerUploads, DefaultInvitesCap)
+	if err != nil {
+		t.Fatalf("InviteBudget: %v", err)
+	}
+	if minted != 1 {
+		t.Errorf("minted = %d, want 1", minted)
+	}
+	if available != DefaultInvitesInitial-1 {
+		t.Errorf("available = %d, want %d", available, DefaultInvitesInitial-1)
+	}
+}
+
+// TestCreateInvite_RefusedAtZeroEarned covers the "earn more by uploading"
+// refusal: an account that has already minted everything it's earned gets
+// 400, not another code.
+func TestCreateInvite_RefusedAtZeroEarned(t *testing.T) {
+	ts, _, client, _ := sessionServer(t)
+
+	// Exhaust DefaultInvitesInitial's worth of earned codes.
+	for i := 0; i < DefaultInvitesInitial; i++ {
+		resp := doCreateInvite(t, client, ts)
+		if resp.StatusCode != http.StatusSeeOther {
+			t.Fatalf("POST /me/invites (mint %d) = %d, want 303", i, resp.StatusCode)
+		}
+	}
+
+	resp := doCreateInvite(t, client, ts)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("POST /me/invites past what's earned = %d, want 400", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading body: %v", err)
+	}
+	if !strings.Contains(string(body), "earn more by uploading") {
+		t.Errorf("refusal body = %q, want it to mention earning more by uploading", body)
+	}
+}
+
+// TestCreateInvite_RefusedAtCap covers the other refusal: enough unused
+// active codes sitting around hits DefaultInvitesCap even though more has
+// been earned via uploads (so "earn more" would be the wrong message).
+func TestCreateInvite_RefusedAtCap(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	ctx := context.Background()
+
+	account, err := st.GetAccountByName(ctx, "webuser")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+	// Give the account plenty of headroom on the "earned" side so only the
+	// cap can be the refusal reason: DefaultInvitesCap uploads under
+	// DefaultInvitesPerUploads earn one extra invite each.
+	release, err := st.GetOrCreateRelease(ctx, store.Release{OSHash: mustOSHash(t, "3000000000000001"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("GetOrCreateRelease: %v", err)
+	}
+	for i := 0; i < DefaultInvitesCap*DefaultInvitesPerUploads; i++ {
+		if _, err := st.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+			ReleaseID: release.ID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n", UploaderID: &account.ID,
+		}); err != nil {
+			t.Fatalf("CreateSubtitleTrack: %v", err)
+		}
+	}
+
+	// Mint up to the cap.
+	for i := 0; i < DefaultInvitesCap; i++ {
+		resp := doCreateInvite(t, client, ts)
+		if resp.StatusCode != http.StatusSeeOther {
+			t.Fatalf("POST /me/invites (mint %d) = %d, want 303", i, resp.StatusCode)
+		}
+	}
+
+	resp := doCreateInvite(t, client, ts)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("POST /me/invites past the cap = %d, want 400", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading body: %v", err)
+	}
+	if !strings.Contains(string(body), "cap reached") {
+		t.Errorf("refusal body = %q, want it to mention the cap", body)
+	}
+}
+
+// TestCreateInvite_WrongOriginRejected mirrors
+// TestDisableInvite_WrongOriginRejected for the mint route.
+func TestCreateInvite_WrongOriginRejected(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/me/invites", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Origin", "https://evil.example")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST /me/invites: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("cross-origin create = %d, want 403", resp.StatusCode)
+	}
+
+	account, err := st.GetAccountByName(context.Background(), "webuser")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+	invites, err := st.InvitesByCreator(context.Background(), account.ID)
+	if err != nil {
+		t.Fatalf("InvitesByCreator: %v", err)
+	}
+	if len(invites) != 0 {
+		t.Error("an invite was minted despite the rejected cross-origin request")
+	}
+}
+
+// TestDisableInvite_DoesNotRefundMinted is the WP-C7c spec's "disable
+// doesn't refund": minted only ever grows, so disabling a self-minted code
+// must not raise Available back up.
+func TestDisableInvite_DoesNotRefundMinted(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	ctx := context.Background()
+
+	account, err := st.GetAccountByName(ctx, "webuser")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+
+	if resp := doCreateInvite(t, client, ts); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST /me/invites = %d, want 303", resp.StatusCode)
+	}
+	invites, err := st.InvitesByCreator(ctx, account.ID)
+	if err != nil {
+		t.Fatalf("InvitesByCreator: %v", err)
+	}
+	if len(invites) != 1 {
+		t.Fatalf("InvitesByCreator = %d codes, want 1", len(invites))
+	}
+	code := invites[0].Code
+
+	_, mintedBefore, _, availableBefore, _, err := st.InviteBudget(
+		ctx, account.ID, DefaultInvitesInitial, DefaultInvitesPerUploads, DefaultInvitesCap)
+	if err != nil {
+		t.Fatalf("InviteBudget: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/me/invites/"+url.PathEscape(code)+"/disable", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Origin", ts.URL)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST /me/invites/.../disable: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("disable own code = %d, want 303", resp.StatusCode)
+	}
+
+	_, mintedAfter, unusedActiveAfter, availableAfter, _, err := st.InviteBudget(
+		ctx, account.ID, DefaultInvitesInitial, DefaultInvitesPerUploads, DefaultInvitesCap)
+	if err != nil {
+		t.Fatalf("InviteBudget: %v", err)
+	}
+	if mintedAfter != mintedBefore {
+		t.Errorf("minted changed from %d to %d after disabling — minted must never shrink", mintedBefore, mintedAfter)
+	}
+	if unusedActiveAfter != 0 {
+		t.Errorf("unusedActive = %d after disabling the only code, want 0", unusedActiveAfter)
+	}
+	if availableAfter != availableBefore {
+		t.Errorf("available changed from %d to %d after disabling — disabling must not refund a mint", availableBefore, availableAfter)
 	}
 }
 

@@ -63,7 +63,11 @@
 {{end}}
 
 <h2>Invite others</h2>
-<p class="hint" style="margin:0 0 .75rem">Every account gets five single-use codes; give someone the share link and they register on it. Disable a code you no longer want out there.{{if roleAtLeast "admin"}} As an admin you can mint multi-use or unlimited codes on <a href="/admin/invites">the invites page</a>.{{end}}</p>
+<p class="hint" style="margin:0 0 .75rem">Invites are earned, not handed out flat: {{.InviteBudget.Earned}} earned so far ({{.InviteBudget.Uploads}} upload{{if ne .InviteBudget.Uploads 1}}s{{end}} counted), {{.InviteBudget.Minted}} minted, {{.InviteBudget.UnusedActive}} sitting unused, {{.InviteBudget.Available}} available to mint right now. Give someone the share link and they register on it; disable a code you no longer want out there — disabling doesn't refund it.{{if roleAtLeast "admin"}} As an admin you can mint multi-use or unlimited codes on <a href="/admin/invites">the invites page</a>.{{end}}</p>
+{{if .InviteError}}<div class="error">{{.InviteError}}</div>{{end}}
+<form method="post" action="/me/invites" style="margin:0 0 1rem">
+  <button type="submit" class="quiet"{{if le .InviteBudget.Available 0}} disabled title="No invites available: earn more by uploading, or wait for an unused one to clear the cap"{{end}}>Create invite code</button>
+</form>
 {{if not .Invites}}
 <p class="empty">No invite codes yet.</p>
 {{else}}

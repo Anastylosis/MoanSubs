@@ -86,7 +86,13 @@ any time from `/me`, and an admin can disable *any* code (`requireRole`,
 doesn't need its creator's cooperation to shut off. `invited_by` is kept
 on the invited account permanently, even if the inviter is later
 disabled or purged: it's a moderation trail, not a live permission, so it
-outlives the relationship it recorded.
+outlives the relationship it recorded. Self-minted codes are earned, not
+free: an account's own `POST /me/invites` budget grows with its
+contribution (visible uploads) and is capped on codes sitting unused
+(`MOANSUBS_INVITES_INITIAL`/`_PER_UPLOADS`/`_CAP`, MANUAL.md) — a
+compromised or brand-new account can't mint an unbounded pool of
+registration codes, and disabling a code never refunds the mint that
+created it.
 
 **Roles.** Every account has a role (`user`, `mod`, or `admin`; default
 `user`), set by the operator with `moansubs account role`. `mod` and above

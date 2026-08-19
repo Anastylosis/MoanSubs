@@ -74,9 +74,10 @@ func generateInviteCode() (string, error) {
 }
 
 // CreateInvite mints an arbitrary invite code attributed to createdBy —
-// both the operator's admin-minted codes (CLI `invite create`) and
-// EnsureInvites' lazily-minted per-account allotment go through this.
-// maxUses nil means unlimited; expiresAt nil means it never expires.
+// both the operator's admin-minted codes (CLI `invite create`) and an
+// account's own self-minted code from POST /me/invites (WP-C7c,
+// handleCreateInvite) go through this. maxUses nil means unlimited;
+// expiresAt nil means it never expires.
 func (s *Store) CreateInvite(ctx context.Context, createdBy int64, maxUses *int, expiresAt *time.Time) (code string, err error) {
 	code, err = generateInviteCode()
 	if err != nil {
@@ -91,26 +92,64 @@ func (s *Store) CreateInvite(ctx context.Context, createdBy int64, maxUses *int,
 	return code, nil
 }
 
-// EnsureInvites tops accountID's own invite allotment up to n single-use
-// codes, counting every code it has ever created (used or not) —
-// idempotent, so calling it on every /me visit only ever adds the
-// shortfall. This is what gives an account created before this package
-// shipped its codes too: they arrive the first time its owner visits /me,
-// same as a freshly registered one.
-func (s *Store) EnsureInvites(ctx context.Context, accountID int64, n int) error {
-	var have int
-	if err := s.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM invites WHERE created_by = $1`, accountID,
-	).Scan(&have); err != nil {
-		return fmt.Errorf("store: EnsureInvites: counting: %w", err)
+// InviteBudget computes accountID's invite economy (WP-C7c: invites accrue
+// with contribution and hit a cap, replacing the old flat
+// MOANSUBS_INVITES_PER_ACCOUNT allotment). initial, perUploads and cap are
+// the node's MOANSUBS_INVITES_INITIAL/_PER_UPLOADS/_CAP knobs, passed in
+// rather than read from config here because the store package carries no
+// server configuration of its own.
+//
+// earned = initial + floor(uploads / perUploads); perUploads <= 0 means
+// earning by upload is disabled, so earned is just initial. minted counts
+// every code accountID has ever created, active or not — an admin-minted
+// code attributed `--for` this account counts too (CreateInvite doesn't
+// distinguish who ran it, and re-deriving "self-minted only" would need a
+// column this schema doesn't have; documented in MANUAL.md/SECURITY.md).
+// unusedActive is the subset of those still redeemable — enabled,
+// unexpired, under max_uses — the same gate createInvitedAccount's UPDATE
+// enforces. available is the smaller of "room left under what's been
+// earned" and "room left under the cap on codes sitting unused", floored
+// at zero: earning more raises the first ceiling, disabling an unused code
+// lowers unusedActive and so raises the second.
+//
+// uploads is also returned since /me's budget line shows it alongside the
+// derived numbers (WP-C7c spec: "Uploads counted").
+func (s *Store) InviteBudget(ctx context.Context, accountID int64, initial, perUploads, capLimit int) (earned, minted, unusedActive, available, uploads int, err error) {
+	err = s.pool.QueryRow(ctx, `
+		WITH visible AS (
+			SELECT COUNT(*) AS n
+			FROM subtitle_tracks t
+			JOIN releases r ON r.id = t.release_id
+			WHERE t.uploader_id = $1 AND t.withdrawn_at IS NULL AND r.withdrawn_at IS NULL
+		),
+		minted AS (
+			SELECT COUNT(*) AS n FROM invites WHERE created_by = $1
+		),
+		active AS (
+			SELECT COUNT(*) AS n FROM invites
+			WHERE created_by = $1 AND disabled_at IS NULL
+			  AND (expires_at IS NULL OR expires_at > now())
+			  AND (max_uses IS NULL OR uses < max_uses)
+		)
+		SELECT visible.n, minted.n, active.n FROM visible, minted, active`,
+		accountID,
+	).Scan(&uploads, &minted, &unusedActive)
+	if err != nil {
+		return 0, 0, 0, 0, 0, fmt.Errorf("store: InviteBudget: %w", err)
 	}
-	one := 1
-	for i := have; i < n; i++ {
-		if _, err := s.CreateInvite(ctx, accountID, &one, nil); err != nil {
-			return fmt.Errorf("store: EnsureInvites: %w", err)
-		}
+
+	earned = initial
+	if perUploads > 0 {
+		earned += uploads / perUploads
 	}
-	return nil
+	available = earned - minted
+	if room := capLimit - unusedActive; room < available {
+		available = room
+	}
+	if available < 0 {
+		available = 0
+	}
+	return earned, minted, unusedActive, available, uploads, nil
 }
 
 // GetInvite returns the invite named by code, or ErrNotFound.

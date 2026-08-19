@@ -17,7 +17,9 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_UPLOAD_RATE_PER_HOUR` | `30` | Upload budget per account token. The default assumes strangers on a public node; raise it (e.g. `10000`) when seeding your own node from a large library, then set it back. |
 | `MOANSUBS_REGISTRATION` | `open` | `open`, `invite`, or `closed`. Open: anyone can create an account via `POST /api/v1/accounts` or `/register`. Invite: the same, but a valid invite code (below) is required. Closed: accounts exist only through `moansubs account create`. |
 | `MOANSUBS_OPEN_REGISTRATION` | *(unset)* | **Deprecated**, kept working for one release: `true`/`false` map to `MOANSUBS_REGISTRATION=open`/`closed` when `MOANSUBS_REGISTRATION` itself is unset (a startup line on stderr says so); `MOANSUBS_REGISTRATION` wins when both are set. |
-| `MOANSUBS_INVITES_PER_ACCOUNT` | `5` | How many single-use invite codes an account gets, minted lazily the first time it visits `/me` (so an account from before this existed still gets its allotment). `0` disables auto-minting; an operator can still hand out codes with `moansubs invite create`. |
+| `MOANSUBS_INVITES_INITIAL` | `2` | How many single-use invite codes a brand-new account starts able to mint, before it has uploaded anything. |
+| `MOANSUBS_INVITES_PER_UPLOADS` | `5` | One more invite earned for every this-many of the account's own visible uploads (tracks that aren't withdrawn, under a release that isn't withdrawn). `0` disables earning by upload entirely, leaving only `MOANSUBS_INVITES_INITIAL`. |
+| `MOANSUBS_INVITES_CAP` | `5` | Ceiling on invite codes an account may have sitting unused (enabled, unexpired, under their use limit) at once, independent of how much it has earned — minting more of its own is refused past this even with earned headroom to spare. |
 | `MOANSUBS_REGISTER_RATE_PER_HOUR` | `5` | Registration budget per IP. A person needs one account; anything much above this from a single address is name-minting, not signing up. On an invite-only node this budget also covers invite-code guessing — every attempt, right code or wrong, spends one of it. |
 | `MOANSUBS_LOGIN_RATE_PER_HOUR` | `20` | Login budget per IP, same shape as `MOANSUBS_REGISTER_RATE_PER_HOUR` — the abuse case is a stranger guessing passwords against `POST /login`. |
 | `MOANSUBS_SESSION_TTL` | `720h` | How long a browser session (the `moansubs_session` cookie from `POST /login`) stays valid, parsed with Go's `time.ParseDuration`. |
@@ -29,6 +31,19 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_TOKEN_KEY` | *(unset)* | 64 hex characters (32 bytes; generate with `openssl rand -hex 32`) — the AES-256-GCM key `/me` needs to show an account's API token again after this process restarts (it's stored encrypted, alongside the one-way hash every lookup actually uses). Unset: tokens are never re-displayable — `/me` says so and offers "Rotate" instead. An invalid value (wrong length, not hex) refuses to start rather than silently running without encryption. |
 | `MOANSUBS_ADMIN_NAME` | `admin` | The name the first-run admin bootstrap (below) creates, when one runs at all. |
 | `MOANSUBS_BOOTSTRAP_ADMIN` | `true` | Set to `false` to disable the automatic first-run admin creation below — for an operator who'd rather keep credentials out of container logs entirely and mint the account by hand with `moansubs admin bootstrap` (via `docker compose exec`) instead. |
+
+**Invite economy (WP-C7c).** An account's invite budget is `earned =
+MOANSUBS_INVITES_INITIAL + floor(visible uploads / MOANSUBS_INVITES_PER_UPLOADS)`
+(withdrawn tracks and tracks under a withdrawn release don't count as
+visible), `minted` = every code it has ever created regardless of state
+(an admin-minted code attributed `--for` this account with `invite create`
+counts too), and `available = max(0, min(earned − minted, MOANSUBS_INVITES_CAP
+− unused active codes))` — the smaller of "room left under what's been
+earned" and "room left under the cap on codes sitting unused right now".
+`POST /me/invites` mints one single-use, non-expiring code when `available
+> 0`, else 400 with the reason ("cap reached" or "earn more by
+uploading"); disabling a code never refunds its mint, since `minted` only
+ever grows.
 
 **First-run admin.** Right after migrations, if no account on the node holds
 role `admin`, `serve` creates one — name `admin` (or `MOANSUBS_ADMIN_NAME`),
@@ -76,8 +91,11 @@ is configured or it changed since the token was last minted), a "rotate
 token" button that shows the new token once, a "Change password" form
 (`current`/`password`/`password2`, `POST /me/password`, session +
 Origin-checked — success kills every *other* session on the account while
-the one that made the change stays logged in), this account's own invite
-codes with a share link
+the one that made the change stays logged in), the account's invite
+budget (earned/minted/unused/available, see below) with a "Create invite
+code" button (`POST /me/invites`, session + Origin-checked like
+rotate-token, mints one single-use code when the budget allows it, else
+400 with the reason), this account's own invite codes with a share link
 (`/register?invite=CODE`) and a "Disable" button per code
 (`POST /me/invites/{code}/disable`, session + Origin-checked like
 rotate-token, restricted to the code's own creator or an admin), the list
@@ -219,10 +237,11 @@ that long from creation; omitted, it never expires. An operator's own
 standing invite is just `moansubs invite create --for <operator-account>
 --unlimited`.
 
-Every account additionally gets `MOANSUBS_INVITES_PER_ACCOUNT` single-use
-codes of its own automatically (see above) — `invite create` is for an
-operator minting something different: unlimited, time-limited, or
-attributed to an account that hasn't visited `/me` yet.
+Every account can additionally mint its own single-use codes from `/me`'s
+"Create invite code" button, up to what it has earned and the cap allow
+(see `MOANSUBS_INVITES_INITIAL`/`_PER_UPLOADS`/`_CAP` above) — `invite
+create` is for an operator minting something different: unlimited,
+time-limited, or attributed to any account regardless of its own budget.
 
 ### `moansubs invite list [--for <name>]`
 

@@ -269,38 +269,132 @@ func TestStore_CreateInvitedAccount_ConcurrentRedemptionOneWins(t *testing.T) {
 	}
 }
 
-func TestStore_EnsureInvites_MintsOnceAndIsIdempotent(t *testing.T) {
+// TestStore_InviteBudget_Arithmetic is WP-C7c's budget table: earned,
+// available (and the min-of-two-ceilings clamp) across combinations of
+// initial/perUploads/cap, minted codes, and unused-active codes — no
+// uploads or invites table rows involved, just CreateInvite calls to set
+// up minted/unusedActive.
+func TestStore_InviteBudget_Arithmetic(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	accountID := mustAccountID(t, s, "fresh")
+	cases := []struct {
+		name                      string
+		initial, perUploads, cap  int
+		minted, disabled          int // codes to mint; disabled of those get DisableInvite'd
+		wantEarned, wantAvailable int
+	}{
+		{name: "fresh account, nothing minted", initial: 2, perUploads: 5, cap: 5, wantEarned: 2, wantAvailable: 2},
+		{name: "some minted, still under cap", initial: 2, perUploads: 5, cap: 5, minted: 1, wantEarned: 2, wantAvailable: 1},
+		{name: "minted equals earned", initial: 2, perUploads: 5, cap: 5, minted: 2, wantEarned: 2, wantAvailable: 0},
+		{name: "cap reached even though earned allows more", initial: 5, perUploads: 5, cap: 3, minted: 0, wantEarned: 5, wantAvailable: 3},
+		{name: "disabling one frees exactly one cap slot, still short of what's earned", initial: 5, perUploads: 5, cap: 3, minted: 3, disabled: 1, wantEarned: 5, wantAvailable: 1},
+		{name: "perUploads zero disables earning beyond initial", initial: 1, perUploads: 0, cap: 5, wantEarned: 1, wantAvailable: 1},
+		{name: "zero initial and nothing minted yet", initial: 0, perUploads: 5, cap: 5, wantEarned: 0, wantAvailable: 0},
+	}
 
-	if err := s.EnsureInvites(ctx, accountID, 5); err != nil {
-		t.Fatalf("EnsureInvites: %v", err)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			accountID := mustAccountID(t, s, "budget-"+c.name)
+			one := 1
+			var codes []string
+			for i := 0; i < c.minted; i++ {
+				code, err := s.CreateInvite(ctx, accountID, &one, nil)
+				if err != nil {
+					t.Fatalf("CreateInvite: %v", err)
+				}
+				codes = append(codes, code)
+			}
+			for i := 0; i < c.disabled; i++ {
+				if err := s.DisableInvite(ctx, codes[i]); err != nil {
+					t.Fatalf("DisableInvite: %v", err)
+				}
+			}
+
+			earned, minted, unusedActive, available, uploads, err := s.InviteBudget(ctx, accountID, c.initial, c.perUploads, c.cap)
+			if err != nil {
+				t.Fatalf("InviteBudget: %v", err)
+			}
+			if earned != c.wantEarned {
+				t.Errorf("earned = %d, want %d", earned, c.wantEarned)
+			}
+			if available != c.wantAvailable {
+				t.Errorf("available = %d, want %d", available, c.wantAvailable)
+			}
+			if minted != c.minted {
+				t.Errorf("minted = %d, want %d", minted, c.minted)
+			}
+			if want := c.minted - c.disabled; unusedActive != want {
+				t.Errorf("unusedActive = %d, want %d", unusedActive, want)
+			}
+			if uploads != 0 {
+				t.Errorf("uploads = %d, want 0 (no tracks created in this case)", uploads)
+			}
+		})
 	}
-	got, err := s.InvitesByCreator(ctx, accountID)
+}
+
+// TestStore_InviteBudget_UploadsEarnCodesAndWithdrawnDontCount is the
+// upload-earning half of the WP-C7c spec: visibleUploads (tracks with
+// uploader_id = account AND withdrawn_at IS NULL AND release not
+// withdrawn) drives earned, and neither a withdrawn track nor a track
+// under a withdrawn release counts toward it.
+func TestStore_InviteBudget_UploadsEarnCodesAndWithdrawnDontCount(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	accountID := mustAccountID(t, s, "uploader-for-budget")
+
+	release, err := s.GetOrCreateRelease(ctx, Release{OSHash: mustOSHash(t, "2000000000000001"), DurationMs: 1})
 	if err != nil {
-		t.Fatalf("InvitesByCreator: %v", err)
+		t.Fatalf("GetOrCreateRelease: %v", err)
 	}
-	if len(got) != 5 {
-		t.Fatalf("InvitesByCreator after EnsureInvites(5) = %d codes, want 5", len(got))
-	}
-	for _, inv := range got {
-		if inv.MaxUses == nil || *inv.MaxUses != 1 {
-			t.Errorf("lazily-minted invite %q has MaxUses %v, want *1 (single-use)", inv.Code, inv.MaxUses)
+
+	// Two visible uploads.
+	for _, lang := range []string{"en", "fr"} {
+		if _, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+			ReleaseID: release.ID, Lang: lang, Body: testTrackBody, UploaderID: &accountID,
+		}); err != nil {
+			t.Fatalf("CreateSubtitleTrack (%s): %v", lang, err)
 		}
 	}
 
-	// Calling it again with the same n must not mint any more.
-	if err := s.EnsureInvites(ctx, accountID, 5); err != nil {
-		t.Fatalf("second EnsureInvites: %v", err)
-	}
-	got2, err := s.InvitesByCreator(ctx, accountID)
+	// A withdrawn track: must not count.
+	withdrawnID, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: release.ID, Lang: "de", Body: testTrackBody, UploaderID: &accountID,
+	})
 	if err != nil {
-		t.Fatalf("InvitesByCreator: %v", err)
+		t.Fatalf("CreateSubtitleTrack (withdrawn): %v", err)
 	}
-	if len(got2) != 5 {
-		t.Fatalf("InvitesByCreator after a second EnsureInvites(5) = %d codes, want still 5", len(got2))
+	if err := s.WithdrawTrack(ctx, withdrawnID, "test"); err != nil {
+		t.Fatalf("WithdrawTrack: %v", err)
+	}
+
+	// A track under a withdrawn release: must not count either, even though
+	// the track itself was never individually withdrawn.
+	otherRelease, err := s.GetOrCreateRelease(ctx, Release{OSHash: mustOSHash(t, "2000000000000002"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("GetOrCreateRelease (other): %v", err)
+	}
+	if _, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: otherRelease.ID, Lang: "es", Body: testTrackBody, UploaderID: &accountID,
+	}); err != nil {
+		t.Fatalf("CreateSubtitleTrack (under withdrawn release): %v", err)
+	}
+	if err := s.WithdrawRelease(ctx, otherRelease.ID, "test"); err != nil {
+		t.Fatalf("WithdrawRelease: %v", err)
+	}
+
+	const initial, perUploads = 2, 2
+	earned, _, _, _, uploads, err := s.InviteBudget(ctx, accountID, initial, perUploads, 5)
+	if err != nil {
+		t.Fatalf("InviteBudget: %v", err)
+	}
+	if uploads != 2 {
+		t.Fatalf("uploads = %d, want 2 (withdrawn track and track under a withdrawn release must not count)", uploads)
+	}
+	if want := initial + uploads/perUploads; earned != want {
+		t.Errorf("earned = %d, want %d", earned, want)
 	}
 }
 

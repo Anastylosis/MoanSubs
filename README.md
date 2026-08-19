@@ -99,10 +99,11 @@ docker compose exec moansubs moansubs account disable <name>
 `MOANSUBS_REGISTRATION` picks the node's registration mode: `open` (the
 default — anyone can register), `invite` (registering needs a code from an
 existing member or the operator's own `moansubs invite create --unlimited`
-— every account also gets a handful of single-use codes of its own,
-visible on `/me` with a ready-to-share `/register?invite=CODE` link), or
-`closed` (accounts only via `moansubs account create` above). See
-[MANUAL.md](MANUAL.md) for the invite CLI and the deprecated
+— every account can also mint its own single-use codes from `/me`, earned
+by contribution and capped rather than a flat handout, with a
+ready-to-share `/register?invite=CODE` link), or `closed` (accounts only
+via `moansubs account create` above). See [MANUAL.md](MANUAL.md) for the
+invite economy's knobs, the invite CLI, and the deprecated
 `MOANSUBS_OPEN_REGISTRATION` boolean it replaces.
 
 Any account can up- or down-vote a track it didn't upload itself — a

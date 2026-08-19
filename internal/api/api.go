@@ -44,11 +44,21 @@ const SearchRateLimitPerMinute = 30
 // script can't grind a track's score by hammering re-votes.
 const VoteRateLimitPerHour = 60
 
-// DefaultInvitesPerAccount is MOANSUBS_INVITES_PER_ACCOUNT's default
-// (WP-C7a): enough for a member to bring in a handful of people without
-// asking the operator, small enough that a compromised account can't mint
-// an unbounded pool of registration codes.
-const DefaultInvitesPerAccount = 5
+// DefaultInvitesInitial is MOANSUBS_INVITES_INITIAL's default (WP-C7c): a
+// brand-new account can bring in a couple of people before it has
+// contributed anything.
+const DefaultInvitesInitial = 2
+
+// DefaultInvitesPerUploads is MOANSUBS_INVITES_PER_UPLOADS's default
+// (WP-C7c): one more invite for every five visible uploads. 0 disables
+// earning by upload entirely, leaving only DefaultInvitesInitial.
+const DefaultInvitesPerUploads = 5
+
+// DefaultInvitesCap is MOANSUBS_INVITES_CAP's default (WP-C7c): a ceiling
+// on codes sitting unused at once, independent of how much has been
+// earned — a compromised account can't mint an unbounded pool of
+// registration codes even after a lot of contribution.
+const DefaultInvitesCap = 5
 
 // RegistrationMode is how a node treats POST /api/v1/accounts and
 // GET/POST /register (WP-C7a, MOANSUBS_REGISTRATION): open lets any
@@ -102,11 +112,14 @@ type Server struct {
 	// bool's question) should call OpenForStrangers rather than compare
 	// this directly — that is true for open and invite alike.
 	Registration RegistrationMode
-	// InvitesPerAccount is how many single-use invite codes EnsureInvites
-	// lazily mints for an account on its first /me visit
-	// (MOANSUBS_INVITES_PER_ACCOUNT). 0 disables auto-minting entirely —
-	// an admin can still hand out codes via `invite create`.
-	InvitesPerAccount int
+	// InvitesInitial, InvitesPerUploads and InvitesCap are the invite
+	// economy's knobs (WP-C7c, MOANSUBS_INVITES_INITIAL/_PER_UPLOADS/_CAP):
+	// store.InviteBudget's initial/perUploads/cap parameters, read here
+	// once at startup rather than re-parsed per request. InvitesPerUploads
+	// 0 disables earning by upload, leaving only InvitesInitial.
+	InvitesInitial    int
+	InvitesPerUploads int
+	InvitesCap        int
 	// Version is the running build's semver (or "dev"), reported by
 	// GET /api/v1/version. Set from cmd/moansubs's ldflags-stamped version
 	// var; NewServer's default keeps a bare-Go build honest about being
@@ -147,7 +160,9 @@ func NewServer(s *store.Store) *Server {
 		// mirror. Operators running a private node close it with
 		// MOANSUBS_REGISTRATION=closed.
 		Registration:      RegistrationOpen,
-		InvitesPerAccount: DefaultInvitesPerAccount,
+		InvitesInitial:    DefaultInvitesInitial,
+		InvitesPerUploads: DefaultInvitesPerUploads,
+		InvitesCap:        DefaultInvitesCap,
 		Version:           "dev",
 		Stats:             NewStats(s),
 		VoteLimiter:       NewRateLimiter(VoteRateLimitPerHour),
@@ -176,6 +191,7 @@ func NewMux(s *Server) *http.ServeMux {
 	mux.HandleFunc("GET /me", s.handleMe)
 	mux.HandleFunc("POST /me/rotate-token", s.handleRotateToken)
 	mux.HandleFunc("POST /me/password", s.handleChangePassword)
+	mux.HandleFunc("POST /me/invites", s.handleCreateInvite)
 	mux.HandleFunc("POST /me/invites/{code}/disable", s.handleDisableInvite)
 	mux.HandleFunc("GET /upload", s.handleUploadForm)
 	mux.HandleFunc("POST /upload", s.handleUploadSubmit)

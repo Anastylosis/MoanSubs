@@ -63,13 +63,32 @@ type meData struct {
 	// Error is a same-page form failure (currently only
 	// POST /me/password's) to show above the change-password form.
 	Error string
-	// Invites is this account's own codes (both lazily-minted and, for an
-	// admin, any minted by hand), newest first — WP-C7a's /me invite
-	// table.
+	// Invites is this account's own codes (both self-minted via the /me
+	// button and, for an admin, any minted by hand), newest first —
+	// WP-C7a's /me invite table.
 	Invites []store.Invite
 	// InvitedMembers is who joined through one of Invites — WP-C7a's
 	// "members you invited" list.
 	InvitedMembers []store.InvitedMember
+	// InviteBudget is WP-C7c's earn/cap accounting — the "Uploads: N,
+	// earned M, N minted, K available" line and whether the "Create invite
+	// code" button is enabled.
+	InviteBudget inviteBudgetData
+	// InviteError is a same-page failure from POST /me/invites (cap
+	// reached, or nothing earned yet) to show above the invites section.
+	InviteError string
+}
+
+// inviteBudgetData is meData's rendering of store.InviteBudget's five
+// return values — a named struct rather than five bare fields so the
+// template can address them as .InviteBudget.Available etc. alongside the
+// rest of the page.
+type inviteBudgetData struct {
+	Uploads      int
+	Earned       int
+	Minted       int
+	UnusedActive int
+	Available    int
 }
 
 // handleLoginForm serves the login form.
@@ -212,10 +231,10 @@ func (s *Server) handleRotateToken(w http.ResponseWriter, r *http.Request) {
 
 // meDataFor builds /me's page data, shared by handleMe and
 // handleRotateToken so the two can't drift on how upload count and total
-// downloads are computed. It also lazily tops up the account's own invite
-// allotment (EnsureInvites, WP-C7a) — /me is the one page every account
-// eventually visits, which is why that's where the lazy mint happens
-// rather than at registration or login.
+// downloads are computed. It also computes the account's invite budget
+// (store.InviteBudget, WP-C7c) fresh on every visit — unlike the old
+// EnsureInvites, there is nothing to mint here; minting only happens from
+// handleCreateInvite.
 func (s *Server) meDataFor(ctx context.Context, account *store.Account, rotatedToken string) (meData, error) {
 	tracks, err := s.Store.TracksByAccount(ctx, account.ID)
 	if err != nil {
@@ -226,10 +245,10 @@ func (s *Server) meDataFor(ctx context.Context, account *store.Account, rotatedT
 		totalDownloads += t.Downloads
 	}
 
-	if s.InvitesPerAccount > 0 {
-		if err := s.Store.EnsureInvites(ctx, account.ID, s.InvitesPerAccount); err != nil {
-			return meData{}, err
-		}
+	earned, minted, unusedActive, available, uploads, err := s.Store.InviteBudget(
+		ctx, account.ID, s.InvitesInitial, s.InvitesPerUploads, s.InvitesCap)
+	if err != nil {
+		return meData{}, err
 	}
 	invites, err := s.Store.InvitesByCreator(ctx, account.ID)
 	if err != nil {
@@ -263,6 +282,13 @@ func (s *Server) meDataFor(ctx context.Context, account *store.Account, rotatedT
 		DisplayToken:   displayToken,
 		Invites:        invites,
 		InvitedMembers: members,
+		InviteBudget: inviteBudgetData{
+			Uploads:      uploads,
+			Earned:       earned,
+			Minted:       minted,
+			UnusedActive: unusedActive,
+			Available:    available,
+		},
 	}, nil
 }
 
@@ -343,6 +369,68 @@ func (s *Server) renderMeError(w http.ResponseWriter, r *http.Request, account *
 	}
 	data.Error = msg
 	s.renderPage(w, r, http.StatusBadRequest, "me.html", data, true)
+}
+
+// renderMeInviteError re-renders /me with msg shown above the invite
+// section — POST /me/invites' cap/earn refusal, the invite-section
+// counterpart of renderMeError above.
+func (s *Server) renderMeInviteError(w http.ResponseWriter, r *http.Request, account *store.Account, msg string) {
+	data, err := s.meDataFor(r.Context(), account, "")
+	if err != nil {
+		log.Printf("api: meDataFor: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	data.InviteError = msg
+	s.renderPage(w, r, http.StatusBadRequest, "me.html", data, true)
+}
+
+// handleCreateInvite implements POST /me/invites (WP-C7c): mints one
+// single-use, non-expiring code for the logged-in account when its invite
+// budget (store.InviteBudget) allows it. The budget is re-checked here,
+// immediately before minting, rather than trusted from a stale page —
+// nothing serializes that check against the INSERT, so two tabs submitting
+// at the same instant can at most overshoot Available by one; that's
+// judged an acceptable gap for a self-inflicted, low-stakes race rather
+// than worth a transaction/lock. Session-only like /me/rotate-token, so
+// the Origin check is unconditional.
+func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
+	ares, err := authenticate(r.Context(), s.Store, r)
+	if err != nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	if !checkOrigin(w, r) {
+		return
+	}
+
+	_, _, unusedActive, available, _, err := s.Store.InviteBudget(
+		r.Context(), ares.Account.ID, s.InvitesInitial, s.InvitesPerUploads, s.InvitesCap)
+	if err != nil {
+		log.Printf("api: InviteBudget: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if available <= 0 {
+		// unusedActive at the cap is the blocking constraint even when
+		// enough has been earned to mint more once some are used or
+		// disabled; otherwise nothing has been earned beyond what's
+		// already minted.
+		reason := "earn more by uploading"
+		if unusedActive >= s.InvitesCap {
+			reason = "cap reached"
+		}
+		s.renderMeInviteError(w, r, ares.Account, reason)
+		return
+	}
+
+	one := 1
+	if _, err := s.Store.CreateInvite(r.Context(), ares.Account.ID, &one, nil); err != nil {
+		log.Printf("api: CreateInvite: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/me", http.StatusSeeOther)
 }
 
 // handleDisableInvite implements POST /me/invites/{code}/disable: turns

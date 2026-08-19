@@ -92,13 +92,33 @@ var serveCmd = &cobra.Command{
 				"moansubs serve: MOANSUBS_OPEN_REGISTRATION is deprecated; set MOANSUBS_REGISTRATION=open|invite|closed instead")
 		}
 
-		invitesPerAccount := api.DefaultInvitesPerAccount
-		if v := os.Getenv("MOANSUBS_INVITES_PER_ACCOUNT"); v != "" {
+		// The invite economy's three knobs (WP-C7c): initial codes a fresh
+		// account starts with, how many visible uploads earn one more, and
+		// the ceiling on codes sitting unused at once. 0 for
+		// MOANSUBS_INVITES_PER_UPLOADS disables earning by upload entirely.
+		invitesInitial := api.DefaultInvitesInitial
+		if v := os.Getenv("MOANSUBS_INVITES_INITIAL"); v != "" {
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 0 {
-				return fmt.Errorf("moansubs serve: invalid MOANSUBS_INVITES_PER_ACCOUNT %q", v)
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_INVITES_INITIAL %q", v)
 			}
-			invitesPerAccount = n
+			invitesInitial = n
+		}
+		invitesPerUploads := api.DefaultInvitesPerUploads
+		if v := os.Getenv("MOANSUBS_INVITES_PER_UPLOADS"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 0 {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_INVITES_PER_UPLOADS %q", v)
+			}
+			invitesPerUploads = n
+		}
+		invitesCap := api.DefaultInvitesCap
+		if v := os.Getenv("MOANSUBS_INVITES_CAP"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 0 {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_INVITES_CAP %q", v)
+			}
+			invitesCap = n
 		}
 
 		registerRate := api.RegisterRateLimitPerHour
@@ -231,7 +251,9 @@ var serveCmd = &cobra.Command{
 		apiSrv.SessionTTL = sessionTTL
 		apiSrv.SearchLimiter = api.NewRateLimiterPerMinute(searchRate)
 		apiSrv.Registration = registration
-		apiSrv.InvitesPerAccount = invitesPerAccount
+		apiSrv.InvitesInitial = invitesInitial
+		apiSrv.InvitesPerUploads = invitesPerUploads
+		apiSrv.InvitesCap = invitesCap
 		apiSrv.DumpURL = dumpURL
 		apiSrv.VoteLimiter = api.NewRateLimiter(voteRate)
 		// version is main.go's ldflags-stamped build var ("dev" when built
