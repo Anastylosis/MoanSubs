@@ -169,6 +169,10 @@ Creates an upload account and prints its API token **exactly once** — only
 the token's SHA-256 is stored, so a lost token means creating a new
 account. Paste the token into the plugin's settings.
 
+When `MOANSUBS_TOKEN_KEY` is configured, the token is also encrypted and
+stored (allowing `/me` to show it again after a restart); unset, the
+encrypted column stays NULL and the token is irretrievable.
+
 This is the operator's route, and the only one on a node with
 `MOANSUBS_REGISTRATION=closed`. Otherwise people register themselves
 against `POST /api/v1/accounts` or `/register` (API.md) — with a valid
@@ -198,6 +202,11 @@ gets `401` — and the new token is printed once and must be stored. Existing
 uploads keep their attribution and the account stays enabled. Rotation is
 "my token leaked", not "log me out": browser sessions are unaffected — use
 `POST /logout` (or `/me`'s "log out" button) for that.
+
+When `MOANSUBS_TOKEN_KEY` is configured, the new token is also re-encrypted
+and stored; unset, the encrypted column stays NULL (the documented
+token-leak remedy, setting a key and regenerating a token, silently loses
+re-displayability without this fix).
 
 ### `moansubs account role <name> <user|mod|admin>`
 
@@ -241,6 +250,9 @@ specifically to keep credentials out of container logs and would rather
 mint them via `docker compose exec` instead, where the output lands in
 their own terminal. No-ops (prints one line saying so) when an admin
 already exists; reads `MOANSUBS_ADMIN_NAME` the same way `serve` does.
+Respects `MOANSUBS_TOKEN_KEY` the same as other account-minting commands —
+without it, the admin's token is unrecoverable; with it, the token is
+encrypted and can be shown again on `/me` after a restart.
 
 ### `moansubs invite create --for <name> [--uses N | --unlimited] [--expires DURATION]`
 

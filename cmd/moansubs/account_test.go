@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -230,5 +231,44 @@ func TestAccountShow_UnknownName(t *testing.T) {
 	rootCmd.SetArgs([]string{"account", "show", "nonexistent"})
 	if err := rootCmd.Execute(); err == nil {
 		t.Fatal("Execute(account show nonexistent): want error, got nil")
+	}
+}
+
+// TestAccountCreate_WithTokenKey is WP-R1's spec test: when MOANSUBS_TOKEN_KEY
+// is set, `account create` encrypts the token into token_enc.
+func TestAccountCreate_WithTokenKey(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// A valid 64-char hex token key (32 bytes).
+	tokenKey := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	oldKey, hadKey := os.LookupEnv("MOANSUBS_TOKEN_KEY")
+	if err := os.Setenv("MOANSUBS_TOKEN_KEY", tokenKey); err != nil {
+		t.Fatalf("os.Setenv(MOANSUBS_TOKEN_KEY): %v", err)
+	}
+	defer func() {
+		if hadKey {
+			if err := os.Setenv("MOANSUBS_TOKEN_KEY", oldKey); err != nil {
+				t.Fatalf("os.Setenv(restore MOANSUBS_TOKEN_KEY): %v", err)
+			}
+		} else {
+			if err := os.Unsetenv("MOANSUBS_TOKEN_KEY"); err != nil {
+				t.Fatalf("os.Unsetenv(MOANSUBS_TOKEN_KEY): %v", err)
+			}
+		}
+	}()
+
+	out := runAccount(t, "create", "enc-test")
+	if !strings.Contains(out, "enc-test") {
+		t.Errorf("account create output = %q, want it to mention account name", out)
+	}
+
+	// Verify token_enc is NOT NULL in the database.
+	account, err := s.GetAccountByName(ctx, "enc-test")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+	if len(account.TokenEnc) == 0 {
+		t.Error("token_enc is NULL or empty; want it encrypted when MOANSUBS_TOKEN_KEY is set")
 	}
 }

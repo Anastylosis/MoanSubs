@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,21 @@ var accountCmd = &cobra.Command{
 	Short: "Manage upload accounts",
 }
 
+// tokenKeyFromEnv reads and validates MOANSUBS_TOKEN_KEY from the environment.
+// It returns the decoded 32-byte key on success, nil if unset, or an error if
+// the value is invalid. Validation: 64 hex characters exactly.
+func tokenKeyFromEnv() ([]byte, error) {
+	v := os.Getenv("MOANSUBS_TOKEN_KEY")
+	if v == "" {
+		return nil, nil
+	}
+	key, err := hex.DecodeString(v)
+	if err != nil || len(key) != 32 {
+		return nil, errors.New("MOANSUBS_TOKEN_KEY must be 64 hex characters (32 bytes); generate one with `openssl rand -hex 32`")
+	}
+	return key, nil
+}
+
 // openStore is the DATABASE_URL boilerplate every account subcommand needs.
 func openStore(cmd *cobra.Command, what string) (*store.Store, context.Context, context.CancelFunc, error) {
 	dsn := os.Getenv("DATABASE_URL")
@@ -32,6 +48,13 @@ func openStore(cmd *cobra.Command, what string) (*store.Store, context.Context, 
 		cancel()
 		return nil, nil, nil, fmt.Errorf("moansubs %s: %w", what, err)
 	}
+	tokenKey, err := tokenKeyFromEnv()
+	if err != nil {
+		cancel()
+		s.Close()
+		return nil, nil, nil, fmt.Errorf("moansubs %s: %w", what, err)
+	}
+	s.SetTokenKey(tokenKey)
 	return s, ctx, cancel, nil
 }
 

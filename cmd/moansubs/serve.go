@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -197,13 +196,9 @@ var serveCmd = &cobra.Command{
 		// 64 hex characters (32 bytes). Validated before store.Open so a
 		// misconfigured key fails startup immediately rather than silently
 		// leaving every account's token_enc NULL.
-		var tokenKey []byte
-		if v := os.Getenv("MOANSUBS_TOKEN_KEY"); v != "" {
-			key, err := hex.DecodeString(v)
-			if err != nil || len(key) != 32 {
-				return errors.New("moansubs serve: MOANSUBS_TOKEN_KEY must be 64 hex characters (32 bytes); generate one with `openssl rand -hex 32`")
-			}
-			tokenKey = key
+		tokenKey, err := tokenKeyFromEnv()
+		if err != nil {
+			return fmt.Errorf("moansubs serve: %w", err)
 		}
 
 		// The first-run admin bootstrap (WP-C8): MOANSUBS_ADMIN_NAME
