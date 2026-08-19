@@ -187,7 +187,7 @@ func TestUploadForm_SharesDedupWithTheJSONAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading body: %v", err)
 	}
-	if !strings.Contains(string(dupBody), "Already uploaded") {
+	if !strings.Contains(string(dupBody), "Already in the catalogue") {
 		t.Error("web result page does not report the duplicate")
 	}
 }

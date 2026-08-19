@@ -1,28 +1,54 @@
 {{define "index.html"}}
-<p>This node stores subtitles keyed to video fingerprints, so a subtitle
-made for one copy of a scene can be found from a different encode of it.</p>
+<section class="cue hero" aria-label="What moansubs is">
+  <div class="tc"><span>1</span><span>00:00:00,000 <b>--></b> 00:00:04,000</span></div>
+  <div class="line y">Subtitles that follow the scene, not the filename.</div>
+  <div class="line sm" style="margin-top:.4rem">A shared database keyed to each video's fingerprint — so a subtitle made for one copy is found from any other.</div>
+</section>
 
 {{if .Stats}}
-<p class="sub">{{.Stats.Tracks}} tracks across {{.Stats.Releases}} releases,
-{{.Stats.DownloadsTotal}} downloads so far.</p>
+<div class="stats" aria-label="Catalogue size">
+  <div><strong>{{.Stats.Tracks}}</strong>subtitle tracks</div>
+  <div><strong>{{.Stats.Releases}}</strong>releases</div>
+  <div><strong>{{.Stats.DownloadsTotal}}</strong>downloads served</div>
+</div>
 {{end}}
 
-<form method="get" action="/search">
+<form method="get" action="/search" class="search-big" role="search">
   <label for="q">Search the catalogue</label>
-  <input type="text" id="q" name="q" placeholder="title, filename, studio...">
-  <button type="submit">Search</button>
+  <div class="row">
+    <input type="text" id="q" name="q" class="grow" placeholder="title, filename, studio, performer" autocomplete="off">
+    <button type="submit">Search</button>
+  </div>
+  <p class="hint"><a href="/browse">Browse everything</a>, newest first{{if .DumpURL}} · or <a href="{{.DumpURL}}">download the whole catalogue</a> as a dump{{end}}.</p>
 </form>
-<p class="hint"><a href="/browse">Browse everything</a>{{if .DumpURL}} ·
-<a href="{{.DumpURL}}">download the latest dump</a>{{end}}.</p>
 
-<p>Searching and downloading is anonymous — the
-<a href="https://github.com/Anastylosis/MoanSubs">Stash plugin</a> does it
-for you from the scene page, and needs nothing but this node's address.</p>
+<h2>How it works</h2>
+<div class="cue-grid">
+  <div class="cue">
+    <div class="tc"><span>1</span><span>00:00:04,000 <b>--></b> 00:00:08,000</span></div>
+    <div class="line">Install the Stash plugin</div>
+    <p>It adds a Subtitles panel to every scene page and a badge to scene cards. It comes pointed at this node — nothing to configure to search or download.</p>
+  </div>
+  <div class="cue">
+    <div class="tc"><span>2</span><span>00:00:08,000 <b>--></b> 00:00:12,000</span></div>
+    <div class="line">Subtitles are found by fingerprint</div>
+    <p>The plugin asks with the scene's oshash and phash, which Stash already computed. A different encode of the same scene still matches; a sidecar lands next to the file, ready to play.</p>
+  </div>
+  <div class="cue">
+    <div class="tc"><span>3</span><span>00:00:12,000 <b>--></b> 00:00:16,000</span></div>
+    <div class="line">Contribute the ones you have</div>
+    <p>Push your sidecars from Stash in one task, or <a href="/upload">upload from the browser</a>. Others rate them, so the best track for each scene rises.</p>
+  </div>
+</div>
 
-<p>Uploading needs an account.
-{{if .Open}}<a href="/register">Register one here</a>.{{else}}This node is
-invite-only; ask the operator.{{end}} Once logged in, use
-<a href="/upload">the upload form</a> or the Stash plugin.</p>
-
-<p>Already have an account? <a href="/login">Log in</a>.</p>
+<div class="two prose">
+  <div>
+    <h3>Get the plugin</h3>
+    <p>In Stash: <em>Settings → Plugins → Available plugins</em>, add the moansubs source, install <strong>moansubs</strong>, reload. Details and the manual install are on <a href="https://github.com/Anastylosis/MoanSubs/tree/master/plugin#readme">the plugin page</a>.</p>
+  </div>
+  <div>
+    <h3>Uploading and voting</h3>
+    <p>{{if .Open}}Need an account? <a href="/register">Create one</a> — a name and a token, nothing else. Already have one? <a href="/login">Log in</a>.{{else}}This node is invite-only: ask the operator for a token, then <a href="/login">log in</a>.{{end}}</p>
+  </div>
+</div>
 {{end}}

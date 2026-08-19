@@ -1,41 +1,43 @@
 {{define "me.html"}}
-<h2>{{.Name}}</h2>
+<h1>{{.Name}}</h1>
+<div class="stats">
+  <div><strong>{{.UploadCount}}</strong>upload{{if ne .UploadCount 1}}s{{end}}</div>
+  <div><strong>{{.TotalDownloads}}</strong>downloads of them</div>
+</div>
 
 {{if .RotatedToken}}
-<div class="warn"><strong>New upload token — copy it now.</strong> Only a
-hash of this token is stored, so it cannot be shown again. Your old token
-stopped working immediately.</div>
+<div class="notice"><strong>New upload token — copy it now.</strong> Only a hash is stored, so it can't be shown again. The old token stopped working the moment this page loaded; this login session continues.</div>
 <code class="token">{{.RotatedToken}}</code>
 {{end}}
 
-<p>{{.UploadCount}} upload(s), {{.TotalDownloads}} download(s) across all of them.</p>
+<div class="inline" style="gap:.75rem;margin-bottom:2rem">
+  <a class="btn" href="/upload" style="text-decoration:none;margin-top:0">Upload a subtitle</a>
+  <form method="post" action="/me/rotate-token" style="margin:0">
+    <button type="submit" class="quiet" style="margin:0" title="Mint a new token and retire the old one">Rotate token</button>
+  </form>
+  <form method="post" action="/logout" style="margin:0">
+    <button type="submit" class="quiet" style="margin:0">Log out</button>
+  </form>
+</div>
 
-<p><a href="/upload">Upload a subtitle</a></p>
-
-<form method="post" action="/me/rotate-token">
-  <button type="submit">Rotate token</button>
-</form>
-<p class="hint">Use this if your token leaked. The old one stops working immediately.</p>
-
-<form method="post" action="/logout">
-  <button type="submit">Log out</button>
-</form>
-
-{{if .Tracks}}
-<h3>Your uploads</h3>
-<table>
-<tr><th>Lang</th><th>Release</th><th>Created</th><th>Downloads</th><th>Status</th></tr>
-{{range .Tracks}}
-<tr>
-  <td>{{.Lang}}</td>
-  <td>{{if .ReleaseTitle}}{{.ReleaseTitle}}{{else if .ReleaseStem}}{{.ReleaseStem}}{{else}}#{{.ReleaseID}}{{end}}</td>
-  <td>{{.CreatedAt.Format "2006-01-02"}}</td>
-  <td>{{.Downloads}}</td>
-  <td>{{if .Withdrawn}}withdrawn{{else}}active{{end}}</td>
-</tr>
-{{end}}
-</table>
+<h2 style="margin-top:0">Your uploads</h2>
+{{if not .Tracks}}
+<p class="empty">Nothing yet. <a href="/upload">Upload a subtitle</a>, or push your sidecars from the Stash plugin.</p>
 {{else}}
-<p>No uploads yet.</p>
+<table>
+  <thead><tr><th>Language</th><th>Release</th><th>Uploaded</th><th class="n">Downloads</th><th>Status</th></tr></thead>
+  <tbody>
+  {{range .Tracks}}
+  <tr>
+    <td><span class="tag">{{.Lang}}</span></td>
+    <td>{{if .ReleaseTitle}}<a href="/release/{{.ReleaseID}}">{{.ReleaseTitle}}</a>{{else if .ReleaseStem}}<a href="/release/{{.ReleaseID}}">{{.ReleaseStem}}</a>{{else}}<span class="mono">release #{{.ReleaseID}}</span> <span class="hint" style="display:inline">(no title yet)</span>{{end}}</td>
+    <td class="mono">{{.CreatedAt.Format "2006-01-02"}}</td>
+    <td class="n">{{.Downloads}}</td>
+    <td>{{if .Withdrawn}}<span class="hint" style="display:inline;color:var(--danger)">withdrawn</span>{{else}}active{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+<p class="hint">Rotating the token is the fix for a leaked one: uploads and the plugin need the new value; this browser session stays logged in.</p>
 {{end}}
 {{end}}

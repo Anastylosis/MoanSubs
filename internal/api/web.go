@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"strings"
 )
 
 // The node's human-facing surface: a front door, a registration form, and
@@ -39,7 +40,11 @@ const uploadCSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inli
 
 // Parsed once at startup: a template parse error is a build-time mistake, so
 // failing here is better than discovering it on someone's first visit.
-var pages = template.Must(template.ParseFS(templateFS, "templates/*.html"))
+var pages = template.Must(template.New("").Funcs(template.FuncMap{
+	// words turns a closed-vocabulary key ("out_of_sync") into its label
+	// ("out of sync") — the keys are API contract, the labels are not.
+	"words": func(s string) string { return strings.ReplaceAll(s, "_", " ") },
+}).ParseFS(templateFS, "templates/*.html"))
 
 // registerData is /register's data (both the form and its result). Name is
 // echoed back into the form after a failed submission; html/template

@@ -1,28 +1,35 @@
 {{define "browse.html"}}
-<h2>Browse</h2>
-<form method="get" action="/browse">
-  <label for="lang">Language</label>
-  <input type="text" id="lang" name="lang" value="{{.Lang}}" placeholder="e.g. en, pt-BR" autocomplete="off">
-  <button type="submit">Filter</button>
+<h1>Browse</h1>
+<p class="hint" style="margin:0 0 1rem">Every release with a title, newest first. Filter to releases that have a subtitle in one language.</p>
+<form method="get" action="/browse" class="row" style="max-width:30rem">
+  <div>
+    <label for="lang" style="margin-top:0">Language</label>
+    <input type="text" id="lang" name="lang" class="mono" value="{{.Lang}}" placeholder="en, de, pt-BR" autocomplete="off">
+  </div>
+  <button type="submit" class="quiet">Filter</button>
 </form>
 
-{{if not .Releases}}
-<p>Nothing here yet.</p>
+{{template "release-list" .Releases}}
+
+{{if .HasMore}}
+<p class="pager"><a href="/browse?after={{.NextAfter}}{{if .Lang}}&lang={{.Lang}}{{end}}">Older releases →</a></p>
+{{end}}
+{{end}}
+
+{{define "release-list"}}
+{{if not .}}
+<p class="empty">Nothing here yet. Push a sidecar from Stash or <a href="/upload">upload one</a> to be first.</p>
 {{else}}
 <ul class="releases">
-{{range .Releases}}
+{{range .}}
   <li>
-    <a href="/release/{{.ID}}">{{.Title}}</a>
-    {{if .Studio}} — {{.Studio}}{{end}}{{if .ReleaseDate}} ({{.ReleaseDate}}){{end}}
-    <div class="hint">
-    {{range $i, $t := .Tracks}}{{if $i}}, {{end}}{{$t.Lang}}{{if $t.Generated}} (auto){{end}}{{end}}
+    <div class="t"><a href="/release/{{.ID}}">{{.Title}}</a></div>
+    <div class="meta">{{if .ReleaseDate}}<span>{{.ReleaseDate}}</span>{{end}}{{if .Studio}}<span>{{.Studio}}</span>{{end}}{{if .Duration}}<span>{{.Duration}}</span>{{end}}</div>
+    <div class="tracks">
+      {{range .Tracks}}<span class="tag{{if .Generated}} auto{{end}}">{{.Lang}}{{if .Generated}} · auto{{end}}<span class="tally"> ↓{{.Downloads}} <span class="up">▲{{.Up}}</span> <span class="down">▼{{.Down}}</span></span></span>{{end}}
     </div>
   </li>
 {{end}}
 </ul>
-{{end}}
-
-{{if .HasMore}}
-<p><a href="/browse?after={{.NextAfter}}{{if .Lang}}&lang={{.Lang}}{{end}}">older →</a></p>
 {{end}}
 {{end}}

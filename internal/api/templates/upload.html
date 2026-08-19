@@ -1,79 +1,95 @@
 {{define "upload.html"}}
 {{if .Result}}
-  <h2>{{if .Result.Duplicate}}Already uploaded{{else}}Upload complete{{end}}</h2>
-  {{if .Result.Generated}}<div class="warn">Detected as machine-generated — labeled automatically, regardless of how it was described.</div>{{end}}
-  {{if .Result.Duplicate}}<p>A byte-identical subtitle already existed for this release and language; nothing new was stored.</p>{{end}}
-  <p>Track id: <strong>{{.Result.TrackID}}</strong></p>
+  <h1>{{if .Result.Duplicate}}Already in the catalogue{{else}}Uploaded{{end}}</h1>
+  {{if .Result.Generated}}<div class="notice">Detected as machine-generated, so it's labelled that way automatically — regardless of how it was described.</div>{{end}}
+  {{if .Result.Duplicate}}<p class="prose">A byte-identical subtitle already existed for this release and language, so nothing new was stored — the existing track is yours to point at.</p>{{end}}
+  <div class="stats">
+    <div><strong>#{{.Result.TrackID}}</strong>track</div>
+    <div><strong>#{{.Result.ReleaseID}}</strong>release</div>
+  </div>
   {{if .Result.HasReleasePage}}
-  <p><a href="/release/{{.Result.ReleaseID}}">View this release</a></p>
+  <p><a class="btn" href="/release/{{.Result.ReleaseID}}" style="text-decoration:none">Open the release page</a></p>
   {{else}}
-  <p class="hint">Release id: {{.Result.ReleaseID}}. It has no catalogue page yet — give it a title or filename stem next time to make one.</p>
+  <p class="hint">This release has no catalogue page: it was uploaded without a title or filename stem, so there is nothing to list it under. It is still found by fingerprint from the plugin. Give the next upload a title or stem and it gets a page.</p>
   {{end}}
   <p><a href="/upload">Upload another</a></p>
 {{else}}
-  <h2>Upload a subtitle</h2>
+  <h1>Upload a subtitle</h1>
   {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-  <p>SRT or WebVTT, up to 2 MiB. The file is parsed and re-rendered — the
-  bytes you send are never stored as-is.</p>
-  <form method="post" action="/upload" enctype="multipart/form-data">
+  <div class="prose">
+    <p>SRT or WebVTT, up to 2 MiB. It is parsed and re-rendered on the way in — the bytes you send are never stored as-is. The scene is identified by its <em>video</em> file's fingerprint, which the page computes here in your browser; the video never leaves your computer.</p>
+  </div>
+  <form method="post" action="/upload" enctype="multipart/form-data" class="stack">
+    <h3>1. The subtitle</h3>
     <label for="file">Subtitle file (.srt or .vtt)</label>
     <input type="file" id="file" name="file" accept=".srt,.vtt" required>
 
-    <label for="video">Video file (stays on your computer — only its fingerprint is computed here)</label>
+    <h3>2. The video it belongs to</h3>
+    <label for="video">Video file — stays on your computer</label>
     <input type="file" id="video" accept="video/*">
-    <p class="hint" id="video-status">Picking a video file fills in oshash,
-    duration, the filename stem and an approximate phash below — the video
-    itself is never sent anywhere. Requires JavaScript; without it, copy the
-    fields from Stash by hand as before.</p>
+    <p class="hint" id="video-status">Picking the video fills in the fingerprint, duration, filename and an approximate phash below. Needs JavaScript; without it, copy the values from Stash (scene → File info).</p>
 
-    <label for="oshash">oshash</label>
-    <input type="text" id="oshash" name="oshash" value="{{.Values.OSHash}}" required
-           autocomplete="off" pattern="[0-9a-fA-F]{16}" maxlength="16">
-    <p class="hint">From Stash: scene → File info → Checksum.</p>
+    <div class="two">
+      <div>
+        <label for="oshash">oshash</label>
+        <input type="text" id="oshash" name="oshash" class="hash" value="{{.Values.OSHash}}" required autocomplete="off" pattern="[0-9a-fA-F]{16}" maxlength="16">
+        <p class="hint">Stash: File info → Checksum.</p>
+      </div>
+      <div>
+        <label for="duration_ms">Duration, milliseconds</label>
+        <input type="text" id="duration_ms" name="duration_ms" class="hash" value="{{.Values.DurationMs}}" required autocomplete="off" inputmode="numeric">
+        <p class="hint">Stash: File info → Duration.</p>
+      </div>
+      <div>
+        <label for="phash">phash <span class="hint" style="display:inline;font-weight:400">optional</span></label>
+        <input type="text" id="phash" name="phash" class="hash" value="{{.Values.PHash}}" autocomplete="off">
+        <p class="hint" id="phash-hint">Stash's own value (File info → Phash) is exact; the one computed here is approximate but close enough to match. A pasted value is never overwritten.</p>
+      </div>
+      <div>
+        <label for="md5">md5 <span class="hint" style="display:inline;font-weight:400">optional</span></label>
+        <input type="text" id="md5" name="md5" class="hash" value="{{.Values.MD5}}" autocomplete="off">
+      </div>
+    </div>
 
-    <label for="duration_ms">Duration (milliseconds)</label>
-    <input type="text" id="duration_ms" name="duration_ms" value="{{.Values.DurationMs}}" required
-           autocomplete="off" inputmode="numeric">
-    <p class="hint">From Stash: scene → File info → Duration, in milliseconds.</p>
+    <h3>3. Language</h3>
+    <div class="two">
+      <div>
+        <label for="lang">Language</label>
+        <select id="lang" name="lang">
+          <option value=""{{if eq .Values.Lang ""}} selected{{end}}>— choose —</option>
+          {{$lang := .Values.Lang}}
+          {{range .Langs}}<option value="{{.}}"{{if eq . $lang}} selected{{end}}>{{.}}</option>{{end}}
+        </select>
+      </div>
+      <div>
+        <label for="lang_other">Or any BCP-47 tag</label>
+        <input type="text" id="lang_other" name="lang_other" class="mono" value="{{.Values.LangOther}}" placeholder="pt-BR, zh-Hant" autocomplete="off">
+        <p class="hint">When filled in, this wins over the list.</p>
+      </div>
+    </div>
 
-    <label for="phash">phash (optional)</label>
-    <input type="text" id="phash" name="phash" value="{{.Values.PHash}}" autocomplete="off">
-    <p class="hint" id="phash-hint">From Stash: scene → File info → Phash, if generated. A value
-    computed here from the video file is approximate (the browser's decoder
-    stands in for ffmpeg's) but close enough for matching; Stash's own value
-    is better when you have it.</p>
-
-    <label for="md5">md5 (optional)</label>
-    <input type="text" id="md5" name="md5" value="{{.Values.MD5}}" autocomplete="off">
-
-    <label for="lang">Language</label>
-    <select id="lang" name="lang">
-      <option value=""{{if eq .Values.Lang ""}} selected{{end}}>— choose —</option>
-      {{$lang := .Values.Lang}}
-      {{range .Langs}}<option value="{{.}}"{{if eq . $lang}} selected{{end}}>{{.}}</option>{{end}}
-    </select>
-    <label for="lang_other">Other language tag</label>
-    <input type="text" id="lang_other" name="lang_other" value="{{.Values.LangOther}}"
-           placeholder="BCP-47, e.g. pt-BR" autocomplete="off">
-    <p class="hint">Filled in? It wins over the dropdown above.</p>
-
-    <label for="title">Title (optional)</label>
-    <input type="text" id="title" name="title" value="{{.Values.Title}}">
-
-    <label for="stem">Filename stem (optional)</label>
-    <input type="text" id="stem" name="stem" value="{{.Values.Stem}}">
-
-    <label for="date">Date (optional, YYYY-MM-DD)</label>
-    <input type="text" id="date" name="date" value="{{.Values.Date}}" autocomplete="off">
-
-    <label for="studio">Studio (optional)</label>
-    <input type="text" id="studio" name="studio" value="{{.Values.Studio}}">
-
-    <label for="performers">Performers (optional, comma-separated)</label>
-    <input type="text" id="performers" name="performers" value="{{.Values.Performers}}">
-    <p class="hint">Title/stem/date/studio/performers only take effect the
-    first time this release is seen — they never overwrite what an earlier
-    upload already recorded.</p>
+    <h3>4. About the scene <span class="hint" style="display:inline;font-weight:400">optional, but this is what makes it browsable</span></h3>
+    <p class="hint" style="margin:0">Without a title or filename the subtitle is still found by fingerprint from Stash, but it has no catalogue page. These only take effect the first time a release is seen.</p>
+    <div class="two">
+      <div>
+        <label for="title">Title</label>
+        <input type="text" id="title" name="title" value="{{.Values.Title}}">
+      </div>
+      <div>
+        <label for="stem">Filename stem</label>
+        <input type="text" id="stem" name="stem" class="mono" value="{{.Values.Stem}}">
+      </div>
+      <div>
+        <label for="date">Date</label>
+        <input type="text" id="date" name="date" class="mono" value="{{.Values.Date}}" placeholder="YYYY-MM-DD" autocomplete="off">
+      </div>
+      <div>
+        <label for="studio">Studio</label>
+        <input type="text" id="studio" name="studio" value="{{.Values.Studio}}">
+      </div>
+    </div>
+    <label for="performers">Performers</label>
+    <input type="text" id="performers" name="performers" value="{{.Values.Performers}}" placeholder="comma-separated">
 
     <button type="submit">Upload</button>
   </form>

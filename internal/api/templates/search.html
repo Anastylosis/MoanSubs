@@ -1,30 +1,24 @@
 {{define "search.html"}}
-<h2>Search</h2>
+<h1>Search</h1>
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-<form method="get" action="/search">
-  <label for="q">Title, filename or studio</label>
-  <input type="text" id="q" name="q" value="{{.Q}}" autofocus autocomplete="off">
-  <label for="lang">Language</label>
-  <input type="text" id="lang" name="lang" value="{{.Lang}}" placeholder="e.g. en, pt-BR" autocomplete="off">
-  <button type="submit">Search</button>
+<form method="get" action="/search" class="search-big" role="search">
+  <label for="q" style="margin-top:0">Title, filename, studio or performer</label>
+  <div class="row">
+    <input type="text" id="q" name="q" class="grow" value="{{.Q}}" autofocus autocomplete="off">
+    <div style="flex:0 1 9rem">
+      <input type="text" id="lang" name="lang" class="mono" value="{{.Lang}}" placeholder="language" aria-label="Language" autocomplete="off">
+    </div>
+    <button type="submit">Search</button>
+  </div>
+  <p class="hint">Words are matched against stored titles, filenames, studios and performers — a few distinctive ones beat a whole filename.</p>
 </form>
 
 {{if .Searched}}
+  <h2 style="margin-top:2rem">{{if not .Results}}No matches{{else}}{{len .Results}} match{{if ne (len .Results) 1}}es{{end}}{{if .Truncated}} (best 50 shown){{end}}{{end}}</h2>
   {{if not .Results}}
-  <p>No matches.</p>
+  <p class="empty">Nothing matched "{{.Q}}". Try fewer words, or <a href="/browse">browse</a> by language.</p>
   {{else}}
-    {{if .Truncated}}<p class="hint">Showing the best 50 matches.</p>{{end}}
-    <ul class="releases">
-    {{range .Results}}
-      <li>
-        <a href="/release/{{.ID}}">{{.Title}}</a>
-        {{if .Studio}} — {{.Studio}}{{end}}
-        <div class="hint">
-        {{range $i, $t := .Tracks}}{{if $i}}, {{end}}{{$t.Lang}}{{if $t.Generated}} (auto){{end}}{{end}}
-        </div>
-      </li>
-    {{end}}
-    </ul>
+  {{template "release-list" .Results}}
   {{end}}
 {{end}}
 {{end}}

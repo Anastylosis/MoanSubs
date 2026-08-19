@@ -74,7 +74,9 @@ func TestReleaseVote_Form_DownvoteWithReason_LandsInStoreAndShowsOnPage(t *testi
 	if err != nil {
 		t.Fatalf("reading body: %v", err)
 	}
-	if !strings.Contains(string(body), "your vote") || !strings.Contains(string(body), "out_of_sync") {
+	// The page shows the reason as its label ("out of sync"); the key stays
+	// on the wire and in the store.
+	if !strings.Contains(string(body), "your vote") || !strings.Contains(string(body), "out of sync") {
 		t.Errorf("release page does not show the cast vote: %s", body)
 	}
 }
@@ -129,7 +131,7 @@ func TestReleaseVote_LoggedOut_SeesCountsAndLoginLink_PostRedirectsToLogin(t *te
 	if !strings.Contains(body, "log in to vote") {
 		t.Error("logged-out release page is missing the login link")
 	}
-	if !strings.Contains(body, "+0") {
+	if !strings.Contains(body, "▲0") {
 		t.Errorf("logged-out release page is missing the vote counts: %s", body)
 	}
 

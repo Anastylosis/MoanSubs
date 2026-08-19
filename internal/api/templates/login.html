@@ -1,12 +1,11 @@
 {{define "login.html"}}
-<h2>Log in</h2>
+<h1>Log in</h1>
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-<p>Log in with your upload token to manage your account and see what
-you've uploaded.</p>
-<form method="post" action="/login">
+<form method="post" action="/login" class="stack">
   <label for="token">Upload token</label>
-  <input type="password" id="token" name="token" autofocus required autocomplete="off">
+  <input type="password" id="token" name="token" class="mono" autofocus required autocomplete="off">
+  <p class="hint">The token you got when the account was created. Logging in sets a cookie for this browser; the token itself isn't kept.</p>
   <button type="submit">Log in</button>
 </form>
-<p class="hint">No account? <a href="/register">Register one</a>.</p>
+<p class="hint" style="margin-top:1.5rem">No account? <a href="/register">Create one</a>.</p>
 {{end}}

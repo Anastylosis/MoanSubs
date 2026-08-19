@@ -1,31 +1,23 @@
 {{define "register.html"}}
 {{if .Token}}
-  <h2>Account created</h2>
-  <p>Your upload token for <strong>{{.Name}}</strong>:</p>
+  <h1>Account created</h1>
+  <p>Your upload token for <strong>{{.Name}}</strong>. It is shown once:</p>
   <code class="token">{{.Token}}</code>
-  <div class="warn"><strong>Copy it now.</strong> Only a hash of this token
-  is stored, so it cannot be shown again or recovered — losing it means
-  registering a new name.</div>
-  <p>Paste it into the moansubs plugin in Stash:
-  <em>Settings → Plugins → moansubs → Upload token</em>.</p>
+  <div class="notice"><strong>Copy it now.</strong> Only a hash is stored, so it can't be shown again or recovered — lose it and you register a new name.</div>
+  <p>Paste it into Stash under <em>Settings → Plugins → moansubs → Upload token</em>, or <a href="/login">log in here</a> to upload from the browser.</p>
 {{else if not .Open}}
-  <h2>Registration is closed</h2>
-  <p>This node does not accept self-registration. Ask whoever runs it for
-  an account.</p>
+  <h1>Registration is closed</h1>
+  <p class="prose">This node doesn't accept self-registration. Ask whoever runs it for a token, then <a href="/login">log in</a>.</p>
 {{else}}
-  <h2>Register</h2>
+  <h1>Create an account</h1>
   {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-  <p>No email, no password. You pick a name and get a token — the token
-  <em>is</em> the account.</p>
-  <p class="hint">Your name is public — it appears on every track you
-  upload and in mirrors of this node. If your account is later purged,
-  old dumps that already carried your name elsewhere still do; a purge
-  only stops new ones from picking it up.</p>
-  <form method="post" action="/register">
+  <div class="prose">
+    <p>No email, no password. Pick a name and you get a token — the token <em>is</em> the account. You only need one to upload or vote; searching and downloading never ask.</p>
+  </div>
+  <form method="post" action="/register" class="stack">
     <label for="name">Name</label>
-    <input type="text" id="name" name="name" value="{{.Name}}" autofocus
-           required minlength="3" maxlength="64" autocomplete="off">
-    <p class="hint">3–64 characters: letters, digits, underscore, hyphen and dot.</p>
+    <input type="text" id="name" name="name" value="{{.Name}}" autofocus required minlength="3" maxlength="64" autocomplete="off">
+    <p class="hint">3–64 characters: letters, digits, underscore, hyphen, dot. It's public — it appears on every subtitle you upload and in mirrors of this database, and old copies keep it even if the account is purged later.</p>
     <button type="submit">Create account</button>
   </form>
 {{end}}

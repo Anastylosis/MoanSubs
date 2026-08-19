@@ -1,16 +1,20 @@
 {{define "u.html"}}
-<h2>{{.Name}}</h2>
-<p class="sub">{{.UploadCount}} subtitle{{if ne .UploadCount 1}}s{{end}} contributed.</p>
-
+<h1>{{.Name}}</h1>
+<p class="hint" style="margin:0 0 1.5rem">{{.UploadCount}} subtitle{{if ne .UploadCount 1}}s{{end}} contributed.</p>
 {{if not .Tracks}}
-<p>Nothing here yet.</p>
+<p class="empty">Nothing visible here yet.</p>
 {{else}}
-<ul>
-{{range .Tracks}}
-  <li><a href="/release/{{.ReleaseID}}">release #{{.ReleaseID}}</a> —
-      {{.Lang}}{{if .Generated}} (machine-generated){{end}}
-      ({{.Downloads}} downloads)</li>
-{{end}}
-</ul>
+<table>
+  <thead><tr><th>Release</th><th>Language</th><th class="n">Downloads</th></tr></thead>
+  <tbody>
+  {{range .Tracks}}
+  <tr>
+    <td><a href="/release/{{.ReleaseID}}">release #{{.ReleaseID}}</a></td>
+    <td><span class="tag{{if .Generated}} auto{{end}}">{{.Lang}}</span>{{if .Generated}} <span class="hint" style="display:inline">machine-generated</span>{{end}}</td>
+    <td class="n">{{.Downloads}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
 {{end}}
 {{end}}

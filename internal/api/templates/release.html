@@ -1,54 +1,61 @@
 {{define "release.html"}}
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-<h2>{{.Release.Title}}</h2>
-{{if .Release.Studio}}<p class="sub">{{.Release.Studio}}{{if .Release.ReleaseDate}} — {{.Release.ReleaseDate}}{{end}}</p>{{end}}
-{{if .Release.Performers}}<p>{{range $i, $p := .Release.Performers}}{{if $i}}, {{end}}{{$p}}{{end}}</p>{{end}}
-{{if or .Release.Duration .Release.Resolution}}
-<p class="hint">{{.Release.Duration}}{{if and .Release.Duration .Release.Resolution}} · {{end}}{{.Release.Resolution}}</p>
-{{end}}
+<section class="cue" aria-label="Release">
+  <div class="tc">{{if .Release.ReleaseDate}}<span>{{.Release.ReleaseDate}}</span>{{end}}{{if .Release.Duration}}<span>{{.Release.Duration}}</span>{{end}}{{if .Release.Resolution}}<span>{{.Release.Resolution}}</span>{{end}}</div>
+  <h1 class="line" style="margin:0">{{.Release.Title}}</h1>
+  {{if or .Release.Studio .Release.Performers}}<div class="line sm y" style="margin-top:.35rem;font-weight:600">{{.Release.Studio}}{{if and .Release.Studio .Release.Performers}} · {{end}}{{range $i, $p := .Release.Performers}}{{if $i}}, {{end}}{{$p}}{{end}}</div>{{end}}
+</section>
 
-<h3>Subtitles</h3>
+<h2 style="margin-top:0">Subtitles</h2>
 {{if not .Release.Tracks}}
-<p>None visible.</p>
+<p class="empty">No subtitles are visible for this release right now.</p>
 {{else}}
-<ul>
-{{range $t := .Release.Tracks}}
-  <li>{{$t.Lang}}{{if $t.Generated}} (machine-generated){{end}} —
-      <a href="/api/v1/subtitles/{{$t.ID}}?format=srt">download</a>
-      ({{$t.Downloads}} downloads, +{{$t.Up}}/&minus;{{$t.Down}})
+<table>
+  <thead><tr><th>Language</th><th>File</th><th class="n">Downloads</th><th class="n">Votes</th><th>{{if $.LoggedIn}}Your vote{{else}}&nbsp;{{end}}</th></tr></thead>
+  <tbody>
+  {{range $t := .Release.Tracks}}
+  <tr>
+    <td><span class="tag{{if $t.Generated}} auto{{end}}">{{$t.Lang}}</span>{{if $t.Generated}} <span class="hint" style="display:inline">machine-generated</span>{{end}}</td>
+    <td><a href="/api/v1/subtitles/{{$t.ID}}?format=srt">Download .srt</a></td>
+    <td class="n">{{$t.Downloads}}</td>
+    <td class="n"><span class="tally"><span class="up">▲{{$t.Up}}</span> <span class="down">▼{{$t.Down}}</span></span></td>
+    <td>
       {{if not $.LoggedIn}}
-      — <a href="/login">log in to vote</a>
+        <a href="/login">log in to vote</a>
       {{else if $t.IsOwn}}
-      — <span class="hint">your upload</span>
+        <span class="hint" style="margin:0">your upload</span>
       {{else if $t.MyVote}}
-      — <span class="hint">your vote: {{if $t.MyVote.Up}}&#9650;{{else}}&#9660;{{end}}{{if $t.MyVote.Reason}} ({{$t.MyVote.Reason}}){{end}}</span>
-      <form method="post" action="/release/{{$.Release.ID}}/vote" class="vote-form">
-        <input type="hidden" name="track_id" value="{{$t.ID}}">
-        <input type="hidden" name="value" value="0">
-        <button type="submit">retract</button>
-      </form>
+        <form method="post" action="/release/{{$.Release.ID}}/vote" class="inline">
+          <span class="hint" style="margin:0">your vote: {{if $t.MyVote.Up}}▲ up{{else}}▼ down{{if $t.MyVote.Reason}} — {{words $t.MyVote.Reason}}{{end}}{{end}}</span>
+          <input type="hidden" name="track_id" value="{{$t.ID}}">
+          <input type="hidden" name="value" value="0">
+          <button type="submit" class="quiet sm">Retract</button>
+        </form>
       {{else}}
-      <form method="post" action="/release/{{$.Release.ID}}/vote" class="vote-form">
-        <input type="hidden" name="track_id" value="{{$t.ID}}">
-        <input type="hidden" name="value" value="1">
-        <button type="submit">&#9650; up</button>
-      </form>
-      <form method="post" action="/release/{{$.Release.ID}}/vote" class="vote-form">
-        <input type="hidden" name="track_id" value="{{$t.ID}}">
-        <input type="hidden" name="value" value="-1">
-        <select name="reason">
-          <option value="out_of_sync">out of sync</option>
-          <option value="wrong_content">wrong content</option>
-          <option value="wrong_language">wrong language</option>
-          <option value="low_quality">low quality</option>
-          <option value="spam">spam</option>
-        </select>
-        <input type="text" name="note" maxlength="300" placeholder="note (optional)">
-        <button type="submit">&#9660; down</button>
-      </form>
+        <form method="post" action="/release/{{$.Release.ID}}/vote" class="inline">
+          <input type="hidden" name="track_id" value="{{$t.ID}}">
+          <input type="hidden" name="value" value="1">
+          <button type="submit" class="quiet sm" title="This subtitle fits the scene">▲ Up</button>
+        </form>
+        <form method="post" action="/release/{{$.Release.ID}}/vote" class="inline" style="margin-top:.35rem">
+          <input type="hidden" name="track_id" value="{{$t.ID}}">
+          <input type="hidden" name="value" value="-1">
+          <select name="reason" aria-label="Reason">
+            <option value="out_of_sync">out of sync</option>
+            <option value="wrong_content">wrong content</option>
+            <option value="wrong_language">wrong language</option>
+            <option value="low_quality">low quality</option>
+            <option value="spam">spam</option>
+          </select>
+          <input type="text" name="note" maxlength="300" placeholder="note, optional" aria-label="Note">
+          <button type="submit" class="quiet sm">▼ Down</button>
+        </form>
       {{end}}
-  </li>
-{{end}}
-</ul>
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+<p class="hint">Downloads count every fetch, from the plugin or here. Votes need an account; a down-vote always says why.</p>
 {{end}}
 {{end}}

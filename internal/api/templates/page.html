@@ -4,43 +4,151 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}} — moansubs</title>
 <style>
-  :root { color-scheme: light dark; --fg: #1a1a1a; --bg: #fdfdfc; --muted: #5f5f5c; --line: #dcdcd8; --accent: #7a4fd6; }
-  @media (prefers-color-scheme: dark) {
-    :root { --fg: #e8e8e6; --bg: #16161a; --muted: #a0a09c; --line: #33333a; --accent: #b79cf0; }
+  /* Tokens. Dark is the native scheme: the site's metaphor is a paused
+     frame with a burned-in subtitle, and its audience lives in Stash's dark
+     UI. Light flips ground and ink; the cue bars stay black, as burned-in
+     subtitles always are. */
+  :root {
+    color-scheme: dark light;
+    --bg: #1b1d22; --surface: #22252b; --fg: #ece8df; --muted: #9a9ea8;
+    --line: #33373f; --accent: #f3ce4a; --accent-ink: #1b1d22;
+    --cue-bg: #0b0c0f; --cue-fg: #f7f4ec; --danger: #e2675a; --ok: #7fc27a;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #e9e7e1; --surface: #f3f1ec; --fg: #1b1d22; --muted: #5e626b;
+            --line: #cfccc4; --accent: #8a6d00; --accent-ink: #fffdf5; --ok: #3d7a39; --danger: #b9402f; }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; padding: 3rem 1.25rem; background: var(--bg); color: var(--fg);
-         font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width: 34rem; margin: 0 auto; }
-  h1 { font-size: 1.6rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
-  h1 a { color: inherit; text-decoration: none; }
-  .sub { color: var(--muted); margin: 0 0 2rem; }
+  html { background: var(--bg); }
+  body { margin: 0; color: var(--fg); background: var(--bg);
+         font: 17px/1.55 var(--serif); -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: .15em; }
+  a:hover { text-decoration-thickness: 2px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -.01em; line-height: 1.2; margin: 0 0 .5rem; }
+  h1 { font-size: 2rem; } h2 { font-size: 1.5rem; margin-top: 2rem; } h3 { font-size: 1.15rem; margin-top: 1.5rem; }
   p { margin: 0 0 1rem; }
-  a { color: var(--accent); }
-  label { display: block; font-weight: 600; margin-bottom: .35rem; }
-  input[type=text], input[type=password] { width: 100%; padding: .6rem .7rem; font: inherit; color: var(--fg);
-                     background: transparent; border: 1px solid var(--line); border-radius: 6px; }
-  button { margin-top: .9rem; padding: .6rem 1.1rem; font: inherit; font-weight: 600; cursor: pointer;
-           color: var(--bg); background: var(--fg); border: 0; border-radius: 6px; }
-  .hint { color: var(--muted); font-size: .875rem; margin-top: .5rem; }
-  .error { border-left: 3px solid #c0392b; padding: .6rem .8rem; margin-bottom: 1.5rem; background: rgba(192,57,43,.08); }
-  .token { display: block; padding: .8rem; margin: .5rem 0 1rem; border: 1px solid var(--line); border-radius: 6px;
-           font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9rem; word-break: break-all;
-           background: rgba(127,127,127,.08); }
-  .warn { border-left: 3px solid var(--accent); padding: .6rem .8rem; margin-bottom: 1.5rem; background: rgba(127,127,127,.06); }
-  table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .9rem; }
-  th, td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { color: var(--muted); font-weight: 600; }
-  .vote-form { display: inline-flex; gap: .4rem; align-items: center; margin: .2rem 0 .2rem .75rem; }
-  .vote-form button { margin-top: 0; padding: .25rem .6rem; font-size: .85rem; }
-  .vote-form select, .vote-form input[type=text] { width: auto; padding: .25rem .4rem; font: inherit; font-size: .85rem;
-                                                    color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 6px; }
-  footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .875rem; }
+  code, .mono { font-family: var(--mono); font-size: .85em; }
+
+  /* Frame: top bar + content column. */
+  .bar { border-bottom: 1px solid var(--line); background: var(--surface); }
+  .bar-in { max-width: 64rem; margin: 0 auto; padding: .7rem 1.25rem; display: flex; align-items: baseline; gap: 1.5rem; flex-wrap: wrap; }
+  .wordmark { font-family: var(--mono); font-size: 1rem; font-weight: 700; letter-spacing: .02em; color: var(--fg); text-decoration: none; }
+  .wordmark b { color: var(--accent); font-weight: 700; }
+  nav { display: flex; gap: 1.25rem; margin-left: auto; font-family: var(--sans); font-size: .9rem; }
+  nav a { color: var(--fg); text-decoration: none; opacity: .85; }
+  nav a:hover { opacity: 1; text-decoration: underline; }
+  main { max-width: 64rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+  footer { border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; font-family: var(--sans); }
+  footer .bar-in { justify-content: space-between; }
+  footer a { color: inherit; }
+
+  /* The cue: an SRT block as a visual object — index and timecode in
+     mono, text in the burned-in subtitle style on its own black bar. */
+  .cue { background: var(--cue-bg); color: var(--cue-fg); padding: 1.25rem 1.5rem 1.35rem; border-radius: 4px;
+         margin: 0 0 1.75rem; font-family: var(--sans); }
+  .cue .tc { font-family: var(--mono); font-size: .8rem; color: #9a9ea8; display: flex; gap: 1.25rem; margin-bottom: .55rem; }
+  .cue .tc b { color: var(--accent); font-weight: 600; }
+  .cue .line { font-family: var(--sans); font-weight: 700; font-size: 1.55rem; line-height: 1.25; letter-spacing: -.005em;
+               text-shadow: 0 0 2px #000, 0 1px 2px #000, 0 0 6px rgba(0,0,0,.9); max-width: 40rem; }
+  .cue .line.sm { font-size: 1.2rem; }
+  .cue .line.y { color: var(--accent); }
+  .hero .line.y { font-size: 1.9rem; }
+  .hero .line.sm { font-weight: 500; color: #d9d5cc; }
+  .cue-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .75rem; margin: 1.5rem 0 2rem; }
+  .cue-grid .cue { margin: 0; padding: 1rem 1.1rem 1.1rem; }
+  .cue-grid .line { font-size: 1.05rem; font-weight: 600; }
+  .cue-grid p { font-family: var(--serif); color: #cfcbc2; font-size: .95rem; margin: .6rem 0 0; text-shadow: none; font-weight: 400; }
+  @media (prefers-reduced-motion: no-preference) {
+    .hero { animation: cue-in .5s ease-out both; }
+    @keyframes cue-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  }
+
+  /* Data: numbers and tags are always mono. */
+  .meta { font-family: var(--mono); font-size: .8rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: .35rem 1rem; margin: .15rem 0 .5rem; }
+  .meta b { color: var(--fg); font-weight: 500; }
+  .tag { display: inline-block; font-family: var(--mono); font-size: .78rem; padding: .05rem .45rem; border: 1px solid var(--line);
+         border-radius: 3px; color: var(--fg); background: var(--surface); vertical-align: middle; }
+  .tag.auto { color: var(--muted); border-style: dashed; }
+  .tally { font-family: var(--mono); font-size: .8rem; color: var(--muted); white-space: nowrap; }
+  .tally .up { color: var(--ok); } .tally .down { color: var(--danger); }
+  .stats { display: flex; flex-wrap: wrap; gap: 2rem; font-family: var(--mono); margin: 0 0 2rem; }
+  .stats div { font-size: .8rem; color: var(--muted); }
+  .stats strong { display: block; font-size: 1.6rem; font-weight: 600; color: var(--fg); line-height: 1.1; }
+
+  /* Lists of releases. */
+  .releases { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .releases > li { padding: 1rem 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 1fr auto; gap: .25rem 1.5rem; align-items: start; }
+  .releases .t { font-size: 1.12rem; font-weight: 600; }
+  .releases .t a { color: var(--fg); text-decoration: none; }
+  .releases .t a:hover { color: var(--accent); }
+  .releases .tracks { display: flex; flex-wrap: wrap; gap: .4rem; grid-column: 1 / -1; }
+  .releases .tracks .tag { padding-right: .3rem; }
+  .releases .tracks .tally { margin-left: .4rem; }
+  .pager { margin: 1.5rem 0 0; font-family: var(--sans); font-size: .9rem; }
+  .empty { color: var(--muted); padding: 2rem 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); text-align: center; }
+
+  /* Tables (account page, release page). */
+  table { border-collapse: collapse; width: 100%; margin: .75rem 0 1.5rem; font-size: .95rem; }
+  th, td { text-align: left; padding: .55rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-family: var(--sans); font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  td.n, th.n { text-align: right; font-family: var(--mono); font-size: .85rem; white-space: nowrap; }
+  tr:hover td { background: var(--surface); }
+
+  /* Forms. */
+  form.stack { max-width: 34rem; }
+  label { display: block; font-family: var(--sans); font-weight: 600; font-size: .9rem; margin: 1rem 0 .3rem; }
+  input[type=text], input[type=password], input[type=file], select, textarea {
+    width: 100%; padding: .55rem .65rem; font: inherit; font-size: 1rem; color: var(--fg);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
+  input[type=text].mono, input.hash { font-family: var(--mono); font-size: .9rem; }
+  input[type=file] { padding: .45rem; }
+  button, .btn { font: 600 .9rem/1 var(--sans); padding: .6rem 1rem; cursor: pointer; border-radius: 4px;
+                 color: var(--accent-ink); background: var(--accent); border: 1px solid transparent; margin-top: 1rem; }
+  button:hover, .btn:hover { filter: brightness(1.06); }
+  button.quiet { background: transparent; color: var(--fg); border-color: var(--line); }
+  button.sm { padding: .3rem .6rem; font-size: .8rem; margin: 0; }
+  .hint { color: var(--muted); font-size: .88rem; font-family: var(--sans); margin: .35rem 0 0; }
+  .error { border-left: 3px solid var(--danger); padding: .6rem .8rem; margin: 0 0 1.25rem; background: var(--surface); font-family: var(--sans); font-size: .95rem; }
+  .notice { border-left: 3px solid var(--accent); padding: .6rem .8rem; margin: 0 0 1.25rem; background: var(--surface); font-family: var(--sans); font-size: .95rem; }
+  .token { display: block; padding: .9rem 1rem; margin: .5rem 0 1rem; border: 1px solid var(--accent); border-radius: 4px;
+           font-family: var(--mono); font-size: .95rem; word-break: break-all; background: var(--surface); }
+  .row { display: flex; gap: .75rem; flex-wrap: wrap; align-items: flex-end; }
+  .row > * { flex: 1 1 12rem; }
+  .row > .grow { flex: 3 1 20rem; }
+  .row input[type=text], .row select { min-height: 2.7rem; }
+  .row button { flex: 0 0 auto; margin-top: 0; min-height: 2.7rem; }
+  .inline { display: inline-flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
+  .inline select, .inline input[type=text] { width: auto; padding: .3rem .45rem; font-size: .85rem; }
+  .inline button { margin: 0; }
+  .search-big input { font-size: 1.15rem; padding: .75rem .9rem; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 2rem; }
+  @media (max-width: 42rem) { .two { grid-template-columns: 1fr; } .releases > li { grid-template-columns: 1fr; } nav { gap: .9rem; } }
+  .prose { max-width: 42rem; }
+  .prose p { margin-bottom: .9rem; }
+  kbd { font-family: var(--mono); font-size: .85em; border: 1px solid var(--line); border-radius: 3px; padding: 0 .3em; }
 </style>
+<header class="bar">
+  <div class="bar-in">
+    <a class="wordmark" href="/">moan<b>subs</b></a>
+    <nav aria-label="Site">
+      <a href="/browse">Browse</a>
+      <a href="/search">Search</a>
+      <a href="/upload">Upload</a>
+      <a href="/me">Account</a>
+    </nav>
+  </div>
+</header>
 <main>
-  <h1><a href="/">moansubs</a></h1>
-  <p class="sub">A subtitle database for Stash.</p>
   {{template "body" .}}
-  <footer>Downloads and lookups need no account. An account is only for uploading.</footer>
 </main>
+<footer>
+  <div class="bar-in">
+    <span>Searching and downloading need no account; an account is only for uploading and voting.</span>
+    <span><a href="https://github.com/Anastylosis/MoanSubs">Source and plugin</a></span>
+  </div>
+</footer>
 </html>{{end}}
