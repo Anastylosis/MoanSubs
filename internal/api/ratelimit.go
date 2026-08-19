@@ -22,7 +22,17 @@ type RateLimiter struct {
 	rate    float64 // tokens added per second
 	burst   float64 // bucket capacity == the per-hour budget
 	now     func() time.Time
+	// calls counts Allow invocations so pruning can run every pruneEvery
+	// calls rather than on a timer — no goroutine, no Stop to forget.
+	calls int
 }
+
+// pruneEvery is how many Allow calls pass between sweeps of idle buckets.
+// A public node sees a long tail of one-off IPs; without eviction the map
+// only ever grows, which is a memory-exhaustion lever for anyone with many
+// addresses. A bucket that has sat idle long enough to be full again holds
+// no information, so dropping it is free.
+const pruneEvery = 4096
 
 type bucket struct {
 	tokens float64
@@ -109,6 +119,10 @@ func (l *RateLimiter) Allow(key string) bool {
 	defer l.mu.Unlock()
 
 	now := l.now()
+	l.calls++
+	if l.calls%pruneEvery == 0 {
+		l.prune(now)
+	}
 	b, ok := l.buckets[key]
 	if !ok {
 		b = &bucket{tokens: l.burst, last: now}
@@ -127,4 +141,15 @@ func (l *RateLimiter) Allow(key string) bool {
 	}
 	b.tokens--
 	return true
+}
+
+// prune drops every bucket idle long enough to have refilled completely —
+// such a bucket is indistinguishable from a fresh one. Caller holds l.mu.
+func (l *RateLimiter) prune(now time.Time) {
+	idle := time.Duration(l.burst/l.rate*float64(time.Second)) + time.Second
+	for k, b := range l.buckets {
+		if now.Sub(b.last) > idle {
+			delete(l.buckets, k)
+		}
+	}
 }

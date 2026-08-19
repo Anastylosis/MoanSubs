@@ -181,3 +181,16 @@ triaged deliberately rather than auto-failing builds.
 ## Supported versions
 
 Pre-1.0: only the latest commit on `master` is supported.
+
+## Exposure hardening
+
+The HTTP server sets read/header/write/idle timeouts and a 64 KiB header
+cap, so a slow client cannot hold connections open indefinitely; every
+request body is size-capped per endpoint; the per-IP rate limiters evict
+idle entries so an address flood cannot grow them without bound; password
+verification is queued beyond a few concurrent checks so login attempts
+cannot pin every core; every response carries `X-Content-Type-Options:
+nosniff`; the reference Caddyfile sends HSTS. Postgres is never published
+outside the compose network, and the backup bucket must stay private — it
+holds password hashes and encrypted tokens (the public dump holds neither;
+a test pins that).

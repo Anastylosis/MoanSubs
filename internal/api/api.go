@@ -197,7 +197,7 @@ func (s *Server) OpenForStrangers() bool {
 // routes itself are left bare — a script or crawler must never be asked to
 // click through an HTML interstitial, and /age is how the cookie gets set
 // in the first place.
-func NewMux(s *Server) *http.ServeMux {
+func NewMux(s *Server) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", s.page(s.handleIndex))
 	mux.HandleFunc("GET /register", s.page(s.handleRegisterForm))
@@ -251,7 +251,19 @@ func NewMux(s *Server) *http.ServeMux {
 	mux.HandleFunc("GET /admin/invites", s.page(s.handleAdminInvites))
 	mux.HandleFunc("POST /admin/invites", s.page(s.handleAdminInviteCreate))
 	mux.HandleFunc("POST /admin/invites/{code}/disable", s.page(s.handleAdminInviteDisable))
-	return mux
+	return baseHeaders(mux)
+}
+
+// baseHeaders sets the headers every response should carry, page or API:
+// nosniff keeps a browser from sniffing a JSON or SRT body into something
+// executable, and no-referrer-downgrade is the page layer's Referrer-Policy
+// restated for non-page responses. Per-page headers (CSP, robots) stay
+// with the handlers that know them.
+func baseHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // handleHealthz reports 200 only when the database is actually reachable —

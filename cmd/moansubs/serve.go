@@ -278,6 +278,16 @@ var serveCmd = &cobra.Command{
 		srv := &http.Server{
 			Addr:    listen,
 			Handler: api.NewMux(apiSrv),
+			// Exposed to the internet: a client that opens a connection
+			// and trickles bytes must not hold a goroutine forever. Reads
+			// are bounded generously enough for a 2 MiB upload on a slow
+			// link; writes cover the largest dump-free response (a batch
+			// lookup); idle keep-alives are cut after two minutes.
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       60 * time.Second,
+			WriteTimeout:      60 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			MaxHeaderBytes:    64 << 10,
 		}
 
 		// Stats.Run flushes the in-memory lookup counters to the stats

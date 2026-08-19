@@ -388,6 +388,9 @@ const (
 	pbkdf2KeyBytes   = 32
 )
 
+// pbkdf2Gate caps concurrent password verifications (see VerifyPassword).
+var pbkdf2Gate = make(chan struct{}, 4)
+
 // dummyPasswordHash is what an unknown name or a password-less account is
 // verified against in VerifyAccountPassword, so a login attempt costs
 // exactly one PBKDF2 pass regardless of which of the three outcomes
@@ -430,6 +433,14 @@ func HashPassword(pw string) (string, error) {
 // accounts.password_hash, including a format this build didn't write
 // itself.
 func VerifyPassword(encoded, pw string) bool {
+	// One PBKDF2 pass costs a few hundred milliseconds of CPU by design;
+	// without a ceiling, a burst of login attempts from many addresses
+	// (each inside its own per-IP budget) could pin every core. Queue
+	// beyond a handful of concurrent verifications instead — latency for
+	// an attacker, not an outage for everyone.
+	pbkdf2Gate <- struct{}{}
+	defer func() { <-pbkdf2Gate }()
+
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 4 || parts[0] != "pbkdf2-sha256" {
 		return false

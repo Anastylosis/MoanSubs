@@ -10,4 +10,13 @@
 	reverse_proxy server:8080
 
 	encode gzip
+
+	header {
+		# One year of HSTS once TLS is known to work; add `preload` and
+		# submit the domain to hstspreload.org only when you're sure you
+		# will never serve this name over plain HTTP again.
+		Strict-Transport-Security "max-age=31536000"
+		# The proxy's own banner adds nothing for a visitor.
+		-Server
+	}
 }

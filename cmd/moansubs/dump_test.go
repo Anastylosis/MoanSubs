@@ -241,6 +241,11 @@ func TestDump_NeverLeaksTokenHash(t *testing.T) {
 	}
 
 	raw := gunzip(t, runDumpToStdout(t))
+	for _, secret := range []string{"token_hash", "password_hash", "token_enc"} {
+		if bytes.Contains(raw, []byte(secret)) {
+			t.Errorf("dump output contains the substring %q", secret)
+		}
+	}
 	if bytes.Contains(raw, []byte("token_hash")) {
 		t.Error("dump output contains the substring \"token_hash\"")
 	}
