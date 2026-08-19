@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -119,6 +120,91 @@ func TestMatch_FindsUploadedReleaseByName(t *testing.T) {
 	// this pair must score as genuinely similar, not a coincidence match.
 	if out.Verdict != "CONFIRMED" && out.Verdict != "LIKELY" {
 		t.Errorf("verdict = %s, want CONFIRMED or LIKELY", out.Verdict)
+	}
+}
+
+// WP-A7: two stored releases share title, stem prefix and duration and
+// differ only in release_date. A query that carries the date matching one
+// of them must rank that one first, and the other must carry a "date
+// mismatch" reason — the discriminator studios' lazy titling defeats.
+func TestMatch_DateDiscriminatesSameTitleSameRuntime(t *testing.T) {
+	ts, _, token := newTestServer(t)
+
+	body := "1\n00:00:01,000 --> 00:00:02,000\nhello\n\n2\n00:58:00,000 --> 00:58:02,000\nbye\n"
+	matching := doUpload(t, ts, token, map[string]any{
+		"oshash":      "feed0000000000a1",
+		"duration_ms": int64(3540000),
+		"lang":        "en",
+		"body":        body,
+		"title":       "The Reluctant Pet Sitter",
+		"stem":        "The-Reluctant-Pet-Sitter-Part-1",
+		"date":        "2024-03-01",
+		"studio":      "The House Next Door",
+		"performers":  []string{"Alice Ray"},
+	})
+	if matching.StatusCode != http.StatusCreated {
+		t.Fatalf("upload (matching date) status = %d, want 201", matching.StatusCode)
+	}
+	mismatched := doUpload(t, ts, token, map[string]any{
+		"oshash":      "feed0000000000b2",
+		"duration_ms": int64(3540000),
+		"lang":        "en",
+		"body":        body,
+		"title":       "The Reluctant Pet Sitter",
+		"stem":        "The-Reluctant-Pet-Sitter-Part-2",
+		"date":        "2024-06-01", // months off; well past the 2-day tolerance
+		"studio":      "The House Next Door",
+		"performers":  []string{"Alice Ray"},
+	})
+	if mismatched.StatusCode != http.StatusCreated {
+		t.Fatalf("upload (mismatched date) status = %d, want 201", mismatched.StatusCode)
+	}
+
+	resp := doPostJSON(t, ts, "/api/v1/match", map[string]any{
+		"stem":        "thehousenextdoor2024 - The Reluctant Dog Sitter - Compressed",
+		"duration_ms": int64(3541000),
+		"date":        "2024-03-01",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("match status = %d, want 200", resp.StatusCode)
+	}
+	var out struct {
+		Verdict    string `json:"verdict"`
+		Candidates []struct {
+			Release struct {
+				OSHash string `json:"oshash"`
+			} `json:"release"`
+			Date    *string  `json:"date"`
+			Reasons []string `json:"reasons"`
+		} `json:"candidates"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if len(out.Candidates) < 2 {
+		t.Fatalf("candidates = %d, want at least 2; verdict=%s", len(out.Candidates), out.Verdict)
+	}
+	top := out.Candidates[0]
+	if top.Release.OSHash != "feed0000000000a1" {
+		t.Errorf("top candidate oshash = %s, want the date-matching release", top.Release.OSHash)
+	}
+	if top.Date == nil || *top.Date != "2024-03-01" {
+		t.Errorf("top candidate date = %v, want 2024-03-01", top.Date)
+	}
+
+	var sawMismatch bool
+	for _, c := range out.Candidates {
+		if c.Release.OSHash != "feed0000000000b2" {
+			continue
+		}
+		for _, reason := range c.Reasons {
+			if strings.HasPrefix(reason, "date mismatch") {
+				sawMismatch = true
+			}
+		}
+	}
+	if !sawMismatch {
+		t.Error("the off-date release never carries a \"date mismatch\" reason")
 	}
 }
 

@@ -141,20 +141,27 @@ a name.
 ```json
 {"stem": "some-scene-2023-1080p", "title": "Some Scene",
  "studio": "Some Studio", "performers": ["A Performer"],
- "duration_ms": 1857470}
+ "duration_ms": 1857470, "date": "2023-05-23"}
 ```
 
 `stem` or `title` is required (at least one non-empty); `duration_ms` (>0)
 is required. `studio`/`performers` are optional evidence for the scorer's
-vocabulary split. Response:
+vocabulary split. `date` (optional, `YYYY-MM-DD`, 400 `"date: want
+YYYY-MM-DD"` otherwise) is the scene date (WP-A7): same-titled scenes from
+lazily-named studio releases are otherwise indistinguishable by name and
+runtime alone, so when both the query and a candidate carry a date, they
+agree within 2 days for +25 same as today, but disagree by more than that
+for −40 and the candidate can then never reach `CONFIRMED` (capped at
+`LIKELY`). Response:
 
 ```json
 {
   "verdict": "CONFIRMED",
   "candidates": [
     {"release": {<release shape below>}, "title": "Some Scene",
-     "stem": "some-scene-2023-1080p", "score": 130.0, "name_sim": 0.95,
-     "delta_ms": -500, "reasons": ["filename match", "runtime +0.5s"]}
+     "stem": "some-scene-2023-1080p", "date": "2023-05-23", "score": 130.0,
+     "name_sim": 0.95, "delta_ms": -500,
+     "reasons": ["filename match", "runtime +0.5s"]}
   ]
 }
 ```
@@ -165,8 +172,10 @@ name-match result. A server `CONFIRMED` means the name evidence strongly
 agrees, which is a different and weaker claim than "this is the same
 file" (levels 1-3's fingerprint identity); it is not grounds to skip user
 confirmation. `candidates` is always present (possibly empty) and ordered
-best-first; `title`/`stem` echo the stored release's own name metadata so
-a client can show what the score was computed against.
+best-first; `title`/`stem`/`date` echo the stored release's own name
+metadata (`date` is `null` when the release has none) so a client can show
+what the score was computed against, including a date disagreement via
+`reasons`.
 
 ### Release shape (shared by all lookups)
 

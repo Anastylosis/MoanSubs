@@ -30,16 +30,22 @@ type matchRequest struct {
 	Studio     string   `json:"studio"`
 	Performers []string `json:"performers"`
 	DurationMs int64    `json:"duration_ms"` // required, > 0
+	// Date is a YYYY-MM-DD scene date, optional (WP-A7: the discriminator
+	// for same-title-same-runtime false positives). Validated with the
+	// upload path's datePattern when non-empty.
+	Date string `json:"date"`
 }
 
 // matchCandidate is one scored possibility: the shared release+tracks
 // lookup shape plus the scorer's explanation for ranking it.
 type matchCandidate struct {
 	Release lookupRelease `json:"release"`
-	// Title and Stem are the stored release's name metadata — echoed so a
-	// client can show what the score was computed against.
+	// Title, Stem and Date are the stored release's name metadata — echoed
+	// so a client can show what the score was computed against (Date lets
+	// it render a date-mismatch reason alongside the actual dates).
 	Title *string `json:"title"`
 	Stem  *string `json:"stem"`
+	Date  *string `json:"date"`
 	Score float64 `json:"score"`
 	// NameSim is the better of title/stem token similarity (0..1).
 	NameSim float64 `json:"name_sim"`
@@ -77,6 +83,10 @@ func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.DurationMs <= 0 {
 		writeError(w, http.StatusBadRequest, "duration_ms must be > 0")
+		return
+	}
+	if req.Date != "" && !datePattern.MatchString(req.Date) {
+		writeError(w, http.StatusBadRequest, "date: want YYYY-MM-DD")
 		return
 	}
 	queryName := req.Stem
@@ -150,6 +160,7 @@ func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request) {
 	m := subs.NewIndex(refs, subs.NewVocab(creatorNames)).Match(subs.Subtitle{
 		Stem:    queryName,
 		Runtime: time.Duration(req.DurationMs) * time.Millisecond,
+		Date:    req.Date,
 	}, 5)
 
 	ranked := make([]store.Release, 0, len(m.Candidates))
@@ -173,6 +184,7 @@ func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request) {
 			Release: releases[i],
 			Title:   rel.Title,
 			Stem:    rel.Stem,
+			Date:    rel.ReleaseDate,
 			Score:   c.Score,
 			NameSim: c.NameSim,
 			DeltaMs: c.Delta.Milliseconds(),
