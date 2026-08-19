@@ -87,8 +87,10 @@ any time from `/me`, and an admin can disable *any* code (`requireRole`,
 doesn't need its creator's cooperation to shut off. `invited_by` is kept
 on the invited account permanently, even if the inviter is later
 disabled or purged: it's a moderation trail, not a live permission, so it
-outlives the relationship it recorded. Self-minted codes are earned, not
-free: an account's own `POST /me/invites` budget grows with its
+outlives the relationship it recorded. Codes minted by a disabled account
+cannot be redeemed until that account is re-enabled, closing the window for
+an abused account's invites to create new upload accounts. Self-minted codes
+are earned, not free: an account's own `POST /me/invites` budget grows with its
 contribution (visible uploads) and is capped on codes sitting unused
 (`MOANSUBS_INVITES_INITIAL`/`_PER_UPLOADS`/`_CAP`, MANUAL.md) — a
 compromised or brand-new account can't mint an unbounded pool of

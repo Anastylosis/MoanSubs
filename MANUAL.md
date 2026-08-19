@@ -187,7 +187,8 @@ disabled`. Revocation is a flag, not a delete, so existing uploads keep
 their attribution and the name cannot be re-registered by somebody else.
 Disabling also deletes every browser session (`sessions` rows) belonging to
 the account, so a revoked account cannot stay logged in at `/me` until its
-cookie happens to expire; enabling does not recreate anything.
+cookie happens to expire; enabling does not recreate anything. Invite codes
+minted by a disabled account cannot be redeemed until that account is re-enabled.
 
 ### `moansubs account rotate-token <name>`
 

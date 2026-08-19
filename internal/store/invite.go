@@ -347,6 +347,7 @@ func (s *Store) createInvitedAccount(ctx context.Context, name, code string, pas
 		WHERE code = $1 AND disabled_at IS NULL
 		  AND (expires_at IS NULL OR expires_at > now())
 		  AND (max_uses IS NULL OR uses < max_uses)
+		  AND created_by NOT IN (SELECT id FROM accounts WHERE disabled)
 		RETURNING created_by`, code,
 	).Scan(&invitedBy)
 	if errors.Is(err, pgx.ErrNoRows) {

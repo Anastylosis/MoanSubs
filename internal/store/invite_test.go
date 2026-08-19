@@ -147,6 +147,38 @@ func TestStore_CreateInvitedAccount_DisabledCode(t *testing.T) {
 	}
 }
 
+// TestStore_CreateInvitedAccount_DisabledCreator is WP-R2's spec: an invite
+// from a disabled account cannot be redeemed, even if the code itself is active.
+func TestStore_CreateInvitedAccount_DisabledCreator(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	inviterID := mustAccountID(t, s, "inviter")
+	code, err := s.CreateInvite(ctx, inviterID, nil, nil)
+	if err != nil {
+		t.Fatalf("CreateInvite: %v", err)
+	}
+
+	// Disable the inviter's account.
+	if err := s.SetAccountDisabled(ctx, "inviter", true); err != nil {
+		t.Fatalf("SetAccountDisabled: %v", err)
+	}
+
+	// The code should no longer redeem.
+	if _, _, _, err := s.CreateInvitedAccount(ctx, "nobody", code); !errors.Is(err, ErrInviteInvalid) {
+		t.Errorf("CreateInvitedAccount with a disabled creator: got %v, want ErrInviteInvalid", err)
+	}
+
+	// Re-enable the inviter; the code should now redeem again.
+	if err := s.SetAccountDisabled(ctx, "inviter", false); err != nil {
+		t.Fatalf("SetAccountDisabled (re-enable): %v", err)
+	}
+
+	if _, _, _, err := s.CreateInvitedAccount(ctx, "reinvitee", code); err != nil {
+		t.Errorf("CreateInvitedAccount after re-enabling creator: got %v, want nil", err)
+	}
+}
+
 func TestStore_CreateInvitedAccount_ExpiredCode(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
