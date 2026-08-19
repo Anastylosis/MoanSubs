@@ -173,15 +173,44 @@ func sceneKeys(s *stash.Scene) (hash.OSHash, *hash.PHash, int64, string, []stash
 // msclientStashIDs converts a scene's stash.StashID list (as read from
 // Stash's GraphQL) into msclient's wire shape — the same two fields, just a
 // different package boundary (plugin/stash reads from Stash, plugin/msclient
-// writes to the moansubs server).
-func msclientStashIDs(ids []stash.StashID) []msclient.StashID {
+// writes to the moansubs server). Validates each ID, drops invalid ones (logs
+// once per scene), and caps at 5 entries to match the server's push limit.
+func msclientStashIDs(ids []stash.StashID, sceneID string) []msclient.StashID {
 	if len(ids) == 0 {
 		return nil
 	}
-	out := make([]msclient.StashID, len(ids))
-	for i, id := range ids {
-		out[i] = msclient.StashID{Endpoint: id.Endpoint, StashID: id.StashID}
+
+	const maxStashIDs = 5
+	var out []msclient.StashID
+	var dropped bool
+
+	for _, id := range ids {
+		// Validate the stash ID format
+		validID, err := hash.ParseStashID(id.StashID)
+		if err != nil {
+			dropped = true
+			continue
+		}
+
+		// Validate and normalize the endpoint
+		validEndpoint, err := hash.NormalizeStashEndpoint(id.Endpoint)
+		if err != nil {
+			dropped = true
+			continue
+		}
+
+		// Stop after collecting 5 valid IDs (server limit)
+		if len(out) >= maxStashIDs {
+			continue
+		}
+
+		out = append(out, msclient.StashID{Endpoint: validEndpoint, StashID: validID})
 	}
+
+	if dropped && sceneID != "" {
+		logInfo("scene %s: some stash IDs were dropped (invalid format or too many)", sceneID)
+	}
+
 	return out
 }
 
@@ -191,8 +220,8 @@ func msclientStashIDs(ids []stash.StashID) []msclient.StashID {
 // which stash-box scene it matched, even when the release's hashes differ
 // from this scene's — that's exactly the case a hash-only comparison can't
 // see, since the same scene re-encoded still carries the same stash-box id.
-func (a *app) stashIdentityCandidates(ctx context.Context, ids []stash.StashID, sceneDurationMs int64) []Candidate {
-	query := msclientStashIDs(ids)
+func (a *app) stashIdentityCandidates(ctx context.Context, sceneID string, ids []stash.StashID, sceneDurationMs int64) []Candidate {
+	query := msclientStashIDs(ids, sceneID)
 	perID, err := a.ms.LookupStashIDs(ctx, query)
 	if err != nil {
 		logInfo("stash id lookup failed: %v", err)
@@ -265,7 +294,7 @@ func (a *app) search(ctx context.Context, sceneID string) (any, error) {
 	// encode by construction, which beats even an exact oshash match (WP-C9a).
 	var stashCandidates []Candidate
 	if len(stashIDs) > 0 {
-		stashCandidates = a.stashIdentityCandidates(ctx, stashIDs, durationMs)
+		stashCandidates = a.stashIdentityCandidates(ctx, sceneID, stashIDs, durationMs)
 	}
 
 	var releases []msclient.Release

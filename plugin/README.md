@@ -117,7 +117,9 @@ across different people's libraries is nearly never.
   server (see above); a scene missing a field simply pushes without it.
   The scene's stash-box ids (StashDB, FansDB, …), when Stash reports any,
   go along too — this is what lets **Exact match** rank a same-scene,
-  different-encode hit ahead of ordinary phash matching (see above).
+  different-encode hit ahead of ordinary phash matching (see above). Invalid
+  or malformed ids are dropped, and the list is capped at five (the server's
+  push limit); if any are dropped, the plugin logs once per scene.
 
 ## Troubleshooting
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -337,7 +338,7 @@ func TestSearch_StashIdentityRanksFirst(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sceneKeys: %v", err)
 	}
-	stashCandidates := a.stashIdentityCandidates(context.Background(), stashIDs, durationMs)
+	stashCandidates := a.stashIdentityCandidates(context.Background(), scene.ID, stashIDs, durationMs)
 	releases, err := a.ms.LookupBuckets(context.Background(), oh, ph)
 	if err != nil {
 		t.Fatalf("LookupBuckets: %v", err)
@@ -414,5 +415,66 @@ func TestServerURL_TrailingSlashStripped(t *testing.T) {
 		if c.BaseURL != tt.want {
 			t.Errorf("msclient.New(%q).BaseURL = %q, want %q", tt.input, c.BaseURL, tt.want)
 		}
+	}
+}
+
+// TestMsclientStashIDs_FiltersAndCaps verifies that msclientStashIDs
+// validates each StashID format, normalizes endpoints, drops invalid ones,
+// and caps the output at 5 entries matching the server's push limit. This
+// exercises WP-R3: a scene with one bad id and six good ones produces five.
+func TestMsclientStashIDs_FiltersAndCaps(t *testing.T) {
+	// Six valid stash IDs plus one invalid one in various positions.
+	ids := []stash.StashID{
+		// Valid: standard stashdb.org id
+		{Endpoint: "https://stashdb.org/graphql", StashID: "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+		// Invalid UUID format
+		{Endpoint: "https://stashdb.org/graphql", StashID: "invalid-uuid"},
+		// Valid: standard stashdb.org id
+		{Endpoint: "https://stashdb.org/graphql", StashID: "d72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+		// Invalid scheme (javascript: instead of https://)
+		{Endpoint: "javascript:alert('xss')", StashID: "e72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+		// Valid: fandb endpoint
+		{Endpoint: "https://fandb.org/graphql", StashID: "f72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+		// Valid: another endpoint
+		{Endpoint: "https://other.org/graphql", StashID: "a72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+		// Valid: one more to exceed cap of 5
+		{Endpoint: "https://more.org/graphql", StashID: "b72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+	}
+
+	got := msclientStashIDs(ids, "test-scene-id")
+	if len(got) != 5 {
+		t.Errorf("msclientStashIDs returned %d entries, want 5 (first five valid)", len(got))
+	}
+
+	// Check that the first five valid ones are present and in order
+	expected := []string{
+		"c72cba4a-1e2b-4f0e-8f3a-1234567890ab",
+		"d72cba4a-1e2b-4f0e-8f3a-1234567890ab",
+		"f72cba4a-1e2b-4f0e-8f3a-1234567890ab",
+		"a72cba4a-1e2b-4f0e-8f3a-1234567890ab",
+		"b72cba4a-1e2b-4f0e-8f3a-1234567890ab",
+	}
+	for i, exp := range expected {
+		if i >= len(got) {
+			t.Fatalf("got %d entries, expected at least %d", len(got), i+1)
+		}
+		if got[i].StashID != exp {
+			t.Errorf("got[%d].StashID = %q, want %q", i, got[i].StashID, exp)
+		}
+	}
+
+	// Check that endpoints are normalized (lowercase)
+	for i, entry := range got {
+		if entry.Endpoint != strings.ToLower(entry.Endpoint) {
+			t.Errorf("got[%d].Endpoint = %q not normalized", i, entry.Endpoint)
+		}
+	}
+}
+
+// TestMsclientStashIDs_EmptyInput returns nil for empty input.
+func TestMsclientStashIDs_EmptyInput(t *testing.T) {
+	got := msclientStashIDs([]stash.StashID{}, "scene-id")
+	if got != nil {
+		t.Errorf("msclientStashIDs([], ...) = %v, want nil", got)
 	}
 }
