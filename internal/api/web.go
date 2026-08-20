@@ -24,11 +24,19 @@ var uploadJS []byte
 //go:embed static/phash.js
 var phashJS []byte
 
+//go:embed static/favicon.png
+var faviconPNG []byte
+
+//go:embed static/icon-180.png
+var touchIconPNG []byte
+
 // defaultCSP is every page's Content-Security-Policy except /upload: the
 // page is entirely self-contained, so the strictest useful policy applies
-// — nothing loads from anywhere, and the only form target is this node
-// itself.
-const defaultCSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+// — nothing loads from anywhere but this node, and the only form target is
+// this node itself. img-src 'self' is the favicon's doing and nothing
+// else's: under default-src 'none' a browser refuses to fetch even a
+// same-origin icon.
+const defaultCSP = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
 // uploadCSP is /upload's policy: script-src 'self' allows static/upload.js
 // (served from this node, not inlined — CSP has no clean way to allow an
@@ -36,7 +44,7 @@ const defaultCSP = "default-src 'none'; style-src 'unsafe-inline'; form-action '
 // page can never be cached), and media-src blob: allows the detached
 // <video> element upload.js creates to probe duration from
 // URL.createObjectURL(file).
-const uploadCSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; media-src blob:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+const uploadCSP = "default-src 'none'; script-src 'self'; img-src 'self'; style-src 'unsafe-inline'; media-src blob:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
 // sessionLookups counts fallback session lookups (WP-R7) — incremented when
 // renderPage does a cookie lookup because authFromContext was nil. Exported
@@ -174,6 +182,29 @@ func (s *Server) handlePhashJS(w http.ResponseWriter, _ *http.Request) {
 func serveScript(w http.ResponseWriter, body []byte) {
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = w.Write(body)
+}
+
+// handleFavicon and handleTouchIcon serve the site icon: a 32px PNG for the
+// browser tab and a 180px one for an iOS home screen. Cached for a day
+// rather than the scripts' hour — an icon changes on a rebrand, not on a
+// deploy, and a browser re-fetching it on every visit is pure waste.
+//
+// The touch icon is full-bleed where the tab icon keeps its transparent
+// corners: iOS composites a transparent icon on white and then applies its
+// own rounded mask, which would ring the artwork's own rounded corners in
+// white before rounding them a second time.
+func (s *Server) handleFavicon(w http.ResponseWriter, _ *http.Request) {
+	servePNG(w, faviconPNG)
+}
+
+func (s *Server) handleTouchIcon(w http.ResponseWriter, _ *http.Request) {
+	servePNG(w, touchIconPNG)
+}
+
+func servePNG(w http.ResponseWriter, body []byte) {
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
 	_, _ = w.Write(body)
 }
 

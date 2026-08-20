@@ -288,6 +288,14 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("POST /upload", s.page(s.handleUploadSubmit))
 	mux.HandleFunc("GET /static/upload.js", s.handleUploadJS)
 	mux.HandleFunc("GET /static/phash.js", s.handlePhashJS)
+	mux.HandleFunc("GET /static/favicon.png", s.handleFavicon)
+	mux.HandleFunc("GET /static/icon-180.png", s.handleTouchIcon)
+	// /favicon.ico is what a browser, crawler or bookmark service asks for
+	// when it has no <link rel="icon"> to go on. Served as the PNG it
+	// actually is — every browser has accepted a PNG at this path for
+	// years, and "GET /" is a catch-all, so without this route it would
+	// come back as an HTML 404 page.
+	mux.HandleFunc("GET /favicon.ico", s.handleFavicon)
 	mux.HandleFunc("GET /robots.txt", s.handleRobotsTxt)
 	mux.HandleFunc("GET /browse", s.page(s.handleBrowse))
 	mux.HandleFunc("GET /search", s.page(s.handleSearch))

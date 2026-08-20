@@ -118,10 +118,13 @@ relying on an operator noticing in time.
 
 **Web pages.** The node serves HTML pages (`/`, `/register`, `/login`,
 `/me`), built with `html/template` so anything reflected back into the
-form is escaped. They carry a strict `Content-Security-Policy` (nothing
-loads from anywhere, forms post only to this node), `Referrer-Policy:
-same-origin`, and `Cache-Control: no-store` on any page that displays a
-token or reflects an account's own data.
+form is escaped. They carry a strict `Content-Security-Policy`
+(`default-src 'none'`: nothing loads from anywhere but this node's own
+origin, forms post only to this node), `Referrer-Policy: same-origin`, and
+`Cache-Control: no-store` on any page that displays a token or reflects an
+account's own data. The one source that policy grants is `img-src 'self'`,
+and it exists solely so the browser will fetch the site's own favicon,
+which `default-src 'none'` would otherwise block.
 
 **Age gate.** Every human page (not the API) sits behind an 18+
 click-through by default, `MOANSUBS_AGE_GATE` (MANUAL.md): accepting sets
