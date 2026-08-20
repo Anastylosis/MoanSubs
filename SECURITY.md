@@ -120,7 +120,7 @@ relying on an operator noticing in time.
 `/me`), built with `html/template` so anything reflected back into the
 form is escaped. They carry a strict `Content-Security-Policy` (nothing
 loads from anywhere, forms post only to this node), `Referrer-Policy:
-no-referrer`, and `Cache-Control: no-store` on any page that displays a
+same-origin`, and `Cache-Control: no-store` on any page that displays a
 token or reflects an account's own data.
 
 **Age gate.** Every human page (not the API) sits behind an 18+
