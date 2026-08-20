@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,6 +29,31 @@ const StatsFlushInterval = 30 * time.Second
 // the suffix on both the atomic field lookup below and the persisted
 // "lookups.<level>"/"hits.<level>" stats keys.
 var lookupLevels = []string{"oshash", "phash", "batch", "exact", "match", "stash"}
+
+// pageViewNames is the fixed set of page-view counters — the "views.<name>"
+// keys in the stats table, and the vocabulary /admin reports. Fixed at
+// compile time for the same reason the lookup counters are: the page set is
+// known from the templates, so building the map once in NewStats beats
+// discovering keys from whatever happens to be rendered first.
+var pageViewNames = []string{
+	"index", "browse", "search", "release", "u", "upload",
+	"login", "register", "me", "agegate", "mod", "admin",
+}
+
+// pageViewName maps a renderPage body template to the counter it bumps. The
+// admin_* and mod_* families collapse into one counter each: what an
+// operator wants from these numbers is how much moderation is happening,
+// not which of the four moderation screens rendered.
+func pageViewName(body string) string {
+	name := strings.TrimSuffix(body, ".html")
+	switch {
+	case strings.HasPrefix(name, "admin_"):
+		return "admin"
+	case strings.HasPrefix(name, "mod_"):
+		return "mod"
+	}
+	return name
+}
 
 // Stats holds moansubs's in-memory, per-process lookup hit-rate counters
 // (WP-A2), plus the store handle Run/Flush need to persist them and the
@@ -60,6 +87,14 @@ type Stats struct {
 	LookupsStash atomic.Int64
 	HitsStash    atomic.Int64
 
+	// views holds one counter per pageViewNames entry. A map rather than
+	// more named fields because, unlike the lookup counters, nothing reads
+	// an individual page's count by name — every consumer iterates the
+	// whole set. Built in NewStats and never written to afterwards, so
+	// concurrent reads of the map itself need no lock; the values are
+	// atomics for the same reason the fields above are.
+	views map[string]*atomic.Int64
+
 	cacheMu     sync.Mutex
 	cached      statsResponse
 	cachedUntil time.Time
@@ -67,7 +102,11 @@ type Stats struct {
 
 // NewStats returns a Stats bound to s, ready for Add* calls and Run.
 func NewStats(s *store.Store) *Stats {
-	return &Stats{store: s}
+	views := make(map[string]*atomic.Int64, len(pageViewNames))
+	for _, name := range pageViewNames {
+		views[name] = new(atomic.Int64)
+	}
+	return &Stats{store: s, views: views}
 }
 
 // counters maps each persisted stats.key to the atomic field that
@@ -76,7 +115,7 @@ func NewStats(s *store.Store) *Stats {
 // snapshot (read, via store.Counters instead, since a flush may have
 // already happened on another process — see Counters' doc comment).
 func (st *Stats) counters() map[string]*atomic.Int64 {
-	return map[string]*atomic.Int64{
+	m := map[string]*atomic.Int64{
 		"lookups.oshash": &st.LookupsOshash,
 		"hits.oshash":    &st.HitsOshash,
 		"lookups.phash":  &st.LookupsPhash,
@@ -90,6 +129,61 @@ func (st *Stats) counters() map[string]*atomic.Int64 {
 		"lookups.stash":  &st.LookupsStash,
 		"hits.stash":     &st.HitsStash,
 	}
+	for name, c := range st.views {
+		m["views."+name] = c
+	}
+	return m
+}
+
+// recordView bumps the page-view counter for a rendered body template —
+// web.go's renderPage calls it exactly once per page, so it sees the
+// re-render after a failed form post as the page view it is. A body with no
+// counter is dropped rather than growing the key set at runtime: adding a
+// template is a code change, so its counter belongs in pageViewNames.
+func (st *Stats) recordView(body string) {
+	if st == nil {
+		return
+	}
+	if c := st.views[pageViewName(body)]; c != nil {
+		c.Add(1)
+	}
+}
+
+// PageViewCount is one row of /admin's page-view table.
+type PageViewCount struct {
+	Page  string
+	Count int64
+}
+
+// ViewCounts reports every page-view counter, busiest first, merging what
+// is persisted with what this process has accumulated since its last flush.
+// Flush swaps its counters to zero, so the two never overlap and the sum is
+// exact rather than up to StatsFlushInterval behind — worth the one extra
+// query here, on an operator page nobody loads in a loop, where a number
+// that lags half a minute reads as a bug.
+//
+// Pages at zero are included, so one nobody ever reaches is visible as such
+// rather than simply missing from the table.
+func (st *Stats) ViewCounts(ctx context.Context) ([]PageViewCount, error) {
+	raw, err := st.store.Counters(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]PageViewCount, 0, len(pageViewNames))
+	for _, name := range pageViewNames {
+		live := int64(0)
+		if c := st.views[name]; c != nil {
+			live = c.Load()
+		}
+		rows = append(rows, PageViewCount{Page: name, Count: raw["views."+name] + live})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Count != rows[j].Count {
+			return rows[i].Count > rows[j].Count
+		}
+		return rows[i].Page < rows[j].Page
+	})
+	return rows, nil
 }
 
 // record bumps lookups by one, and hits with it when hit is true — the
@@ -110,7 +204,7 @@ func (st *Stats) record(lookups, hits *atomic.Int64, hit bool) {
 // flush. Exported (rather than only reachable via Run) so tests can flush
 // synchronously without waiting on a ticker.
 func (st *Stats) Flush(ctx context.Context) error {
-	deltas := make(map[string]int64, len(lookupLevels)*2)
+	deltas := make(map[string]int64, len(lookupLevels)*2+len(pageViewNames))
 	for key, counter := range st.counters() {
 		if v := counter.Swap(0); v != 0 {
 			deltas[key] = v

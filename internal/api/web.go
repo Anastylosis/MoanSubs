@@ -159,6 +159,8 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 	}
 	w.WriteHeader(status)
 
+	s.Stats.recordView(body)
+
 	if err := tpl.ExecuteTemplate(w, "page", data); err != nil {
 		// Too late for a status code — the header is already out.
 		log.Printf("api: rendering %q: %v", body, err)

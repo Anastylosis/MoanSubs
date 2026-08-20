@@ -13,4 +13,16 @@
   <div><strong>{{.PendingInvites}}</strong>pending invites</div>
 </div>
 <p><a href="/mod/flagged">Moderate flagged tracks</a> · <a href="/admin/accounts">Manage accounts</a> · <a href="/admin/invites">Manage invites</a></p>
+
+{{if .Views}}
+<h2>Page views</h2>
+<p class="hint">Every render this node has served since its first deploy, including pages no browser-side tracker sees. Not unique visitors — a reload counts again.</p>
+<table>
+  <thead><tr><th>Page</th><th class="n">Views</th></tr></thead>
+  <tbody>
+  {{range .Views}}<tr><td>{{.Page}}</td><td class="n">{{.Count}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
 {{end}}

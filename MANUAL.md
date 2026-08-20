@@ -565,6 +565,17 @@ log:
   the same reasoning as the in-memory rate limiter buckets above. The
   batch endpoint counts per HTTP request, not per scene, because its wire
   format carries no scene identifier for the server to group by.
+- **Page views.** Every rendered human page bumps one `views.<page>`
+  counter, on the same in-memory-then-flush path as the lookup counters
+  above. The vocabulary is fixed in code — `index`, `browse`, `search`,
+  `release`, `u`, `upload`, `login`, `register`, `me`, `agegate`, plus
+  `mod` and `admin`, which each collapse their whole family of screens into
+  one number. It counts renders, not people: a reload counts again, and a
+  form that comes back with an error counts the re-render. Nothing about
+  the visitor is recorded. These are **not** exposed by
+  `GET /api/v1/stats`; `/admin` shows them, adding the current process's
+  unflushed counts to the persisted ones so the table is exact rather than
+  up to 30 seconds stale.
 
 `GET /api/v1/stats` is public, unauthenticated, and answers from a 5-minute
 in-process cache — its `tracks`/`releases`/`languages`/`generated_share`/

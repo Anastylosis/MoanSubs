@@ -38,6 +38,9 @@ type adminIndexData struct {
 	RoleCounts     map[string]int
 	FlaggedCount   int
 	PendingInvites int
+	// Views is the per-page render count (stats.go). Read outside
+	// Stats.snapshot's 5-minute cache deliberately — see ViewCounts.
+	Views []PageViewCount
 }
 
 // handleAdminIndex implements GET /admin (WP-C7b): every count here is
@@ -73,6 +76,11 @@ func (s *Server) handleAdminIndex(w http.ResponseWriter, r *http.Request) {
 		log.Printf("api: CountPendingInvites: %v", err)
 	} else {
 		data.PendingInvites = n
+	}
+	if rows, err := s.Stats.ViewCounts(ctx); err != nil {
+		log.Printf("api: Stats.ViewCounts: %v", err)
+	} else {
+		data.Views = rows
 	}
 
 	s.renderPage(w, withAuth(r, ares), http.StatusOK, "admin_index.html", data, true)
