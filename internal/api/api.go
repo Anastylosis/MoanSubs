@@ -223,6 +223,10 @@ type Server struct {
 	// id at a time. A single entry of "*" (ParseStashEndpoints' output for
 	// the env var value "*") means any http(s) endpoint is accepted.
 	StashEndpoints []string
+	// Analytics is the optional visitor-analytics tag public pages carry
+	// (analytics.go, MOANSUBS_ANALYTICS_SCRIPT/_WEBSITE_ID). Nil — the
+	// default — means no tracker and the unwidened CSP on every page.
+	Analytics *Analytics
 }
 
 // NewServer builds a Server backed by s, with its own rate limiters.

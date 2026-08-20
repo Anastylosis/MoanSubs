@@ -32,6 +32,8 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_ADMIN_NAME` | `admin` | The name the first-run admin bootstrap (below) creates, when one runs at all. |
 | `MOANSUBS_BOOTSTRAP_ADMIN` | `true` | Set to `false` to disable the automatic first-run admin creation below — for an operator who'd rather keep credentials out of container logs entirely and mint the account by hand with `moansubs admin bootstrap` (via `docker compose exec`) instead. |
 | `MOANSUBS_AGE_GATE` | `true` | Shows an 18+ click-through interstitial (`GET`/`POST /age`) in front of every human page until a visitor accepts it — a plain "I am 18 or older" button, **not** age or identity verification (no ID, no face check). `false` disables it entirely, for an operator who satisfies a jurisdiction's real verification requirement some other way (a dedicated third-party provider, or a reverse proxy gating the whole node) rather than through this server. Never gates `/api/*`, `/healthz`, `/robots.txt`, `/favicon.ico`, or `/static/*`. |
+| `MOANSUBS_ANALYTICS_SCRIPT` | *(unset)* | URL of a visitor-analytics tracker script, written into every public page as `<script defer src=… data-website-id=… data-exclude-search="true">`. Built against [Umami](https://umami.is) — self-hosted and cookieless — but anything served as a `<script>` that reads `data-website-id` works. Two forms are accepted: a **same-origin path** (`/s/script.js`, for a reverse proxy in front of this node — see `deploy/README.md`), which keeps the page's CSP on `script-src 'self'; connect-src 'self'` with no third-party origin in it at all; or an **absolute http(s) URL**, whose origin is added to `script-src` and `connect-src` instead. A scheme-relative `//host/path` is rejected rather than guessed at. Must be set together with `MOANSUBS_ANALYTICS_WEBSITE_ID`; setting one alone fails startup, because the resulting tag would load and then silently record nothing. |
+| `MOANSUBS_ANALYTICS_WEBSITE_ID` | *(unset)* | The tracker's site identifier, emitted verbatim as `data-website-id`. See `MOANSUBS_ANALYTICS_SCRIPT`. |
 | `MOANSUBS_STASH_ENDPOINTS` | `https://stashdb.org/graphql,https://fansdb.cc/graphql` | Comma-separated allow-list of stash-box GraphQL endpoints an upload's `stash_ids` may name (WP-R6, defense in depth against a rogue uploader attaching an arbitrary URL the UI would render as a link — API.md "`POST /api/v1/subtitles`"). An endpoint outside it is rejected with `400 stash_ids: endpoint not accepted by this node`. The single value `*` accepts any http(s) endpoint. `GET /api/v1/version` advertises the resolved list as `stash_endpoints`, so the plugin filters what it pushes against it rather than racing the 400 one id at a time; the `/upload` form's endpoint `<select>` lists exactly this set too (plus "other" only when it's `*`). |
 
 **Invite economy (WP-C7c).** An account's invite budget is `earned =
@@ -577,6 +579,13 @@ log:
   unflushed counts to the persisted ones so the table is exact rather than
   up to 30 seconds stale.
 
+  This is the half of the picture a browser-side tracker cannot see:
+  `MOANSUBS_ANALYTICS_SCRIPT` only ever loads on a public page in a real
+  browser, so it misses `/me`, `/admin`, `/mod`, every visitor with
+  JavaScript off, and — most of this node's traffic — the Stash plugin
+  hitting `/api/v1/*`, which runs no browser at all. The two are
+  complementary, not redundant.
+
 `GET /api/v1/stats` is public, unauthenticated, and answers from a 5-minute
 in-process cache — its `tracks`/`releases`/`languages`/`generated_share`/
 `downloads_total` fields exclude withdrawn content, and `lookups.*` reflects
@@ -584,3 +593,32 @@ the last flush rather than the live in-memory counters. Restarting the
 server does not reset either counter: `downloads` lives on the track row,
 and the lookup totals are flushed to the `stats` table before shutdown
 completes.
+
+## Analytics (`MOANSUBS_ANALYTICS_SCRIPT`)
+
+Unset, this node has no tracker and serves the strictest Content-Security-
+Policy it can: `default-src 'none'` with no `script-src` at all on any page
+but `/upload`. Configuring one is an operator decision that visibly relaxes
+that, so it is worth knowing exactly what changes.
+
+**Where the tag goes.** Public pages only: the front page, `/browse`,
+`/search`, `/release/*`, `/u/*`, `/upload`, `/login`, `/register` and the
+age gate. `/me`, `/admin/*` and `/mod/*` never carry it — your own account
+and moderation navigation stays out of the analytics database — and those
+pages keep the unwidened CSP, since a page with no `<script>` on it has no
+reason to permit one.
+
+**Search terms stay here.** The tag is emitted with
+`data-exclude-search="true"`, so the query string is stripped before the
+URL is recorded and `/search?q=…` never carries what somebody typed to
+your analytics host. If you point `MOANSUBS_ANALYTICS_SCRIPT` at a tracker
+that does not understand that attribute, check what it records before
+trusting this paragraph.
+
+**Prefer a same-origin path.** Give the variable a path rather than an
+absolute URL and reverse-proxy it to your analytics host (see
+`deploy/README.md`). The CSP then stays `script-src 'self'; connect-src
+'self'` with no third-party origin in it, visitors make no DNS request to
+another host, and the common ad-blocker rules that match a known analytics
+path do not fire. An absolute URL works and is simpler to set up; it just
+costs all three of those.

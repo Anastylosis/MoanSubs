@@ -3,6 +3,21 @@
 # docker-compose.yml). Point DOMAIN's DNS A/AAAA record at this host and
 # open 80/443 before starting the stack, or the ACME challenge fails.
 {$DOMAIN} {
+	# Serves the analytics tracker from this domain instead of a third
+	# party's, so MOANSUBS_ANALYTICS_SCRIPT can be the path /s/script.js and
+	# the page's CSP stays script-src 'self' with no foreign origin in it.
+	# Uncomment the block and set ANALYTICS_HOST in the environment (an env
+	# var, so the hostname stays out of this tracked file), then set
+	# MOANSUBS_ANALYTICS_SCRIPT and MOANSUBS_ANALYTICS_WEBSITE_ID on the
+	# server service. Umami's tracker derives its collect endpoint from its
+	# own src, so this one rule covers both the script and the events it
+	# sends. It must come before reverse_proxy below, which is the catch-all.
+	# handle_path /s/* {
+	# 	reverse_proxy https://{$ANALYTICS_HOST} {
+	# 		header_up Host {$ANALYTICS_HOST}
+	# 	}
+	# }
+
 	# Caddy appends the address it saw to X-Forwarded-For (its default);
 	# moansubs reads the *last* entry once it trusts the proxy that set it
 	# (MOANSUBS_TRUSTED_PROXY_CIDRS), so anything a client put in the header

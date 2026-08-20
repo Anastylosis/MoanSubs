@@ -229,6 +229,17 @@ var serveCmd = &cobra.Command{
 			ageGate = b
 		}
 
+		// The optional analytics tag (MOANSUBS_ANALYTICS_SCRIPT plus
+		// MOANSUBS_ANALYTICS_WEBSITE_ID). Unset on both leaves the node
+		// with no tracker and the unwidened CSP; setting one without the
+		// other is an error rather than a default, since the resulting tag
+		// would load and silently record nothing.
+		analytics, err := api.ParseAnalytics(
+			os.Getenv("MOANSUBS_ANALYTICS_SCRIPT"), os.Getenv("MOANSUBS_ANALYTICS_WEBSITE_ID"))
+		if err != nil {
+			return fmt.Errorf("moansubs serve: %w", err)
+		}
+
 		// The stash-box endpoint allow-list (WP-R6): uploads naming an
 		// endpoint outside it are rejected with 400, defense in depth
 		// against a rogue uploader attaching an arbitrary URL the UI would
@@ -286,6 +297,7 @@ var serveCmd = &cobra.Command{
 		apiSrv.TrustedProxyCIDRs = trustedProxyCIDRs
 		apiSrv.AgeGate = ageGate
 		apiSrv.StashEndpoints = stashEndpoints
+		apiSrv.Analytics = analytics
 		srv := &http.Server{
 			Addr:    listen,
 			Handler: api.NewMux(apiSrv),

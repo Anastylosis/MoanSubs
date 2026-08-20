@@ -40,6 +40,11 @@ services:
       # Generate one with `openssl rand -hex 32` (64 hex chars); leaving it
       # unset is safe — tokens just aren't redisplayable, /me says so.
       MOANSUBS_TOKEN_KEY: ${MOANSUBS_TOKEN_KEY:?set MOANSUBS_TOKEN_KEY, e.g. via: openssl rand -hex 32}
+      # Visitor analytics, off by default. The path form below pairs with
+      # the /s/* proxy in Caddyfile, which keeps the tag same-origin — see
+      # "Analytics" in README.md. An absolute https:// URL also works.
+      # MOANSUBS_ANALYTICS_SCRIPT: "/s/script.js"
+      # MOANSUBS_ANALYTICS_WEBSITE_ID: ${MOANSUBS_ANALYTICS_WEBSITE_ID:-}
     depends_on:
       postgres:
         condition: service_healthy

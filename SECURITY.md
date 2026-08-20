@@ -122,9 +122,17 @@ form is escaped. They carry a strict `Content-Security-Policy`
 (`default-src 'none'`: nothing loads from anywhere but this node's own
 origin, forms post only to this node), `Referrer-Policy: same-origin`, and
 `Cache-Control: no-store` on any page that displays a token or reflects an
-account's own data. The one source that policy grants is `img-src 'self'`,
-and it exists solely so the browser will fetch the site's own favicon,
-which `default-src 'none'` would otherwise block.
+account's own data.
+
+Two things widen that policy, both narrowly. `img-src 'self'` is
+unconditional and exists solely so the browser will fetch the site's own
+favicon, which `default-src 'none'` would otherwise block. And an operator
+who configures `MOANSUBS_ANALYTICS_SCRIPT` (MANUAL.md) grants that
+tracker's origin `script-src` and `connect-src` — on public pages only:
+`/me`, `/admin/*` and `/mod/*` never carry the tag and keep the unwidened
+policy, and the tag is emitted with `data-exclude-search="true"` so
+`/search?q=` does not carry a visitor's query off this node. Unset — the
+default — no page loads a script except `/upload`'s own fingerprinter.
 
 **Age gate.** Every human page (not the API) sits behind an 18+
 click-through by default, `MOANSUBS_AGE_GATE` (MANUAL.md): accepting sets

@@ -72,6 +72,34 @@ live one — the point of the drill is confirming the dump is actually
 usable, and running it against production data risks the exact outage
 you're rehearsing for.
 
+## Analytics
+
+Optional and off by default. If you run your own analytics host (this is
+built against [Umami](https://umami.is) — self-hosted, cookieless), the
+recommended wiring serves its tracker from *this* domain rather than
+sending visitors to another one:
+
+1. Uncomment the `handle_path /s/*` block in `Caddyfile` and set
+   `ANALYTICS_HOST` to your analytics hostname in the environment — not in
+   `Caddyfile` itself, which is tracked.
+2. Uncomment `MOANSUBS_ANALYTICS_SCRIPT: "/s/script.js"` and
+   `MOANSUBS_ANALYTICS_WEBSITE_ID` on the `server` service, and set the
+   website id to the one your analytics host issued for this site.
+3. `docker compose up -d`, then load any public page and confirm the
+   `<script>` tag is there and the browser console reports no CSP
+   violation.
+
+The proxied path is worth the extra step: the page's CSP stays
+`script-src 'self'; connect-src 'self'` with no third-party origin in it,
+visitors never resolve your analytics hostname, and ad-blocker rules that
+match well-known analytics paths do not fire. Pointing
+`MOANSUBS_ANALYTICS_SCRIPT` straight at `https://<host>/script.js` also
+works and skips step 1 — it just costs all three.
+
+What gets recorded and what deliberately does not — public pages only,
+never `/me`, `/admin` or `/mod`, and search queries stripped before the URL
+is sent — is in MANUAL.md under "Analytics".
+
 ## Trust proxy note
 
 The lookup and registration rate limiters key on the caller's IP, read from

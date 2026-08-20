@@ -57,11 +57,12 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	// words turns a closed-vocabulary key ("out_of_sync") into its label
 	// ("out of sync") — the keys are API contract, the labels are not.
 	"words": func(s string) string { return strings.ReplaceAll(s, "_", " ") },
-	// loggedIn and roleAtLeast are rebound per request in renderPage; these
-	// are the parse-time placeholders (a template function must be defined
-	// at parse time or parsing itself fails).
+	// loggedIn, roleAtLeast and analytics are rebound per request in
+	// renderPage; these are the parse-time placeholders (a template
+	// function must be defined at parse time or parsing itself fails).
 	"loggedIn":    func() bool { return false },
 	"roleAtLeast": func(string) bool { return false },
+	"analytics":   func() *Analytics { return nil },
 }).ParseFS(templateFS, "templates/*.html"))
 
 // registerData is /register's data (both the form and its result). Name is
@@ -127,9 +128,17 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 				sessionLookups++
 			}
 		}
+		// The tracker only ever reaches a public page (analyticsPages),
+		// so the layout asks per render rather than carrying one flag for
+		// the whole node.
+		var tracker *Analytics
+		if analyticsPages[body] {
+			tracker = s.Analytics
+		}
 		tpl = tpl.Funcs(template.FuncMap{
 			"loggedIn":    func() bool { return loggedIn },
 			"roleAtLeast": func(want string) bool { return roleRank[role] >= roleRank[want] },
+			"analytics":   func() *Analytics { return tracker },
 		})
 	}
 	if err == nil {
@@ -142,13 +151,7 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// /upload is the only page that loads a script, so it is the only page
-	// with a looser policy — everything else stays on defaultCSP.
-	csp := defaultCSP
-	if body == "upload.html" {
-		csp = uploadCSP
-	}
-	w.Header().Set("Content-Security-Policy", csp)
+	w.Header().Set("Content-Security-Policy", s.csp(body))
 	// same-origin, not no-referrer: the CSRF check (sameOrigin) falls back
 	// to Referer when a browser omits Origin on a same-origin POST, and a
 	// Referer that only ever reaches this node leaks nothing.
@@ -165,6 +168,27 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 		// Too late for a status code — the header is already out.
 		log.Printf("api: rendering %q: %v", body, err)
 	}
+}
+
+// csp is the Content-Security-Policy for one rendered page. /upload is the
+// only page that loads a script of its own, so it is the only one on the
+// looser base policy. A configured tracker widens whichever base applies
+// (analytics.go), but only on the pages that actually carry it — /me and
+// the admin/mod screens keep the unwidened policy, since a page with no
+// <script> on it has no reason to permit one. An unconfigured node serves
+// both consts untouched.
+func (s *Server) csp(body string) string {
+	tracked := s.Analytics != nil && analyticsPages[body]
+	if body == "upload.html" {
+		if tracked {
+			return s.Analytics.uploadCSP
+		}
+		return uploadCSP
+	}
+	if tracked {
+		return s.Analytics.pageCSP
+	}
+	return defaultCSP
 }
 
 // handleUploadJS and handlePhashJS serve this node's two static assets

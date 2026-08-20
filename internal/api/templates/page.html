@@ -138,7 +138,14 @@
   .prose p { margin-bottom: .9rem; }
   kbd { font-family: var(--mono); font-size: .85em; border: 1px solid var(--line); border-radius: 3px; padding: 0 .3em; }
 </style>
-<header class="bar">
+{{/* The optional analytics tag (analytics.go). Nothing is emitted unless an
+     operator configured one, and the layout only ever sees it on a public
+     page — the analytics func returns nil everywhere else, which is also
+     what keeps the page's CSP unwidened there. data-exclude-search drops
+     the query string, so /search?q= never carries a visitor's search terms
+     into the analytics database. */}}
+{{with analytics}}<script defer src="{{.Script}}" data-website-id="{{.WebsiteID}}" data-exclude-search="true"></script>
+{{end}}<header class="bar">
   <div class="bar-in">
     <a class="wordmark" href="/">moan<b>subs</b></a>
     <nav aria-label="Site">
