@@ -277,7 +277,16 @@ func (s *Store) NearDurationCandidates(ctx context.Context, maxDeltaMs int64, li
 		JOIN releases b
 		  ON b.id > a.id
 		 AND abs(b.duration_ms - a.duration_ms) <= $1
+		 -- Equality, not overlap. Measured on a 1000-release node: the
+		 -- duration bound alone matches 32,160 pairs because most clips
+		 -- run a similar length, and array-overlap only cuts that to
+		 -- 22,542 since nearly any two titles share a common word.
+		 -- Requiring the same
+		 -- token set gives 8 — the pairs that are actually the same name,
+		 -- which is what the name signal claims anyway.
+		 AND a.name_tokens = b.name_tokens
 		WHERE a.withdrawn_at IS NULL AND b.withdrawn_at IS NULL
+		  AND a.name_tokens IS NOT NULL AND b.name_tokens IS NOT NULL
 		  AND coalesce(a.title, a.stem) IS NOT NULL
 		  AND coalesce(b.title, b.stem) IS NOT NULL
 		  AND (a.work_id IS NULL OR b.work_id IS NULL OR a.work_id <> b.work_id)
