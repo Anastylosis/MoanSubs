@@ -413,7 +413,9 @@ func TestDisplayTitle_FallsBackToStemThenPlaceholder(t *testing.T) {
 		want string
 	}{
 		{"has title", store.Release{Title: &title}, "Real Title"},
-		{"falls back to stem", store.Release{Stem: &stem}, "some-stem"},
+		// The stem is shown cleaned up now, not raw -- separators become
+		// spaces (stemdisplay_test.go covers the cleaning itself).
+		{"falls back to stem", store.Release{Stem: &stem}, "some stem"},
 		{"falls back to placeholder", store.Release{}, "(untitled)"},
 	}
 	for _, c := range cases {

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/Anastylosis/MoanSubs/internal/store"
 	subs "github.com/Anastylosis/subtitlematch"
@@ -109,18 +110,115 @@ func buildStashLinks(ids []store.ReleaseStashID) []stashLink {
 	return out
 }
 
-// displayTitle picks what to head a release with. CatalogueRelease and
-// BrowseReleases only guarantee SOME name metadata (name_tokens IS NOT
-// NULL) — that can be studio/performers/date alone, with no title or stem
-// at all, so both are tried before falling back to a plain placeholder.
-func displayTitle(r store.Release) string {
+// curatedTitle is the release's name as someone actually asserted it,
+// or "" when nobody has. A stem is deliberately not a candidate: it is an
+// observation about one uploader's file, not a claim about the scene.
+//
+// This is the value that decides whether a page may be indexed, so it must
+// never fall back to anything derived from a filename — see
+// releaseIsIndexable.
+func curatedTitle(r store.Release) string {
 	if r.Title != nil && strings.TrimSpace(*r.Title) != "" {
-		return *r.Title
+		return strings.TrimSpace(*r.Title)
 	}
-	if r.Stem != nil && strings.TrimSpace(*r.Stem) != "" {
-		return *r.Stem
+	return ""
+}
+
+// displayTitle picks what to head a release with for a human reader. A
+// curated title wins; failing that a stem is cleaned up and shown, because
+// "La.Hermana.De.Mi.Amigo.2024.1080p" is genuinely useful to a person
+// deciding whether this is their video.
+//
+// Cleaning is cosmetic only. It is NOT what protects a filename from being
+// published: the stems that matter for privacy are the readable ones
+// ("Jane Doe - SiteRip 2019"), which no legibility test can distinguish
+// from a legitimate title. Keeping filenames off crawlable pages is
+// releaseIsIndexable's job, structurally, and this function's output must
+// never be treated as safe to index.
+func displayTitle(r store.Release) string {
+	if t := curatedTitle(r); t != "" {
+		return t
+	}
+	if r.Stem != nil {
+		if cleaned := cleanStem(*r.Stem); cleaned != "" {
+			return cleaned
+		}
 	}
 	return "(untitled)"
+}
+
+// releaseIsIndexable reports whether a release's page may be offered to a
+// crawler. Only a curated title qualifies.
+//
+// The rule is structural rather than heuristic on purpose. A filename
+// published to an indexable page is cached beyond this server's reach
+// within hours and cannot be retracted by editing the database, so the
+// question is never "does this stem look safe" — it is "did a human assert
+// this name". Everything else stays readable to people and invisible to
+// crawlers.
+func releaseIsIndexable(r store.Release) bool {
+	return curatedTitle(r) != ""
+}
+
+// stemNoise is the tail of resolution, source and codec tags that a scene
+// filename accumulates and that no reader wants in a heading.
+var stemNoise = map[string]bool{
+	"1080p": true, "1440p": true, "2160p": true, "240p": true, "360p": true,
+	"480p": true, "540p": true, "720p": true, "4k": true, "8k": true,
+	"aac": true, "avc": true, "bluray": true, "ddp": true, "dvdrip": true,
+	"h264": true, "h265": true, "hdrip": true, "hevc": true, "mp4": true,
+	"web": true, "webdl": true, "webrip": true, "x264": true, "x265": true,
+	"xxx": true,
+}
+
+// cleanStem turns a filename stem into something readable, or "" when
+// there is nothing readable in it. Separators become spaces, trailing
+// format tags are dropped, and a stem with no word-like content left --
+// "123eqawfdhsgaweroqr3raef" -- yields "", so the caller shows a
+// placeholder instead of a hash.
+func cleanStem(stem string) string {
+	fields := strings.FieldsFunc(stem, func(r rune) bool {
+		return r == '.' || r == '_' || r == '-' || r == '+' || unicode.IsSpace(r)
+	})
+
+	kept := make([]string, 0, len(fields))
+	for _, f := range fields {
+		if !stemNoise[strings.ToLower(f)] {
+			kept = append(kept, f)
+		}
+	}
+
+	// One long run of characters with no separator at all is a hash, an id
+	// or an encoder string -- never a name someone typed.
+	if len(kept) < 2 {
+		return ""
+	}
+	if !hasWordLikeRun(kept) {
+		return ""
+	}
+	return strings.Join(kept, " ")
+}
+
+// hasWordLikeRun reports whether any field looks like a word rather than
+// an identifier: at least three letters, and no digits mixed in among
+// them.
+func hasWordLikeRun(fields []string) bool {
+	for _, f := range fields {
+		letters := 0
+		digits := 0
+		for _, r := range f {
+			switch {
+			case unicode.IsLetter(r):
+				letters++
+			case unicode.IsDigit(r):
+				digits++
+			}
+		}
+		if letters >= 3 && digits == 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // formatDuration renders a millisecond duration as "M:SS", or "H:MM:SS"
@@ -151,10 +249,18 @@ func formatResolution(width, height *int) string {
 
 // buildCatalogueRelease assembles the rendering shape from a store.Release
 // and its already-fetched visible track summaries.
-func buildCatalogueRelease(r store.Release, tracks []store.SubtitleTrackSummary) catalogueRelease {
+// crawlable says the rendered output will sit on a page a crawler may
+// fetch. It suppresses the filename fallback: a listing that reaches an
+// index must carry curated names or nothing, since link text is cached as
+// surely as a heading is.
+func buildCatalogueRelease(r store.Release, tracks []store.SubtitleTrackSummary, crawlable bool) catalogueRelease {
+	title := displayTitle(r)
+	if crawlable && !releaseIsIndexable(r) {
+		title = "(untitled)"
+	}
 	out := catalogueRelease{
 		ID:         r.ID,
-		Title:      displayTitle(r),
+		Title:      title,
 		Duration:   formatDuration(r.DurationMs),
 		Resolution: formatResolution(r.Width, r.Height),
 		Performers: r.Performers,
@@ -178,7 +284,7 @@ func buildCatalogueRelease(r store.Release, tracks []store.SubtitleTrackSummary)
 // buildCatalogueReleases fetches visible track summaries for releases in a
 // single query (store.TrackSummariesByReleaseIDs, the same batching lookup
 // endpoints use) and assembles the rendering shape for each.
-func (s *Server) buildCatalogueReleases(ctx context.Context, releases []store.Release) ([]catalogueRelease, error) {
+func (s *Server) buildCatalogueReleases(ctx context.Context, releases []store.Release, crawlable bool) ([]catalogueRelease, error) {
 	ids := make([]int64, len(releases))
 	for i, r := range releases {
 		ids[i] = r.ID
@@ -189,7 +295,7 @@ func (s *Server) buildCatalogueReleases(ctx context.Context, releases []store.Re
 	}
 	out := make([]catalogueRelease, 0, len(releases))
 	for _, r := range releases {
-		out = append(out, buildCatalogueRelease(r, tracksByRelease[r.ID]))
+		out = append(out, buildCatalogueRelease(r, tracksByRelease[r.ID], crawlable))
 	}
 	return out, nil
 }
@@ -241,6 +347,21 @@ func (s *Server) setCatalogueRobots(w http.ResponseWriter) {
 	}
 }
 
+// setReleaseRobots keeps a release page out of the index until someone has
+// asserted a name for it. An Indexable node still says noindex for a
+// release whose only name is a filename, because a heading crawled once is
+// cached past any later correction here — and a scene filename can carry a
+// performer's legal name as easily as it carries a resolution tag.
+//
+// Narrower than setCatalogueRobots on purpose: this is a per-release
+// decision, so it runs after the release is fetched and overrides the
+// blanket header set at the top of the handler.
+func (s *Server) setReleaseRobots(w http.ResponseWriter, r store.Release) {
+	if s.Indexable && !releaseIsIndexable(r) {
+		w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	}
+}
+
 // -- GET /browse --------------------------------------------------------
 
 // browsePageData is /browse's template data.
@@ -277,7 +398,9 @@ func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rendered, err := s.buildCatalogueReleases(ctx, releases)
+	// Browse is the one listing a crawler is invited to keep, so its rows
+	// carry no filenames on an Indexable node.
+	rendered, err := s.buildCatalogueReleases(ctx, releases, s.Indexable)
 	if err != nil {
 		log.Printf("api: buildCatalogueReleases (browse): %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -382,7 +505,9 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		releases = releases[:store.CatalogueBrowsePageSize]
 	}
 
-	rendered, err := s.buildCatalogueReleases(ctx, releases)
+	// Search is noindex and robots-disallowed either way, so filenames may
+	// show here: looking up your own file by its name is a real use.
+	rendered, err := s.buildCatalogueReleases(ctx, releases, false)
 	if err != nil {
 		log.Printf("api: buildCatalogueReleases (search): %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -468,6 +593,7 @@ func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id in
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	s.setReleaseRobots(w, *release)
 
 	tracksByRelease, err := s.Store.TrackSummariesByReleaseIDs(ctx, []int64{release.ID})
 	if err != nil {
@@ -476,7 +602,10 @@ func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id in
 		return
 	}
 
-	rendered := buildCatalogueRelease(*release, tracksByRelease[release.ID])
+	// The release page itself is held out of the index unless the release
+	// has a curated title (see setReleaseRobots below), so a human reading
+	// it may still see the cleaned-up filename.
+	rendered := buildCatalogueRelease(*release, tracksByRelease[release.ID], false)
 
 	stashIDsByRelease, err := s.Store.StashIDsByReleaseIDs(ctx, []int64{release.ID})
 	if err != nil {
