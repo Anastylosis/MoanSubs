@@ -1,0 +1,29 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>moansubs plugin index</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  body{max-width:42rem;margin:4rem auto;padding:0 1.25rem;
+       font:16px/1.6 system-ui,sans-serif;color:#1b1d22;background:#e9e7e1}
+  code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;
+       background:#f3f1ec;border:1px solid #cfccc4;border-radius:3px;padding:.1em .35em}
+  a{color:#8a6d00}
+  @media (prefers-color-scheme:dark){
+    body{color:#ece8df;background:#1b1d22}
+    code{background:#22252b;border-color:#33373f}
+    a{color:#f3ce4a}}
+</style>
+<h1>moansubs plugin index</h1>
+<p>This branch serves the Stash package index for the
+<a href="https://github.com/Anastylosis/MoanSubs">moansubs</a> plugin. It is
+published by the release workflow; there is nothing to browse here by hand.</p>
+<p>Add the URL matching the architecture <em>Stash itself</em> runs on, under
+Settings → Plugins → Add source. The exec half is a native binary, so an
+arm64 NAS needs the arm64 index even when the server runs elsewhere.</p>
+<ul>
+  <li><code>https://anastylosis.github.io/MoanSubs/plugin/amd64/index.yml</code></li>
+  <li><code>https://anastylosis.github.io/MoanSubs/plugin/arm64/index.yml</code></li>
+</ul>
+<p>Each index points at bundles attached to a release, so adding it once
+reaches every later release. See
+<a href="https://github.com/Anastylosis/MoanSubs/blob/master/plugin/README.md">plugin/README.md</a>.</p>
