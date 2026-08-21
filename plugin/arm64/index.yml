@@ -1,0 +1,13 @@
+- id: moansubs
+  name: moansubs
+  version: "0.1.0"
+  date: "2026-08-21 14:31:25"
+  path: https://github.com/Anastylosis/MoanSubs/releases/download/v0.1.0/moansubs-plugin-v0.1.0-linux-arm64.zip
+  sha256: eabb7db9bcec72b249092f0009f0151534d3058bbbe30fd2d438bcfd4b8c3d44
+  requires: []
+  metadata:
+    description: >-
+      Search and download subtitles for scenes from a moansubs server.
+      This index serves the linux/arm64 build — the plugin's exec half
+      is a native binary, so it must match the architecture Stash itself
+      runs on.
