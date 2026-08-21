@@ -1,5 +1,11 @@
 # moansubs
 
+[![CI](https://github.com/Anastylosis/MoanSubs/actions/workflows/ci.yml/badge.svg)](https://github.com/Anastylosis/MoanSubs/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/Anastylosis/MoanSubs/graph/badge.svg?token=MGU9Q2VLUC)](https://codecov.io/gh/Anastylosis/MoanSubs)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Anastylosis/MoanSubs.svg)](https://pkg.go.dev/github.com/Anastylosis/MoanSubs)
+[![Release](https://img.shields.io/github/v/release/Anastylosis/MoanSubs)](https://github.com/Anastylosis/MoanSubs/releases/latest)
+[![License](https://img.shields.io/github/license/Anastylosis/MoanSubs)](LICENSE)
+
 A subtitle database for [Stash](https://github.com/stashapp/stash): a
 self-hostable Go + Postgres server that stores subtitle tracks keyed by
 video fingerprints (Stash's `oshash`/`phash`), plus a Stash plugin that
@@ -212,9 +218,10 @@ notice-and-takedown obligations as the node it copies — see
 
 Working v1: server, lookup/upload API, both plugin halves, and public dumps
 for mirroring are built, tested, and running against a real Stash library.
-Release packaging — binaries, image, plugin bundles and the plugin package
-source — is wired up but no release has been cut yet, so the source URLs
-above go live with the first tag. There is no public moansubs instance yet.
+`v0.1.0` is the first tagged release — binaries, the container image, the
+Stash plugin bundles and the plugin package source are published from it, so
+the source URLs above resolve. There is no public moansubs instance yet;
+run your own with [`deploy/`](deploy/).
 
 ## Documentation
 

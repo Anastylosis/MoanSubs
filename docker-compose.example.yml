@@ -2,10 +2,11 @@
 # and adjust before running `docker compose up`.
 services:
   server:
-    # Published images are ghcr.io/anastylosis/moansubs:<version>; prefer a
-    # pinned tag over a moving one so a restart cannot change versions under
-    # you. Until the first tagged release, build from this checkout:
-    build: .
+    # Pinned rather than a moving tag, so a restart cannot change versions
+    # under you. To run local changes instead, comment this out and
+    # uncomment the build line below.
+    image: ghcr.io/anastylosis/moansubs:v0.1.0
+    # build: .
     restart: unless-stopped
     ports:
       - "8080:8080"
