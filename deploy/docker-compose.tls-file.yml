@@ -15,6 +15,13 @@
 services:
   traefik:
     command:
+      # Kept in step with the base file's command -- an override replaces the
+      # whole sequence, so a flag dropped here is a flag Traefik never sees.
+      # Without these three the healthcheck below has nothing to call and the
+      # container sits permanently unhealthy.
+      - --ping=true
+      - --ping.entrypoint=ping
+      - --entrypoints.ping.address=:8082
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --providers.file.directory=/etc/traefik/dynamic

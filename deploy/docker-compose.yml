@@ -41,6 +41,13 @@ services:
     # replacing this one list. A router-level certresolver label could not
     # be removed by an override, only pointed somewhere else.
     command:
+      # /ping on its own port, for the healthcheck below. Deliberately NOT
+      # on an entrypoint that is published: the answer says only "Traefik is
+      # answering", and there is no reason for the internet to be able to
+      # ask. 8082 is reachable from inside this container and nowhere else.
+      - --ping=true
+      - --ping.entrypoint=ping
+      - --entrypoints.ping.address=:8082
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       # Anything that is not a container -- an external analytics upstream,
@@ -73,6 +80,15 @@ services:
       # Issued certificates and the ACME account key. Losing this volume
       # means re-issuing from scratch, which Let's Encrypt rate-limits.
       - traefik_acme:/acme
+    # Without this, `docker compose ps` can only say the process is up —
+    # not whether it is actually serving. It also makes every container in
+    # this stack report health, rather than some reporting and some not.
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping", "--ping.entrypoint=ping", "--entrypoints.ping.address=:8082"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     depends_on:
       - server
 
