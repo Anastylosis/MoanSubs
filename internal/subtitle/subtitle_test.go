@@ -284,6 +284,40 @@ func TestRoundTrip_VTT(t *testing.T) {
 	}
 }
 
+// Re-rendering an already-rendered body must produce the identical bytes.
+// The upload path deduplicates on the rendered body, and the plugin writes
+// downloaded subtitles back to disk as sidecars that a later push picks up
+// again -- so if a second render drifted by even one byte, every
+// pull/push cycle would insert a fresh track instead of reporting a
+// duplicate. Cue-level equality (above) is not enough to catch that.
+func TestRenderSRT_SecondPassIsByteIdentical(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		src  string
+	}{
+		{"plain", "1\n00:00:01,000 --> 00:00:02,000\nHello\n\n"},
+		{"crlf", "1\r\n00:00:01,000 --> 00:00:02,000\r\n<i>Italic</i>\r\n\r\n"},
+		{"bom", "\ufeff1\n00:00:01,000 --> 00:00:02,000\nBOM prefixed\n\n"},
+		{"blank runs", "1\n00:00:01,000 --> 00:00:02,000\nTrailing   \n\n\n\n2\n00:00:09,000 --> 00:00:10,000\n&amp; entity\n\n"},
+		{"from vtt", "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nFrom VTT\n\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			first, err := Parse([]byte(tc.src))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			once := RenderSRT(first)
+			second, err := Parse([]byte(once))
+			if err != nil {
+				t.Fatalf("re-Parse of rendered SRT: %v", err)
+			}
+			if twice := RenderSRT(second); twice != once {
+				t.Errorf("second render differs:\n first: %q\nsecond: %q", once, twice)
+			}
+		})
+	}
+}
+
 // -- regressions found by fuzzing ----------------------------------------
 
 func TestSanitize_ControlCharInsideTagDoesNotHideIt(t *testing.T) {
