@@ -5,7 +5,7 @@ services:
     # Pinned rather than a moving tag, so a restart cannot change versions
     # under you. To run local changes instead, comment this out and
     # uncomment the build line below.
-    image: ghcr.io/anastylosis/moansubs:v0.1.0
+    image: ghcr.io/anastylosis/moansubs:0.1.0
     # build: .
     restart: unless-stopped
     ports:
