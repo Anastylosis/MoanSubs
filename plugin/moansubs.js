@@ -298,11 +298,17 @@
       let sync = "";
       if (c.sibling_of && c.sibling_sync_known) {
         const shift = Math.round(c.sibling_offset_ms / 10) / 100;
-        sync =
-          ' <span class="badge badge-info" title="Authored for another cut of this video. The server shifts it by ' +
-          shift +
-          's on download, so the file you get is already corrected.">sync ' +
-          (shift >= 0 ? "+" : "") + shift + "s</span>";
+        const signed = (shift >= 0 ? "+" : "") + shift + "s";
+        // An estimate must not wear the same badge as a measurement.
+        // "duration-delta" means nobody with both files ever checked: it
+        // is the runtime difference, which is only right when the extra
+        // footage happens to sit at the head.
+        const estimated = c.sibling_offset_source === "duration-delta";
+        sync = estimated
+          ? ' <span class="badge badge-warning" title="Authored for another cut of this video. The shift below is ESTIMATED from the runtime difference — nobody with both files has checked it, and it is only right if the extra footage is at the start. Applied on download.">sync ~' +
+            signed + "</span>"
+          : ' <span class="badge badge-info" title="Authored for another cut of this video, and somebody with both files measured the shift. Applied on download, so the file you get is already corrected.">sync ' +
+            signed + "</span>";
       } else if (c.sibling_of) {
         sync =
           ' <span class="badge badge-warning" title="Authored for another cut of this video, and nobody has recorded how far out it is. Offered as-is — it may not line up.">sync unknown</span>';

@@ -7,7 +7,8 @@ import (
 	"github.com/Anastylosis/MoanSubs/plugin/msclient"
 )
 
-func i64p(v int64) *int64 { return &v }
+func i64p(v int64) *int64   { return &v }
+func strp(s string) *string { return &s }
 
 // A sibling rides on an already-matched release: the local file identifies
 // one release exactly, and the node says which other tracks fit that same
@@ -21,19 +22,28 @@ func TestRankCandidates_OffersSiblingsOfAnExactMatch(t *testing.T) {
 		ID: 753, OSHash: "9fb6be9c13df176c", DurationMs: 2210000,
 		Tracks: []msclient.TrackSummary{{ID: 757, Lang: "es"}},
 		Siblings: []msclient.Sibling{
-			{ID: 665, ReleaseID: 662, Lang: "es", OffsetMs: i64p(3080)},
+			{ID: 665, ReleaseID: 662, Lang: "es", OffsetMs: i64p(3080), OffsetFrom: strp("measured")},
 			{ID: 999, ReleaseID: 662, Lang: "en"}, // no offset recorded
+			{ID: 998, ReleaseID: 662, Lang: "fr", OffsetMs: i64p(3080), OffsetFrom: strp("duration-delta")},
 		},
 	}
 	got := rankCandidates([]msclient.Release{rel}, oshash, nil, 2210000, false)
-	if len(got) != 3 {
-		t.Fatalf("got %d candidates, want 3 (the exact match plus two siblings)", len(got))
+	if len(got) != 4 {
+		t.Fatalf("got %d candidates, want 4 (the exact match plus three siblings)", len(got))
 	}
 	if got[0].Confidence != ConfidenceExact || got[0].SiblingOf != 0 {
 		t.Errorf("first candidate should be the exact match, got %+v", got[0])
 	}
 
-	withSync, withoutSync := got[1], got[2]
+	withSync, withoutSync, estimated := got[1], got[2], got[3]
+	// An estimate is still a known offset, but its provenance must survive
+	// so the panel can refuse to dress it up as a measurement.
+	if estimated.SiblingOffsetSource != "duration-delta" {
+		t.Errorf("estimated sibling lost its provenance: %q", estimated.SiblingOffsetSource)
+	}
+	if withSync.SiblingOffsetSource != "measured" {
+		t.Errorf("measured sibling lost its provenance: %q", withSync.SiblingOffsetSource)
+	}
 	if !withSync.SiblingSyncKnown || withSync.SiblingOffsetMs != 3080 {
 		t.Errorf("sibling with a recorded offset lost it: %+v", withSync)
 	}
@@ -45,7 +55,7 @@ func TestRankCandidates_OffersSiblingsOfAnExactMatch(t *testing.T) {
 	}
 	// Both are offers, never exact: a subtitle authored for another cut is
 	// a weaker claim than one authored for this file, even when corrected.
-	for _, c := range []Candidate{withSync, withoutSync} {
+	for _, c := range []Candidate{withSync, withoutSync, estimated} {
 		if c.Confidence != ConfidenceOffer {
 			t.Errorf("sibling confidence = %q, want offer", c.Confidence)
 		}

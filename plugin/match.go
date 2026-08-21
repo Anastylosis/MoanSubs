@@ -87,6 +87,13 @@ type Candidate struct {
 	// offered but never presented as a fit.
 	SiblingOffsetMs  int64 `json:"sibling_offset_ms,omitempty"`
 	SiblingSyncKnown bool  `json:"sibling_sync_known,omitempty"`
+	// SiblingOffsetSource is how that number came about: "measured" or
+	// "manual" mean somebody with both files checked, "duration-delta"
+	// means nobody did and it was inferred from the runtime difference.
+	// The panel must not present the third as if it were the first —
+	// a guess that looks like a measurement is how a subtitle ends up
+	// quietly three seconds out with nothing on screen to explain it.
+	SiblingOffsetSource string `json:"sibling_offset_source,omitempty"`
 }
 
 // rankCandidates filters bucket results down to real matches, client-side.
@@ -216,6 +223,9 @@ func siblingCandidates(r msclient.Release, deltaMs int64) []Candidate {
 		if sb.OffsetMs != nil {
 			c.SiblingSyncKnown = true
 			c.SiblingOffsetMs = *sb.OffsetMs
+			if sb.OffsetFrom != nil {
+				c.SiblingOffsetSource = *sb.OffsetFrom
+			}
 		}
 		out = append(out, c)
 	}
