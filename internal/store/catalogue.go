@@ -158,19 +158,37 @@ type AccountTrackSummary struct {
 	CreatedAt time.Time
 }
 
-// VisibleTracksByAccount returns every track accountID uploaded that is
-// still visible — neither the track nor its release withdrawn — newest
-// first. Deliberately visible-only: this is the public uploader page, not
-// the account's own "my uploads" view (that one, WP-C1's TracksByAccount,
-// includes withdrawn rows so a person can see what happened to their own
-// work).
-func (s *Store) VisibleTracksByAccount(ctx context.Context, accountID int64) ([]AccountTrackSummary, error) {
-	rows, err := s.pool.Query(ctx, `
+// VisibleTracksByAccount returns up to CatalogueBrowsePageSize tracks
+// accountID uploaded that are still visible — neither the track nor its
+// release withdrawn — newest first. Deliberately visible-only: this is the
+// public uploader page, not the account's own "my uploads" view (that one,
+// WP-C1's TracksByAccount, includes withdrawn rows so a person can see what
+// happened to their own work).
+//
+// Keyset-paginated exactly like BrowseReleases: afterID <= 0 starts from
+// the top; afterID > 0 continues the same newest-first walk with "ids
+// lower than afterID". Before this (WP-P10), a heavy uploader's page was
+// every track they had ever made in one response — a multi-MB page per
+// anonymous hit for a seed account with tens of thousands of uploads.
+func (s *Store) VisibleTracksByAccount(ctx context.Context, accountID, afterID int64) ([]AccountTrackSummary, error) {
+	conds := []string{`t.uploader_id = $1`, `t.withdrawn_at IS NULL`, `r.withdrawn_at IS NULL`}
+	args := []any{accountID}
+
+	if afterID > 0 {
+		args = append(args, afterID)
+		conds = append(conds, fmt.Sprintf(`t.id < $%d`, len(args)))
+	}
+
+	args = append(args, CatalogueBrowsePageSize)
+	query := `
 		SELECT t.id, t.release_id, t.lang, t.generated, t.downloads, t.created_at
 		FROM subtitle_tracks t
 		JOIN releases r ON r.id = t.release_id
-		WHERE t.uploader_id = $1 AND t.withdrawn_at IS NULL AND r.withdrawn_at IS NULL
-		ORDER BY t.id DESC`, accountID)
+		WHERE ` + strings.Join(conds, " AND ") + `
+		ORDER BY t.id DESC
+		LIMIT $` + strconv.Itoa(len(args))
+
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: VisibleTracksByAccount: %w", err)
 	}
@@ -188,4 +206,22 @@ func (s *Store) VisibleTracksByAccount(ctx context.Context, accountID int64) ([]
 		return nil, fmt.Errorf("store: VisibleTracksByAccount: %w", err)
 	}
 	return out, nil
+}
+
+// VisibleTrackCountByAccount is the total visible-track count behind the
+// paginated /u/{name} page's "N subtitles contributed" header — a plain
+// indexed COUNT(*) (subtitle_tracks_uploader_id_idx, migration 0013) is
+// cheap regardless of how many pages that total spans, unlike fetching
+// every row just to count them.
+func (s *Store) VisibleTrackCountByAccount(ctx context.Context, accountID int64) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM subtitle_tracks t
+		JOIN releases r ON r.id = t.release_id
+		WHERE t.uploader_id = $1 AND t.withdrawn_at IS NULL AND r.withdrawn_at IS NULL`, accountID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("store: VisibleTrackCountByAccount: %w", err)
+	}
+	return n, nil
 }

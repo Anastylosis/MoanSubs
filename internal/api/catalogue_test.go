@@ -239,6 +239,43 @@ func TestUploaderPage_UnknownNameIs404(t *testing.T) {
 	}
 }
 
+// TestUploaderPage_Paginates is WP-P10's named test: a heavy uploader's
+// page shows only store.CatalogueBrowsePageSize (50) tracks per hit, with
+// an "older" cursor link to the rest — not the account's entire history in
+// one response.
+func TestUploaderPage_Paginates(t *testing.T) {
+	ts, st, _ := newTestServer(t)
+
+	account, err := st.GetAccountByName(context.Background(), "uploader")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+	release, err := st.GetOrCreateRelease(context.Background(), store.Release{
+		OSHash: mustOSHash(t, "b000000000000033"), DurationMs: 60000,
+	})
+	if err != nil {
+		t.Fatalf("GetOrCreateRelease: %v", err)
+	}
+	for i := 0; i < 60; i++ {
+		if _, err := st.CreateSubtitleTrack(context.Background(), store.SubtitleTrack{
+			ReleaseID: release.ID, Lang: "en", Body: basicSRT, UploaderID: &account.ID,
+		}); err != nil {
+			t.Fatalf("CreateSubtitleTrack (%d): %v", i, err)
+		}
+	}
+
+	resp, body := getPage(t, ts.URL+"/u/uploader")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /u/uploader = %d, want 200", resp.StatusCode)
+	}
+	if got := strings.Count(body, "release/"+strconv.FormatInt(release.ID, 10)); got != store.CatalogueBrowsePageSize {
+		t.Errorf("uploader page shows %d track rows, want %d", got, store.CatalogueBrowsePageSize)
+	}
+	if !strings.Contains(body, "Older uploads") {
+		t.Error("uploader page with more than a page of tracks is missing the older-uploads cursor link")
+	}
+}
+
 func TestUploaderPage_DisabledAccountIs404(t *testing.T) {
 	ts, st, token := newTestServer(t)
 	mkNamedUpload(t, ts, token, "b000000000000032", "Under A Disabled Account", "en")

@@ -198,13 +198,14 @@ func (s *Server) adminSetDisabled(w http.ResponseWriter, r *http.Request, disabl
 // -- POST /admin/accounts/{name}/purge --------------------------------------
 
 // handleAdminAccountPurge implements WP-C7b's Purge action: the web front
-// end onto WithdrawTracksByUploader + SetAccountDisabled +
-// DeleteSessionsForAccount, in that order — exactly `moansubs account
-// purge`'s own sequence (cmd/moansubs/account.go), so a failure between
-// steps never leaves a disabled account whose content is still live. The
-// confirm field must equal the account's own (canonically-cased) name —
-// WP-C7b spec — and an admin may not purge themself, same restriction and
-// same by-id check as disable.
+// end onto store.PurgeAccount (WP-P10), exactly `moansubs account purge`'s
+// own one-tx sequence (cmd/moansubs/account.go) — withdraw every track,
+// delete every release_stash_ids row the account added, disable, kill
+// sessions — so a failure partway through never leaves a disabled account
+// whose content or attached stash ids are still live. The confirm field
+// must equal the account's own (canonically-cased) name — WP-C7b spec —
+// and an admin may not purge themself, same restriction and same by-id
+// check as disable.
 func (s *Server) handleAdminAccountPurge(w http.ResponseWriter, r *http.Request) {
 	ares, ok := s.requireWebRole(w, r, "admin")
 	if !ok {
@@ -239,18 +240,10 @@ func (s *Server) handleAdminAccountPurge(w http.ResponseWriter, r *http.Request)
 	}
 
 	reason := strings.TrimSpace(r.PostFormValue("reason"))
-	if _, err := s.Store.WithdrawTracksByUploader(ctx, account.ID, reason); err != nil {
-		log.Printf("api: WithdrawTracksByUploader: %v", err)
+	if _, err := s.Store.PurgeAccount(ctx, account.ID, account.Name, reason); err != nil {
+		log.Printf("api: PurgeAccount: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
-	}
-	if err := s.Store.SetAccountDisabled(ctx, account.Name, true); err != nil {
-		log.Printf("api: SetAccountDisabled (purge): %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if err := s.Store.DeleteSessionsForAccount(ctx, account.ID); err != nil {
-		log.Printf("api: DeleteSessionsForAccount (purge): %v", err)
 	}
 	http.Redirect(w, r, "/admin/accounts", http.StatusSeeOther)
 }

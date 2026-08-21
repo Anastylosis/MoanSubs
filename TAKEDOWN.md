@@ -28,7 +28,8 @@ a withdrawal never republishes the content — but withdrawn tracks are
 excluded only from dumps made *after* the withdrawal; a dump taken before it
 still names them, same as any other mirror snapshot (see "For self-hosters"
 below). Repeat-infringing accounts are disabled (or `moansubs account
-purge` — withdraws everything they uploaded, then disables the account).
+purge` — withdraws everything they uploaded, removes any stash-box scene
+id they attached to a release, then disables the account).
 
 ## For self-hosters
 

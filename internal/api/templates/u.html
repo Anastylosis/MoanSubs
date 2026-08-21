@@ -17,4 +17,7 @@
   </tbody>
 </table>
 {{end}}
+{{if .HasMore}}
+<p class="pager"><a href="/u/{{.Name}}?after={{.NextAfter}}">Older uploads →</a></p>
+{{end}}
 {{end}}

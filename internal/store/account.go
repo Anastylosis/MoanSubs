@@ -289,6 +289,56 @@ func (s *Store) SetAccountDisabled(ctx context.Context, name string, disabled bo
 	return nil
 }
 
+// PurgeAccount is the transactional core of `account purge` and the admin
+// Purge button (WP-P10): withdraws every track accountID uploaded, deletes
+// every release_stash_ids row it added, disables the account, and kills its
+// sessions — all four in one tx, so a failure partway through can never
+// leave a disabled account whose uploads or attached stash ids are still
+// live. The stash-id deletion is new here: migration 0012 recorded added_by
+// specifically so a malicious account's wrong ids could be found and
+// removed, but the old three-statement purge never did — a wrong id it
+// attached kept ranking a release "exact" for every plugin, purge or not.
+// Returns the number of tracks withdrawn.
+func (s *Store) PurgeAccount(ctx context.Context, accountID int64, name, reason string) (int, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("store: PurgeAccount: beginning tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+	var r *string
+	if reason != "" {
+		r = &reason
+	}
+	tag, err := tx.Exec(ctx, `
+		UPDATE subtitle_tracks SET withdrawn_at = now(), withdrawn_reason = $2
+		WHERE uploader_id = $1 AND withdrawn_at IS NULL`, accountID, r)
+	if err != nil {
+		return 0, fmt.Errorf("store: PurgeAccount: withdrawing tracks: %w", err)
+	}
+	n := int(tag.RowsAffected())
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM release_stash_ids WHERE added_by = $1`, accountID); err != nil {
+		return 0, fmt.Errorf("store: PurgeAccount: deleting stash ids: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE accounts SET disabled = true WHERE lower(name) = lower($1)`, name); err != nil {
+		return 0, fmt.Errorf("store: PurgeAccount: disabling account: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM sessions WHERE account_id = $1`, accountID); err != nil {
+		return 0, fmt.Errorf("store: PurgeAccount: deleting sessions: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("store: PurgeAccount: %w", err)
+	}
+	return n, nil
+}
+
 // GetAccountByName returns the account named name, matched
 // case-insensitively like SetAccountDisabled, or ErrNotFound. Needed
 // wherever a CLI command works from a name but a store call needs the

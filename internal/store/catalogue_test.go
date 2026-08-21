@@ -254,7 +254,7 @@ func TestStore_VisibleTracksByAccount_ExcludesWithdrawn(t *testing.T) {
 		t.Fatalf("WithdrawRelease: %v", err)
 	}
 
-	got, err := s.VisibleTracksByAccount(ctx, accountID)
+	got, err := s.VisibleTracksByAccount(ctx, accountID, 0)
 	if err != nil {
 		t.Fatalf("VisibleTracksByAccount: %v", err)
 	}

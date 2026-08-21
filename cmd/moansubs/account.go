@@ -231,11 +231,11 @@ var accountRotateTokenCmd = &cobra.Command{
 var accountPurgeReason string
 
 // accountPurgeCmd is the escalation past `account disable`: withdraws every
-// track the account ever uploaded (store.WithdrawTracksByUploader), then
-// disables it, so a leaked/abusive account's whole contribution comes down
-// in one step instead of an operator hunting down each track id by hand.
-// Order matters: withdraw first, then disable — a failure between the two
-// steps should never leave a disabled account whose content is still live.
+// track the account ever uploaded, deletes every release_stash_ids row it
+// added, disables it, and kills its sessions — store.PurgeAccount's one tx
+// (WP-P10), so a leaked/abusive account's whole contribution, including any
+// wrong stash-box id it attached, comes down in one step instead of an
+// operator hunting down each row by hand.
 var accountPurgeCmd = &cobra.Command{
 	Use:   "purge <name>",
 	Short: "Withdraw every track an account uploaded, then disable it",
@@ -256,17 +256,9 @@ var accountPurgeCmd = &cobra.Command{
 			return fmt.Errorf("moansubs account purge: %w", err)
 		}
 
-		n, err := s.WithdrawTracksByUploader(ctx, account.ID, accountPurgeReason)
+		n, err := s.PurgeAccount(ctx, account.ID, args[0], accountPurgeReason)
 		if err != nil {
-			return fmt.Errorf("moansubs account purge: withdrawing tracks: %w", err)
-		}
-		if err := s.SetAccountDisabled(ctx, args[0], true); err != nil {
-			return fmt.Errorf("moansubs account purge: disabling account: %w", err)
-		}
-		// Same reasoning as `account disable` (WP-C1): a purged account
-		// should not still be logged in anywhere.
-		if err := s.DeleteSessionsForAccount(ctx, account.ID); err != nil {
-			return fmt.Errorf("moansubs account purge: deleting sessions: %w", err)
+			return fmt.Errorf("moansubs account purge: %w", err)
 		}
 
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Withdrew %d track(s) uploaded by %q and disabled the account.\n", n, args[0])

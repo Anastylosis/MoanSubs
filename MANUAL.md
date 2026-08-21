@@ -93,7 +93,9 @@ release's tracks, each linking to its `format=srt` download — a logged-in
 visitor also gets up/down-vote forms per track, `POST /release/{id}/vote`,
 the same validation and rules as the API's `PUT`/`DELETE
 /api/v1/subtitles/{id}/vote`), and `/u/{name}` (an uploader's credited
-contributions). `/login` (name + password only — there is no token-login
+contributions, keyset-paginated exactly like `/browse` — 50 tracks at a
+time with an "older" link, rather than a heavy uploader's whole history in
+one page). `/login` (name + password only — there is no token-login
 form; an account with no password set, e.g. created purely via
 `POST /api/v1/accounts`, can't log in here until an admin runs
 `moansubs account set-password`) and `/me`
@@ -364,11 +366,14 @@ taken down as spam.
 
 ### `moansubs account purge <name> [--reason TEXT]`
 
-The escalation past `account disable`: withdraws every track the named
-account ever uploaded, then disables the account, and prints how many
-tracks were withdrawn. Use this for a leaked or clearly abusive account,
-where taking down its whole contribution by hand (finding every track id)
-would be impractical.
+The escalation past `account disable`: in one transaction, withdraws every
+track the named account ever uploaded, deletes every `release_stash_ids`
+row it added (migration 0011/0012 — otherwise a wrong stash-box id a
+malicious account attached keeps ranking a release "exact" for every
+plugin, purge or not), disables the account, and kills its sessions, then
+prints how many tracks were withdrawn. Use this for a leaked or clearly
+abusive account, where taking down its whole contribution by hand (finding
+every track id and stash id by hand) would be impractical.
 
 ### `moansubs dump [-o FILE]`
 
@@ -469,11 +474,12 @@ buttons.
   newest first): role, creation time, upload count, who invited them, and
   disabled state. Per row: Disable/Enable (`SetAccountDisabled`, plus
   `DeleteSessionsForAccount` on disable — identical to `account
-  disable`/`enable`), a role `<select>` (`SetAccountRole`), and Purge (the
-  `account purge` sequence — withdraw every upload, then disable, then kill
-  sessions — behind a confirmation field that must be typed to match the
-  account's name exactly). An admin cannot disable, purge, or change the
-  role of their own account — every one of those actions answers `400`
+  disable`/`enable`), a role `<select>` (`SetAccountRole`), and Purge
+  (`PurgeAccount`, `account purge`'s own one-transaction primitive —
+  withdraw every upload, delete the account's attached stash ids, disable,
+  then kill sessions — behind a confirmation field that must be typed to
+  match the account's name exactly). An admin cannot disable, purge, or
+  change the role of their own account — every one of those actions answers `400`
   against yourself, the same way the CLI has no "disable myself" footgun
   either.
 - `/admin/invites` — every invite code on the node with its creator, uses,

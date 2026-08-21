@@ -55,3 +55,31 @@ func (s *Store) TracksByAccount(ctx context.Context, accountID int64) ([]Account
 	}
 	return out, nil
 }
+
+// OwnsTrackInRelease returns, out of releaseID's own tracks, the set
+// accountID uploaded — the release page's IsOwn state (WP-P10), one query
+// scoped to (release_id, uploader_id) rather than pulling accountID's
+// entire upload history via TracksByAccount just to test membership
+// against the handful of tracks on one release: a heavy uploader's every
+// logged-in release-page view used to cost as much as their own /me page.
+func (s *Store) OwnsTrackInRelease(ctx context.Context, releaseID, accountID int64) (map[int64]bool, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id FROM subtitle_tracks WHERE release_id = $1 AND uploader_id = $2`, releaseID, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("store: OwnsTrackInRelease: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[int64]bool)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("store: OwnsTrackInRelease: scanning: %w", err)
+		}
+		out[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: OwnsTrackInRelease: %w", err)
+	}
+	return out, nil
+}

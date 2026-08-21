@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestStore_CreateAccountAndGetByTokenHash(t *testing.T) {
@@ -460,5 +461,86 @@ func TestStore_AccountDetail_NotFound(t *testing.T) {
 
 	if _, err := s.AccountDetail(ctx, "nonexistent"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("AccountDetail for nonexistent account: got %v, want ErrNotFound", err)
+	}
+}
+
+// TestStore_PurgeAccount_WithdrawsDisablesAndKillsSessions is WP-P10's named
+// test: PurgeAccount's one tx does everything the old three-statement purge
+// did — and, unlike it, also removes the account's release_stash_ids rows,
+// so a stash id it maliciously attached stops making the release a
+// "stash" match the moment it's purged.
+func TestStore_PurgeAccount_WithdrawsDisablesAndKillsSessions(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	accountID, _, err := s.CreateAccount(ctx, "purge-account-target")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "9100000000000001"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	trackID, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: testTrackBody, UploaderID: &accountID,
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	stashID := stashIDFixture(t, releaseID, "https://stashdb.org/graphql", "c72cba4a-1e2b-4f0e-8f3a-1234567890ab")
+	if err := s.AddReleaseStashIDs(ctx, releaseID, []ReleaseStashID{stashID}, &accountID); err != nil {
+		t.Fatalf("AddReleaseStashIDs: %v", err)
+	}
+
+	sessionID, _, err := s.CreateSession(ctx, accountID, time.Hour)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	n, err := s.PurgeAccount(ctx, accountID, "purge-account-target", "leaked token")
+	if err != nil {
+		t.Fatalf("PurgeAccount: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("PurgeAccount returned %d withdrawn tracks, want 1", n)
+	}
+
+	track, err := s.GetSubtitleTrack(ctx, trackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if track.WithdrawnAt == nil {
+		t.Error("track was not withdrawn by PurgeAccount")
+	}
+
+	account, err := s.GetAccountByName(ctx, "purge-account-target")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+	if !account.Disabled {
+		t.Error("account was not disabled by PurgeAccount")
+	}
+
+	if _, err := s.GetSessionAccount(ctx, sessionID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetSessionAccount after purge = %v, want ErrNotFound", err)
+	}
+
+	stashIDs, err := s.StashIDsByReleaseIDs(ctx, []int64{releaseID})
+	if err != nil {
+		t.Fatalf("StashIDsByReleaseIDs: %v", err)
+	}
+	if len(stashIDs[releaseID]) != 0 {
+		t.Errorf("StashIDsByReleaseIDs after purge = %+v, want none — the purged account's ids must be gone", stashIDs[releaseID])
+	}
+
+	// The whole point (WP-P10 finding): a lookup by that stash id must no
+	// longer find the release once the account that attached it is purged.
+	releases, err := s.ReleasesByStashID(ctx, stashID.EHash, stashID.StashID)
+	if err != nil {
+		t.Fatalf("ReleasesByStashID: %v", err)
+	}
+	if len(releases) != 0 {
+		t.Errorf("ReleasesByStashID after purge = %+v, want no results", releases)
 	}
 }

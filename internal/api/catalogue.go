@@ -478,18 +478,15 @@ func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id in
 }
 
 // applyViewerVoteState fills in rel's tracks' IsOwn/MyVote for a logged-in
-// release-page viewer (WP-C5): own uploads via TracksByAccount (the same
-// query /me uses), and the viewer's own votes via
-// store.VotesByAccountForTracks, both one query regardless of how many
+// release-page viewer (WP-C5): own uploads via store.OwnsTrackInRelease
+// (WP-P10 — scoped to this one release, not accountID's entire upload
+// history the way TracksByAccount would pull), and the viewer's own votes
+// via store.VotesByAccountForTracks, both one query regardless of how many
 // tracks the release has.
 func (s *Server) applyViewerVoteState(ctx context.Context, rel *catalogueRelease, accountID int64) error {
-	ownTracks, err := s.Store.TracksByAccount(ctx, accountID)
+	own, err := s.Store.OwnsTrackInRelease(ctx, rel.ID, accountID)
 	if err != nil {
-		return fmt.Errorf("TracksByAccount: %w", err)
-	}
-	own := make(map[int64]bool, len(ownTracks))
-	for _, t := range ownTracks {
-		own[t.TrackID] = true
+		return fmt.Errorf("OwnsTrackInRelease: %w", err)
 	}
 
 	ids := make([]int64, len(rel.Tracks))
@@ -591,14 +588,24 @@ type uploaderPageData struct {
 	Name        string
 	UploadCount int
 	Tracks      []uploaderTrack
+	// HasMore/NextAfter are /browse's own keyset-pagination shape (WP-P10):
+	// a full page came back, so there may be more beyond it.
+	HasMore   bool
+	NextAfter int64
 }
 
-// handleUploaderPage implements GET /u/{name} (WP-C2): name, upload count,
-// and a visible-only tracks list — credit is the only reward this node can
-// give publishers, and a withdrawn track must actually disappear from a
-// page anyone can view. An unknown or disabled account is a plain 404: a
-// disabled account shouldn't keep advertising its name here, and either way
-// there's nothing to distinguish from "never existed" on a public page.
+// handleUploaderPage implements GET /u/{name}?after=<id> (WP-C2, paginated
+// per WP-P10): name, total upload count, and a visible-only tracks list —
+// credit is the only reward this node can give publishers, and a withdrawn
+// track must actually disappear from a page anyone can view. An unknown or
+// disabled account is a plain 404: a disabled account shouldn't keep
+// advertising its name here, and either way there's nothing to distinguish
+// from "never existed" on a public page.
+//
+// Keyset-paginated exactly like /browse (store.CatalogueBrowsePageSize per
+// page, same after= cursor and "older" link): a seed account with tens of
+// thousands of uploads used to make this page every visitor's whole
+// history in one response, a multi-MB reply to an anonymous hit.
 func (s *Server) handleUploaderPage(w http.ResponseWriter, r *http.Request) {
 	s.setCatalogueRobots(w)
 
@@ -620,9 +627,26 @@ func (s *Server) handleUploaderPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tracks, err := s.Store.VisibleTracksByAccount(ctx, account.ID)
+	var afterID int64
+	if v := r.URL.Query().Get("after"); v != "" {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || id < 0 {
+			writeError(w, http.StatusBadRequest, "after must be a positive integer track id")
+			return
+		}
+		afterID = id
+	}
+
+	tracks, err := s.Store.VisibleTracksByAccount(ctx, account.ID, afterID)
 	if err != nil {
 		log.Printf("api: VisibleTracksByAccount: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	count, err := s.Store.VisibleTrackCountByAccount(ctx, account.ID)
+	if err != nil {
+		log.Printf("api: VisibleTrackCountByAccount: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -634,10 +658,16 @@ func (s *Server) handleUploaderPage(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	s.renderPage(w, r, http.StatusOK, "u.html", uploaderPageData{
+	data := uploaderPageData{
 		Title:       account.Name,
 		Name:        account.Name,
-		UploadCount: len(rendered),
+		UploadCount: count,
 		Tracks:      rendered,
-	}, false)
+	}
+	if len(tracks) == store.CatalogueBrowsePageSize {
+		data.HasMore = true
+		data.NextAfter = tracks[len(tracks)-1].ID
+	}
+
+	s.renderPage(w, r, http.StatusOK, "u.html", data, false)
 }
