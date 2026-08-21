@@ -18,6 +18,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -152,9 +154,26 @@ func argString(args map[string]any, key string) string {
 	}
 }
 
+// argBool reads a boolean arg, coercing the way argString does rather than
+// asserting a Go bool.
+//
+// This is load-bearing, not defensive dressing: Stash delivers a task's
+// defaultArgs as strings, so the manifest's `dry_run: true` arrives here as
+// the string "true", not a bool. A bare type assertion silently yields
+// false — which turned "Push subtitles (dry run)" into a real push that
+// uploaded the whole library. A wrong answer here is indistinguishable from
+// the user not having asked for a dry run at all, so it must not guess.
 func argBool(args map[string]any, key string) bool {
-	b, _ := args[key].(bool)
-	return b
+	switch v := args[key].(type) {
+	case bool:
+		return v
+	case string:
+		b, err := strconv.ParseBool(strings.TrimSpace(v))
+		return err == nil && b
+	case float64:
+		return v != 0
+	}
+	return false
 }
 
 // argStrings reads an array arg of string-or-number scene ids.
