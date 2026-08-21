@@ -36,6 +36,7 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_ANALYTICS_SCRIPT` | *(unset)* | URL of a visitor-analytics tracker script, written into every public page as `<script defer src=… data-website-id=… data-exclude-search="true">`. Built against [Umami](https://umami.is) — self-hosted and cookieless — but anything served as a `<script>` that reads `data-website-id` works. Two forms are accepted: a **same-origin path** (`/s/script.js`, for a reverse proxy in front of this node — see `deploy/README.md`), which keeps the page's CSP on `script-src 'self'; connect-src 'self'` with no third-party origin in it at all; or an **absolute http(s) URL**, whose origin is added to `script-src` and `connect-src` instead. A scheme-relative `//host/path` is rejected rather than guessed at. Must be set together with `MOANSUBS_ANALYTICS_WEBSITE_ID`; setting one alone fails startup, because the resulting tag would load and then silently record nothing. |
 | `MOANSUBS_ANALYTICS_WEBSITE_ID` | *(unset)* | The tracker's site identifier, emitted verbatim as `data-website-id`. See `MOANSUBS_ANALYTICS_SCRIPT`. |
 | `MOANSUBS_STASH_ENDPOINTS` | `https://stashdb.org/graphql,https://fansdb.cc/graphql` | Comma-separated allow-list of stash-box GraphQL endpoints an upload's `stash_ids` may name (WP-R6, defense in depth against a rogue uploader attaching an arbitrary URL the UI would render as a link — API.md "`POST /api/v1/subtitles`"). An endpoint outside it is rejected with `400 stash_ids: endpoint not accepted by this node`. The single value `*` accepts any http(s) endpoint. `GET /api/v1/version` advertises the resolved list as `stash_endpoints`, so the plugin filters what it pushes against it rather than racing the 400 one id at a time; the `/upload` form's endpoint `<select>` lists exactly this set too (plus "other" only when it's `*`). |
+| `MOANSUBS_STATEMENT_TIMEOUT` | `30s` | Caps how long any single query may run before Postgres kills it (SQLSTATE `57014`), parsed with `time.ParseDuration`. Without it an anonymous fuzzy phash lookup (a full `bit_count` scan) or `CreatorNames`' DISTINCT+unnest over every release could pin every pooled connection with nothing able to kill the slow statements. `0` removes the limit entirely. Applies to every command that opens the store (`serve` and the CLI subcommands alike), not only the server. **The DSN's own `statement_timeout` connection parameter, if present, always wins over this setting** — this variable only fills the gap when the DSN leaves it unset. Migrations themselves are exempt regardless (schema changes on a large existing table may legitimately need longer than a query budget meant for application traffic). |
 
 **Invite economy (WP-C7c).** An account's invite budget is `earned =
 MOANSUBS_INVITES_INITIAL + floor(visible uploads / MOANSUBS_INVITES_PER_UPLOADS)`
@@ -524,9 +525,11 @@ a residential ISP hands out a whole `/64` per customer and rotates the
 low bits, so keying on the full address would let one customer cycle
 through unlimited buckets.
 
-**Multiple instances.** Not supported against one database yet — the
-migration runner takes no cross-instance lock, so start one instance at a
-time (concurrent *serving* is fine; concurrent *startup* races migrations).
+**Multiple instances.** Concurrent *serving* against one database is fine.
+Concurrent *startup* is also safe: the migration runner takes a Postgres
+advisory lock before applying anything, so a second instance starting up
+at the same time blocks until the first's migrations finish rather than
+racing them.
 
 **Behind Docker on the same host as Stash.** If the Stash container cannot
 reach the host's LAN IP (hairpin NAT is blocked on some NAS platforms),

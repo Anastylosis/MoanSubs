@@ -254,6 +254,23 @@ var serveCmd = &cobra.Command{
 			return fmt.Errorf("moansubs serve: %w", err)
 		}
 
+		// The per-query statement_timeout (WP-P9): a fuzzy phash lookup
+		// or CreatorNames' DISTINCT+unnest is a full-table scan an
+		// anonymous caller can trigger, and without a cap a burst of
+		// slow requests pins every pooled connection with nothing able
+		// to kill them. Unset keeps store.DefaultStatementTimeout
+		// (30s); 0 explicitly removes the limit; the DSN's own
+		// statement_timeout param, if present, always wins over this
+		// (see MANUAL.md).
+		statementTimeout := store.DefaultStatementTimeout
+		if v := os.Getenv("MOANSUBS_STATEMENT_TIMEOUT"); v != "" {
+			d, err := time.ParseDuration(v)
+			if err != nil || d < 0 {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_STATEMENT_TIMEOUT %q", v)
+			}
+			statementTimeout = d
+		}
+
 		// The stash-box endpoint allow-list (WP-R6): uploads naming an
 		// endpoint outside it are rejected with 400, defense in depth
 		// against a rogue uploader attaching an arbitrary URL the UI would
@@ -277,7 +294,7 @@ var serveCmd = &cobra.Command{
 		// store.Open runs pending migrations before the server accepts any
 		// traffic (PLAN.md: "runs migrations on startup").
 		openCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		s, err := store.Open(openCtx, dsn)
+		s, err := store.Open(openCtx, dsn, store.Options{StatementTimeout: statementTimeout})
 		cancel()
 		if err != nil {
 			return fmt.Errorf("moansubs serve: %w", err)

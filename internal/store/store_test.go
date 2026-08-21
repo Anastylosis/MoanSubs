@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // openTestStore returns a Store connected to DATABASE_URL, skipping the
@@ -79,6 +81,102 @@ func TestMigrate_IdempotentOnRerun(t *testing.T) {
 		if !exists {
 			t.Errorf("table %s does not exist after migration", table)
 		}
+	}
+}
+
+// TestMigrate_ConcurrentCallsDoNotRace is WP-P9's named test: two Migrate
+// calls racing the same DB must serialize on the advisory lock rather
+// than both trying to apply the same not-yet-recorded migration — both
+// return nil, and every embedded migration is recorded exactly once.
+func TestMigrate_ConcurrentCallsDoNotRace(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	const goroutines = 2
+	errs := make([]error, goroutines)
+	var wg sync.WaitGroup
+	for i := range errs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = Migrate(ctx, s.pool)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("concurrent Migrate call %d: %v", i, err)
+		}
+	}
+
+	names, err := migrationNames()
+	if err != nil {
+		t.Fatalf("migrationNames: %v", err)
+	}
+	var count int
+	if err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
+		t.Fatalf("counting schema_migrations: %v", err)
+	}
+	if count != len(names) {
+		t.Fatalf("schema_migrations has %d rows after concurrent Migrate calls, want %d (one per embedded migration, no duplicates)", count, len(names))
+	}
+}
+
+// TestMigrate_0014AuthIndexes confirms 0014_auth_indexes.sql actually
+// created its three indexes (WP-P9): accounts.token_hash (every Bearer
+// request), sessions.account_id (revocation), accounts.invited_by (partial).
+func TestMigrate_0014AuthIndexes(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	for _, idx := range []string{
+		"accounts_token_hash_idx",
+		"sessions_account_id_idx",
+		"accounts_invited_by_idx",
+	} {
+		var exists bool
+		err := s.pool.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = $1)`, idx,
+		).Scan(&exists)
+		if err != nil {
+			t.Fatalf("checking index %s exists: %v", idx, err)
+		}
+		if !exists {
+			t.Errorf("index %s does not exist after migration", idx)
+		}
+	}
+}
+
+// TestOpen_StatementTimeout is WP-P9's named test: a query that outlasts
+// the configured statement_timeout is cancelled by Postgres itself
+// (SQLSTATE 57014 query_canceled), verified through the public Open(...,
+// Options{StatementTimeout: ...}) API rather than by poking pool internals.
+func TestOpen_StatementTimeout(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set; skipping store tests")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	s, err := Open(ctx, dsn, Options{StatementTimeout: 500 * time.Millisecond})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	_, err = s.pool.Exec(ctx, `SELECT pg_sleep(2)`)
+	if err == nil {
+		t.Fatal("SELECT pg_sleep(2) under a 500ms statement_timeout: want an error, got nil")
+	}
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		t.Fatalf("error is not a *pgconn.PgError: %v (%T)", err, err)
+	}
+	if pgErr.Code != "57014" {
+		t.Errorf("pgErr.Code = %q, want 57014 (query_canceled)", pgErr.Code)
 	}
 }
 

@@ -36,14 +36,34 @@ func tokenKeyFromEnv() ([]byte, error) {
 	return key, nil
 }
 
+// statementTimeoutFromEnv reads and validates MOANSUBS_STATEMENT_TIMEOUT
+// (WP-P9), the same env var and validation serve.go applies, so every CLI
+// command opening a Store gets the same connection-pool guardrail rather
+// than only the long-running server process.
+func statementTimeoutFromEnv() (time.Duration, error) {
+	v := os.Getenv("MOANSUBS_STATEMENT_TIMEOUT")
+	if v == "" {
+		return store.DefaultStatementTimeout, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d < 0 {
+		return 0, fmt.Errorf("invalid MOANSUBS_STATEMENT_TIMEOUT %q", v)
+	}
+	return d, nil
+}
+
 // openStore is the DATABASE_URL boilerplate every account subcommand needs.
 func openStore(cmd *cobra.Command, what string) (*store.Store, context.Context, context.CancelFunc, error) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		return nil, nil, nil, fmt.Errorf("moansubs %s: DATABASE_URL is not set", what)
 	}
+	statementTimeout, err := statementTimeoutFromEnv()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("moansubs %s: %w", what, err)
+	}
 	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
-	s, err := store.Open(ctx, dsn)
+	s, err := store.Open(ctx, dsn, store.Options{StatementTimeout: statementTimeout})
 	if err != nil {
 		cancel()
 		return nil, nil, nil, fmt.Errorf("moansubs %s: %w", what, err)
