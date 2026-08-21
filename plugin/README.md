@@ -107,7 +107,11 @@ across different people's libraries is nearly never.
 
 - **Probe** — connectivity/diagnostics check; also reports the server's
   version and feature list (`GET /api/v1/version`), so you can tell an
-  older node apart from a real connection failure.
+  older node apart from a real connection failure. **A Probe that passes
+  logs nothing at all**: its verdict is a result the plugin's own panel
+  renders, not a log line. Only a *failing* Probe writes to the log. So an
+  empty log after running it is the success case, not a missing message —
+  do not go hunting in Settings → Logs for it.
 - **Push subtitles (dry run)** — walks the library and reports which
   sidecar files *would* be uploaded.
 - **Push subtitles** — uploads every sidecar subtitle in the library.
@@ -132,6 +136,9 @@ across different people's libraries is nearly never.
 Everything a task reports — Probe's verdict included — goes to Stash's own
 log: **Settings → Logs** in the UI, and the Stash container's stdout. The
 plugin never writes a log file of its own.
+
+The exception is Probe: it reports through its result panel, not the log,
+and says nothing when it passes (see Tasks above).
 
 **Stash's log level decides whether you see any of it.** Stash drops
 anything below the configured level before storing it, so an instance set
@@ -160,10 +167,10 @@ verbose too.
 - **Nothing happens / no candidates ever**: run **Probe**. Then check the
   scene actually has an oshash (it always does after a scan) and ideally a
   phash.
-- **Probe ran but printed nothing**: see "Where task output goes" above —
-  a Stash set to `Warning` hides Info lines, and a Probe that succeeded has
-  nothing above Info to say. A Probe that *failed* logs at Error and is
-  visible at any level.
+- **Probe ran but printed nothing**: that is what success looks like — a
+  passing Probe logs nothing and reports through its own panel instead.
+  Raising the log level will not make it appear. A Probe that *failed*
+  logs at Error and is visible at any level.
 - **A caption downloaded but doesn't show in the player**: reload the page
   first; if it's still missing, check the panel's message — if a metadata
   scan was triggered, wait for it to finish. The plugin refuses up front to
