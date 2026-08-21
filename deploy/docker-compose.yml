@@ -50,6 +50,16 @@ services:
       - --entrypoints.ping.address=:8082
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
+      # Only this stack's containers. The Docker provider watches the whole
+      # daemon, not this project -- so a second moansubs stack on the same
+      # host (a staging copy, or one left running from an earlier deploy)
+      # registers its server under the *same* router and service names and
+      # gets load-balanced into this one. Its containers sit on another
+      # network this Traefik cannot dial, so roughly half of all requests
+      # answer 504 while the rest are fine: an intermittent outage with
+      # nothing wrong in either stack's own logs. DOMAIN is what makes each
+      # stack unique, so it is what scopes the provider.
+      - "--providers.docker.constraints=Label(`moansubs.domain`,`${DOMAIN}`)"
       # Anything that is not a container -- an external analytics upstream,
       # a certificate you supply yourself -- cannot be expressed as a
       # Docker label, so the file provider covers those. The directory is
@@ -135,6 +145,8 @@ services:
     # invisible to the proxy no matter what else changes.
     labels:
       - traefik.enable=true
+      # Read by the provider constraint in the traefik service above.
+      - moansubs.domain=${DOMAIN}
       - "traefik.http.routers.moansubs.rule=Host(`${DOMAIN}`)"
       - traefik.http.routers.moansubs.entrypoints=websecure
       - traefik.http.services.moansubs.loadbalancer.server.port=8080
