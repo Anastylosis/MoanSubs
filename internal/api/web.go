@@ -24,6 +24,9 @@ var uploadJS []byte
 //go:embed static/phash.js
 var phashJS []byte
 
+//go:embed static/copy.js
+var copyJS []byte
+
 //go:embed static/favicon.png
 var faviconPNG []byte
 
@@ -45,6 +48,17 @@ const defaultCSP = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline
 // <video> element upload.js creates to probe duration from
 // URL.createObjectURL(file).
 const uploadCSP = "default-src 'none'; script-src 'self'; img-src 'self'; style-src 'unsafe-inline'; media-src blob:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+
+// tokenCSP is the policy for the two pages that display an API token and
+// therefore load static/copy.js. Deliberately not uploadCSP: these pages
+// need script-src 'self' and nothing else, and granting them media-src
+// blob: as well would widen a page that shows a secret for no reason.
+const tokenCSP = "default-src 'none'; script-src 'self'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+
+// tokenPages are the bodies that render a <code class="token"> and so get
+// tokenCSP. Keep in step with the templates: a page that shows a token
+// without being listed here silently loses its copy button.
+var tokenPages = map[string]bool{"me.html": true, "register.html": true}
 
 // sessionLookups counts fallback session lookups (WP-R7) — incremented when
 // renderPage does a cookie lookup because authFromContext was nil. Exported
@@ -191,13 +205,18 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 // both consts untouched.
 func (s *Server) csp(body string) string {
 	tracked := s.Analytics != nil && analyticsPages[body]
-	if body == "upload.html" {
+	switch {
+	case body == "upload.html":
 		if tracked {
 			return s.Analytics.uploadCSP
 		}
 		return uploadCSP
-	}
-	if tracked {
+	case tokenPages[body]:
+		if tracked {
+			return s.Analytics.tokenCSP
+		}
+		return tokenCSP
+	case tracked:
 		return s.Analytics.pageCSP
 	}
 	return defaultCSP
@@ -215,6 +234,11 @@ func (s *Server) handleUploadJS(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handlePhashJS(w http.ResponseWriter, _ *http.Request) {
 	serveScript(w, phashJS)
+}
+
+// handleCopyJS serves the copy-to-clipboard helper the token pages load.
+func (s *Server) handleCopyJS(w http.ResponseWriter, _ *http.Request) {
+	serveScript(w, copyJS)
 }
 
 func serveScript(w http.ResponseWriter, body []byte) {

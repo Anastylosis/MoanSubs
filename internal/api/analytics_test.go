@@ -182,7 +182,10 @@ func TestAnalytics_UnconfiguredLeavesEveryPageUntouched(t *testing.T) {
 	ts, _ := webServer(t, true)
 	client := jarClient(t)
 
-	for _, path := range []string{"/", "/browse", "/search", "/login", "/register"} {
+	// /register and /me are excluded deliberately: they render an API token
+	// and so load static/copy.js, which is not the tracker's doing. /upload
+	// carries the fingerprinter for the same reason.
+	for _, path := range []string{"/", "/browse", "/search", "/login"} {
 		body, csp := getWith(t, client, ts.URL+path)
 		if csp != defaultCSP {
 			t.Errorf("GET %s: CSP = %q, want the unwidened %q", path, csp, defaultCSP)
@@ -190,5 +193,10 @@ func TestAnalytics_UnconfiguredLeavesEveryPageUntouched(t *testing.T) {
 		if strings.Contains(body, "<script") {
 			t.Errorf("GET %s: carries a <script> on a node with no tracker configured", path)
 		}
+	}
+	// A token page still must not gain the analytics origin when none is set.
+	_, csp := getWith(t, client, ts.URL+"/register")
+	if csp != tokenCSP {
+		t.Errorf("GET /register: CSP = %q, want the unwidened %q", csp, tokenCSP)
 	}
 }

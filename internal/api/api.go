@@ -351,6 +351,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("POST /upload", s.page(s.handleUploadSubmit))
 	mux.HandleFunc("GET /static/upload.js", s.handleUploadJS)
 	mux.HandleFunc("GET /static/phash.js", s.handlePhashJS)
+	mux.HandleFunc("GET /static/copy.js", s.handleCopyJS)
 	mux.HandleFunc("GET /static/favicon.png", s.handleFavicon)
 	mux.HandleFunc("GET /static/icon-180.png", s.handleTouchIcon)
 	// /favicon.ico is what a browser, crawler or bookmark service asks for
