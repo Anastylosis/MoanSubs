@@ -499,6 +499,12 @@ That is the only non-additive operation on stash ids.
 automatically and are safe to re-run. Migrations are append-only; nothing
 ever rewrites an applied migration file.
 
+Language-tag canonicalisation (WP-P2) is not a migration: `lang` values
+stored before this change are left exactly as they were uploaded, and
+`track resanitize` re-renders subtitle bodies only — it never touches
+`lang`. A node upgrading past this change starts canonicalising fresh
+uploads; older tracks keep whatever tag they already had.
+
 **Reverse proxies.** The lookup and registration rate limiters walk
 `X-Forwarded-For` from right to left, skipping any entry that is itself a
 trusted proxy (a hop's own signature), and key on the first entry that
@@ -559,9 +565,16 @@ and point the plugin at `http://moansubs:8080` instead of the LAN address.
    uploader's own claim is ignored.
 4. Rejects subtitles whose last-cue runtime is incompatible with the
    declared video duration.
-5. Deduplicates: a byte-identical track for the same release and language
-   returns the existing track (`duplicate: true`) instead of inserting.
-   Bulk pushes are therefore safe to re-run.
+5. Canonicalises `lang`: parsed and normalized to its canonical BCP-47 form
+   (`en_US` → `en-US`, `EN` → `en`), requiring a real base language —
+   `und` and a private-use tag like `x-klingon` are rejected (`400 lang: no
+   usable base language in "<tag>"`) rather than silently guessed at. The
+   canonical form, not what was typed, is what gets stored and compared
+   from here on, so `EN` and `en_US` uploads dedupe against existing `en`
+   and `en-US` tracks respectively.
+6. Deduplicates: a byte-identical track for the same release and
+   (canonical) language returns the existing track (`duplicate: true`)
+   instead of inserting. Bulk pushes are therefore safe to re-run.
 
 ## Counters (`GET /api/v1/stats`, API.md)
 

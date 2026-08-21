@@ -169,6 +169,31 @@ func TestUpload_RejectsBadLang(t *testing.T) {
 	}
 }
 
+// "und" parses as a valid BCP-47 tag, but x/text's Base() only guesses
+// "en" for it at Low confidence — undetermined-language must not be
+// silently accepted as English (WP-P2 finding).
+func TestUpload_RejectsUndeterminedLang(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "aaaaaaaaaaaaaaaa", "duration_ms": 12000, "lang": "und", "body": basicSRT,
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+// A private-use tag parses too, but Base() reports No confidence — there is
+// no usable language at all, unlike "und" which at least guesses one.
+func TestUpload_RejectsPrivateUseLang(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "bbbbbbbbbbbbbbbb", "duration_ms": 12000, "lang": "x-klingon", "body": basicSRT,
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
 func TestUpload_RejectsZeroDuration(t *testing.T) {
 	ts, _, token := newTestServer(t)
 	resp := doUpload(t, ts, token, map[string]any{
@@ -186,6 +211,64 @@ func TestUpload_RejectsUnparseableBody(t *testing.T) {
 	})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+// -- language canonicalization dedup (WP-P2) -------------------------------
+
+// "EN" and "en" must canonicalize to the same stored tag, so a
+// byte-identical re-upload spelled differently is caught by
+// FindIdenticalTrack as the ordinary duplicate it is, not a second track.
+func TestUpload_DedupesCaseVariantLang(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	first := doUpload(t, ts, token, map[string]any{
+		"oshash": "cccccccccccccccc", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+	})
+	if first.StatusCode != http.StatusCreated {
+		t.Fatalf("first upload status = %d, want 201", first.StatusCode)
+	}
+	firstTrack := decodeJSON[uploadResponse](t, first)
+
+	second := doUpload(t, ts, token, map[string]any{
+		"oshash": "cccccccccccccccc", "duration_ms": 12000, "lang": "EN", "body": basicSRT,
+	})
+	if second.StatusCode != http.StatusOK {
+		t.Fatalf("second upload status = %d, want 200", second.StatusCode)
+	}
+	secondTrack := decodeJSON[uploadResponse](t, second)
+	if !secondTrack.Duplicate {
+		t.Error("Duplicate = false, want true (\"EN\" must dedupe against an existing \"en\" track)")
+	}
+	if secondTrack.TrackID != firstTrack.TrackID {
+		t.Errorf("TrackID = %d, want %d (same track as the \"en\" upload)", secondTrack.TrackID, firstTrack.TrackID)
+	}
+}
+
+// "en_US" and "en-US" must canonicalize to the same stored tag ("en-US"),
+// the same dedup guarantee as the plain-tag case above but for a regional
+// tag written with the underscore separator some tools emit.
+func TestUpload_DedupesUnderscoreVariantLang(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	first := doUpload(t, ts, token, map[string]any{
+		"oshash": "dddddddddddddddd", "duration_ms": 12000, "lang": "en-US", "body": basicSRT,
+	})
+	if first.StatusCode != http.StatusCreated {
+		t.Fatalf("first upload status = %d, want 201", first.StatusCode)
+	}
+	firstTrack := decodeJSON[uploadResponse](t, first)
+
+	second := doUpload(t, ts, token, map[string]any{
+		"oshash": "dddddddddddddddd", "duration_ms": 12000, "lang": "en_US", "body": basicSRT,
+	})
+	if second.StatusCode != http.StatusOK {
+		t.Fatalf("second upload status = %d, want 200", second.StatusCode)
+	}
+	secondTrack := decodeJSON[uploadResponse](t, second)
+	if !secondTrack.Duplicate {
+		t.Error("Duplicate = false, want true (\"en_US\" must dedupe against an existing \"en-US\" track)")
+	}
+	if secondTrack.TrackID != firstTrack.TrackID {
+		t.Errorf("TrackID = %d, want %d (same track as the \"en-US\" upload)", secondTrack.TrackID, firstTrack.TrackID)
 	}
 }
 

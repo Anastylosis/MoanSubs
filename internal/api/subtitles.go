@@ -17,7 +17,6 @@ import (
 	"github.com/Anastylosis/MoanSubs/internal/store"
 	"github.com/Anastylosis/MoanSubs/internal/subtitle"
 	subs "github.com/Anastylosis/subtitlematch"
-	"golang.org/x/text/language"
 )
 
 // uploadRequest is POST /api/v1/subtitles's JSON body.
@@ -223,12 +222,15 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	if req.Lang == "" {
 		return nil, &apiError{http.StatusBadRequest, "lang is required"}
 	}
-	// Stash reads the language from the caption filename via x/text's
-	// language.ParseBase (PLAN.md "The Stash plugin" delivery constraints);
-	// validating with the same package's Parse here at upload time catches
-	// a malformed BCP-47 tag before it ever reaches a filename.
-	if _, err := language.Parse(req.Lang); err != nil {
-		return nil, &apiError{http.StatusBadRequest, "lang is not a valid BCP-47 tag: " + err.Error()}
+	// Canonicalise rather than merely validate (WP-P2): "en_US"/"EN" and
+	// "en-US"/"en" must store and dedupe as the same tag, and "und"/
+	// "x-klingon" — which parse fine but carry no real base language —
+	// must not silently become a filename's language via a Low/No-confidence
+	// guess (subtitle.CanonicalLang's doc comment). The canonical form,
+	// not req.Lang, is what gets stored and compared from here on.
+	canonicalLang, _, err := subtitle.CanonicalLang(req.Lang)
+	if err != nil {
+		return nil, &apiError{http.StatusBadRequest, fmt.Sprintf("lang: no usable base language in %q", req.Lang)}
 	}
 	if req.Body == "" {
 		return nil, &apiError{http.StatusBadRequest, "body is required"}
@@ -319,7 +321,7 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	// language returns the existing id (200, duplicate:true) instead of
 	// inserting again. Bulk seeding (the plugin's push task over a whole
 	// library) must be safe to re-run without doubling every track.
-	if existingID, err := s.Store.FindIdenticalTrack(ctx, release.ID, req.Lang, rendered); err != nil {
+	if existingID, err := s.Store.FindIdenticalTrack(ctx, release.ID, canonicalLang, rendered); err != nil {
 		log.Printf("api: FindIdenticalTrack: %v", err)
 		return nil, &apiError{http.StatusInternalServerError, "internal error"}
 	} else if existingID != 0 {
@@ -346,7 +348,7 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	accountID := account.ID
 	trackID, err := s.Store.CreateSubtitleTrack(ctx, store.SubtitleTrack{
 		ReleaseID:  release.ID,
-		Lang:       req.Lang,
+		Lang:       canonicalLang,
 		Body:       rendered,
 		Generated:  generated,
 		Provenance: provenanceJSON,

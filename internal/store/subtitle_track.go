@@ -17,8 +17,9 @@ import (
 type SubtitleTrack struct {
 	ID        int64
 	ReleaseID int64
-	// Full BCP-47 as uploaded (e.g. pt-BR), not the bare ISO 639 subtag
-	// Stash requires for the caption filename.
+	// Full BCP-47, canonicalized at upload (subtitle.CanonicalLang: e.g.
+	// en_US -> en-US, EN -> en), not the bare ISO 639 subtag Stash requires
+	// for the caption filename.
 	Lang string
 	// Normalized SRT, re-rendered on ingest (PLAN.md "Upload safety").
 	Body string
