@@ -36,6 +36,11 @@ the stack — private infrastructure details never enter tracked files.
    just can't show an account's API token again on `/me` after a restart —
    and `MOANSUBS_TAG` to pin a version other than the default. A `.env`
    file in this directory is read automatically and is gitignored.
+   If `docker compose up` fails with *pool overlaps with other one on this
+   address space*, some other network on the host already holds
+   `172.28.0.0/24`: set `MOANSUBS_SUBNET` to a free /24. It is both the
+   compose network's subnet and the range the server trusts
+   `X-Forwarded-For` from, so change it there and nowhere else.
 4. `docker compose up -d`. That is three containers: `traefik`, `server`,
    `postgres`. Backups are opt-in — see "Backups" below — so nothing here
    blocks on having object storage ready.
