@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"github.com/Anastylosis/MoanSubs/plugin/msclient"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/Anastylosis/MoanSubs/plugin/msclient"
 )
 
 func TestDiscoverSidecars(t *testing.T) {
