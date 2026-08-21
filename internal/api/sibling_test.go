@@ -150,3 +150,15 @@ func mustOSHashAPI(t *testing.T, s string) hash.OSHash {
 	}
 	return h
 }
+
+// The footer carries the running build so a bug report can name it without
+// the reporter needing to find /api/v1/version.
+func TestFooter_ShowsTheRunningVersion(t *testing.T) {
+	ts, _ := webServer(t, true)
+	for _, path := range []string{"/", "/browse", "/login"} {
+		_, body := getBody(t, ts.URL+path)
+		if !strings.Contains(body, "dev") {
+			t.Errorf("GET %s: footer does not show the build version", path)
+		}
+	}
+}

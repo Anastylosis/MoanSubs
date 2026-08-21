@@ -78,6 +78,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"roleAtLeast": func(string) bool { return false },
 	"analytics":   func() *Analytics { return nil },
 	"theme":       func() *Theme { return defaultTheme },
+	"version":     func() string { return "" },
 }).ParseFS(templateFS, "templates/*.html"))
 
 // registerData is /register's data (both the form and its result). Name is
@@ -165,6 +166,9 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 			"roleAtLeast": func(want string) bool { return roleRank[role] >= roleRank[want] },
 			"analytics":   func() *Analytics { return tracker },
 			"theme":       func() *Theme { return th },
+			// The running build, so a bug report can say which one it
+			// came from without the reporter having to find /api/v1/version.
+			"version": func() string { return s.Version },
 		})
 	}
 	if err == nil {
