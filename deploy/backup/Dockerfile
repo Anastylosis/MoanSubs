@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
-# postgres:16-alpine already carries a pg_dump that matches the server's
+# postgres:18-alpine already carries a pg_dump that matches the server's
 # Postgres version; adding rclone and busybox's own crond is the whole
 # rest of what a nightly-dump sidecar needs.
-FROM postgres:16-alpine
+FROM postgres:18-alpine
 
 RUN apk add --no-cache bash rclone
 

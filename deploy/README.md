@@ -1,7 +1,7 @@
 # Deployment kit
 
 A reference compose stack for running a public moansubs node: `traefik`
-(auto-TLS reverse proxy), `server` (the moansubs API) and `postgres:16-alpine`
+(auto-TLS reverse proxy), `server` (the moansubs API) and `postgres:18-alpine`
 (all state). A fourth service, `backup` (nightly `pg_dump | gzip | rclone
 rcat`, 30-day retention), sits behind a compose profile and is off unless you
 ask for it. Generic on purpose — no real hostnames, buckets or credentials
@@ -18,7 +18,7 @@ the stack — private infrastructure details never enter tracked files.
 - `dynamic/` — Traefik's file provider, watched and empty by default. The
   two `.example` files cover the only things a Docker label cannot express:
   an external analytics upstream, and a certificate you supply yourself.
-- `backup/` — the nightly dump sidecar: `Dockerfile` (`postgres:16-alpine`
+- `backup/` — the nightly dump sidecar: `Dockerfile` (`postgres:18-alpine`
   + `rclone`, so `pg_dump` always matches the server's Postgres version),
   `backup.sh` (the dump/prune script), `entrypoint.sh` (snapshots the
   container's environment for cron jobs, which don't inherit it), and
@@ -75,6 +75,40 @@ traffic. Migrations are additive and safe to re-run.
 The image tag is pinned in `docker-compose.yml` and `pull` will not move it
 on its own — that is the point. Bump `MOANSUBS_TAG` in `.env` to upgrade
 deliberately.
+
+## Upgrading Postgres
+
+The stack runs `postgres:18-alpine`, and the backup sidecar is pinned to the
+same major version on purpose: `pg_dump` from a *newer* major emits syntax
+an older `psql` rejects (18 writes `SET transaction_timeout`, which 16 does
+not know), so a mismatched pair produces dumps that a scripted restore
+refuses outright. Dependabot is configured to keep the two in one grouped PR
+and to never propose a major bump on its own.
+
+**Coming from a stack that ran Postgres 16 or 17**, two things changed and
+neither is a tag edit:
+
+1. The 18+ images store the cluster in a major-version-specific
+   subdirectory, so the volume is mounted at `/var/lib/postgresql` rather
+   than `/var/lib/postgresql/data`. Starting 18 against an old volume fails
+   with a long "there appears to be PostgreSQL data in" error rather than
+   silently doing the wrong thing.
+2. The data itself needs migrating. The simplest path, with the old stack
+   still running:
+
+```sh
+docker compose exec -T postgres pg_dump -U moansubs --clean --if-exists moansubs > pre-upgrade.sql
+docker compose down
+docker volume rm <project>_pgdata
+docker compose up -d postgres          # 18 initialises a fresh cluster
+docker compose exec -T postgres psql -U moansubs -v ON_ERROR_STOP=1 -d moansubs < pre-upgrade.sql
+docker compose up -d
+```
+
+Dump with the **old** stack's `pg_dump` (16 → 16) and restore into 18:
+newer servers read older dumps happily; the reverse is what breaks. Keep
+`pre-upgrade.sql` until `/healthz` answers `ok` and `/browse` lists what you
+expect.
 
 ## Restore drill
 
@@ -211,7 +245,7 @@ own restore-from-backup copy (raw `pg_dump`, everything, private), while a
 dump is a public, redistributable export with withdrawn content and account
 internals already stripped out (TAKEDOWN.md).
 
-There's no sidecar for this — `backup`'s container is `postgres:16-alpine`
+There's no sidecar for this — `backup`'s container is `postgres:18-alpine`
 plus `rclone`, with no `moansubs` binary in it (its whole job is `pg_dump`,
 which doesn't need one), so publishing has to run wherever `docker compose
 exec` can reach the `server` container, i.e. the host. Add a weekly line to

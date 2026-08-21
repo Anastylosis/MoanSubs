@@ -26,7 +26,7 @@ jobs:
     with:
       binary-name: moansubs
       main-package: ./cmd/moansubs
-      postgres-image: postgres:16-alpine
+      postgres-image: postgres:18-alpine
       # -p 1: internal/store and internal/api both TRUNCATE the shared
       # Postgres tables in test setup, so their test binaries must run one at
       # a time, not in parallel (see the Makefile).

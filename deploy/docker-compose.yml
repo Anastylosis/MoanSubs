@@ -126,7 +126,7 @@ services:
       - traefik.http.middlewares.moansubs-hsts.headers.stsSeconds=31536000
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     restart: unless-stopped
     logging: *default-logging
     environment:
@@ -134,7 +134,12 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       POSTGRES_DB: moansubs
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # Mounted at /var/lib/postgresql, not .../data: the 18+ images store
+      # the cluster in a major-version-specific subdirectory so pg_upgrade
+      # can run without crossing a mount boundary. An image built for 17 or
+      # earlier expects the .../data path instead, so this line and the tag
+      # above have to move together.
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U moansubs -d moansubs"]
       interval: 5s

@@ -12,11 +12,26 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # One config across both deploy directories, not two: the backup sidecar's
+  # pg_dump must be the same major version as the server it dumps. Split
+  # across separate configs, dependabot can only ever bump one of them, and
+  # a half-applied bump breaks restores -- a newer pg_dump emits settings an
+  # older psql rejects (going 16 -> 18 it was `SET transaction_timeout`, new
+  # in 17), so a scripted restore with ON_ERROR_STOP restores nothing.
   - package-ecosystem: docker
-    directory: /deploy
+    directories:
+      - /deploy
+      - /deploy/backup
     schedule:
       interval: weekly
-  - package-ecosystem: docker
-    directory: /deploy/backup
-    schedule:
-      interval: weekly
+    groups:
+      postgres:
+        patterns:
+          - postgres
+    ignore:
+      # A Postgres major upgrade needs the data directory migrated
+      # (pg_upgrade, or dump and restore) -- it cannot arrive as an
+      # automated PR that only edits a tag. Minor and patch still flow.
+      - dependency-name: postgres
+        update-types:
+          - version-update:semver-major
