@@ -500,3 +500,41 @@ func TestStore_PHashFuzzyLookup_NegativeBigint(t *testing.T) {
 		t.Fatalf("LookupByPHashFuzzy(target with high bit set, maxDistance=4) = %+v, want only the distance-2 release", got)
 	}
 }
+
+// createWithMetadata makes a release that actually carries name metadata
+// under the migration-0016 rules: GetOrCreateRelease stores file facts,
+// and everything else arrives as a proposal that derivation resolves.
+//
+// Most tests want "a release that has a title" without caring how it got
+// one; this is that, in one call.
+func createWithMetadata(t *testing.T, s *Store, r Release) *Release {
+	t.Helper()
+	ctx := context.Background()
+
+	got, err := s.GetOrCreateRelease(ctx, r)
+	if err != nil {
+		t.Fatalf("GetOrCreateRelease(%s): %v", r.OSHash, err)
+	}
+
+	recorded, err := s.RecordProposal(ctx, MetadataProposal{
+		ReleaseID:   got.ID,
+		Title:       r.Title,
+		ReleaseDate: r.ReleaseDate,
+		Studio:      r.Studio,
+		Performers:  r.Performers,
+	})
+	if err != nil {
+		t.Fatalf("RecordProposal(%s): %v", r.OSHash, err)
+	}
+	if !recorded {
+		return got
+	}
+	if err := s.DeriveMetadata(ctx, got.ID); err != nil {
+		t.Fatalf("DeriveMetadata(%s): %v", r.OSHash, err)
+	}
+	fresh, err := s.GetReleaseByID(ctx, got.ID)
+	if err != nil {
+		t.Fatalf("GetReleaseByID(%s): %v", r.OSHash, err)
+	}
+	return fresh
+}

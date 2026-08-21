@@ -199,6 +199,28 @@ func importRelease(ctx context.Context, s *store.Store, out io.Writer, rl dumpRe
 		return nil, fmt.Errorf("release %d: %w", rl.ID, err)
 	}
 
+	// GetOrCreateRelease stores file facts only (migration 0016), so the
+	// dump's metadata has to arrive as evidence or it is dropped. Attributed
+	// to nobody: the exporting node's uploader ids mean nothing here.
+	proposal := store.MetadataProposal{
+		ReleaseID:   release.ID,
+		Title:       rl.Title,
+		ReleaseDate: rl.ReleaseDate,
+		Studio:      rl.Studio,
+		Performers:  rl.Performers,
+	}
+	if len(rl.StashIDs) > 0 {
+		proposal.StashID = &rl.StashIDs[0].StashID
+		proposal.Endpoint = &rl.StashIDs[0].Endpoint
+	}
+	if recorded, err := s.RecordProposal(ctx, proposal); err != nil {
+		return nil, fmt.Errorf("release %d: recording metadata: %w", rl.ID, err)
+	} else if recorded {
+		if err := s.DeriveMetadata(ctx, release.ID); err != nil {
+			return nil, fmt.Errorf("release %d: deriving metadata: %w", rl.ID, err)
+		}
+	}
+
 	// A withdrawn release stays withdrawn on this node (the caller drops its
 	// tracks below); attaching stash ids to it is harmless but pointless, so
 	// skip the extra work.

@@ -9,11 +9,12 @@ func strPtr(s string) *string { return &s }
 
 func TestStore_NameMetadata_RoundTrip(t *testing.T) {
 	s := openTestStore(t)
-	ctx := context.Background()
 
-	oh := mustOSHash(t, "aaaa000000000001")
-	got, err := s.GetOrCreateRelease(ctx, Release{
-		OSHash:      oh,
+	// Metadata reaches the row through a proposal now, not through
+	// GetOrCreateRelease (migration 0016) -- what is round-tripped here is
+	// the derived cache.
+	got := createWithMetadata(t, s, Release{
+		OSHash:      mustOSHash(t, "aaaa000000000001"),
 		DurationMs:  60000,
 		Title:       strPtr("Nesting Season"),
 		Stem:        strPtr("2023-05-23_Some.Performer-Nesting.Season_1080p"),
@@ -21,9 +22,6 @@ func TestStore_NameMetadata_RoundTrip(t *testing.T) {
 		Studio:      strPtr("The House Next Door"),
 		Performers:  []string{"Some Performer"},
 	})
-	if err != nil {
-		t.Fatalf("GetOrCreateRelease: %v", err)
-	}
 	if got.Title == nil || *got.Title != "Nesting Season" {
 		t.Errorf("Title = %v, want Nesting Season", got.Title)
 	}
@@ -41,11 +39,12 @@ func TestStore_NameMetadata_RoundTrip(t *testing.T) {
 	}
 }
 
-// Backfill semantics: metadata lands on a metadata-less release, but a
-// second uploader's differing metadata never overwrites what's recorded —
-// and the decision is all-or-nothing, so partial merges across uploaders
-// can't happen (they would desync name_tokens from its source columns).
-func TestStore_GetOrCreateRelease_NameMetaBackfillOnce(t *testing.T) {
+// GetOrCreateRelease no longer owns name metadata (migration 0016): the
+// columns are DeriveMetadata's cache, and an upload contributes by
+// recording a proposal. What survives here is the stem, which describes
+// one uploader's file rather than the scene and so is filled in once and
+// never proposed against.
+func TestStore_GetOrCreateRelease_RecordsStemOnly(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
@@ -54,29 +53,30 @@ func TestStore_GetOrCreateRelease_NameMetaBackfillOnce(t *testing.T) {
 		t.Fatalf("GetOrCreateRelease (bare): %v", err)
 	}
 
-	backfilled, err := s.GetOrCreateRelease(ctx, Release{
+	got, err := s.GetOrCreateRelease(ctx, Release{
 		OSHash: oh, DurationMs: 1,
 		Title: strPtr("First Title"), Stem: strPtr("first-stem"),
 	})
 	if err != nil {
-		t.Fatalf("GetOrCreateRelease (backfill): %v", err)
+		t.Fatalf("GetOrCreateRelease (with metadata): %v", err)
 	}
-	if backfilled.Title == nil || *backfilled.Title != "First Title" {
-		t.Fatalf("backfill didn't land: Title = %v", backfilled.Title)
+	if got.Stem == nil || *got.Stem != "first-stem" {
+		t.Errorf("Stem = %v, want first-stem recorded on the row", got.Stem)
+	}
+	if got.Title != nil {
+		t.Errorf("Title = %q, want nil — a title arrives as a proposal, not here", *got.Title)
 	}
 
+	// A later upload does not get to rewrite the stem either: it is the
+	// file that created the row, and every uploader has their own.
 	third, err := s.GetOrCreateRelease(ctx, Release{
-		OSHash: oh, DurationMs: 1,
-		Title: strPtr("Rival Title"), Studio: strPtr("Rival Studio"),
+		OSHash: oh, DurationMs: 1, Stem: strPtr("rival-stem"),
 	})
 	if err != nil {
 		t.Fatalf("GetOrCreateRelease (rival): %v", err)
 	}
-	if third.Title == nil || *third.Title != "First Title" {
-		t.Errorf("Title = %v, want First Title (first metadata wins)", third.Title)
-	}
-	if third.Studio != nil {
-		t.Errorf("Studio = %q, want nil (no per-column merge into recorded metadata)", *third.Studio)
+	if third.Stem == nil || *third.Stem != "first-stem" {
+		t.Errorf("Stem = %v, want the original kept", third.Stem)
 	}
 }
 
@@ -90,11 +90,7 @@ func TestStore_LookupByNameCandidates(t *testing.T) {
 		if r.DurationMs == 0 {
 			r.DurationMs = 1
 		}
-		got, err := s.GetOrCreateRelease(ctx, r)
-		if err != nil {
-			t.Fatalf("GetOrCreateRelease(%s): %v", osh, err)
-		}
-		return got
+		return createWithMetadata(t, s, r)
 	}
 
 	titled := mk("bbbb000000000001", Release{Title: strPtr("The Reluctant Pet Sitter")})
@@ -144,9 +140,7 @@ func TestStore_CreatorNames(t *testing.T) {
 	} {
 		r.OSHash = mustOSHash(t, "cccc00000000000"+string(rune('1'+i)))
 		r.DurationMs = 1
-		if _, err := s.GetOrCreateRelease(ctx, r); err != nil {
-			t.Fatalf("GetOrCreateRelease: %v", err)
-		}
+		createWithMetadata(t, s, r)
 	}
 
 	names, err := s.CreatorNames(ctx)

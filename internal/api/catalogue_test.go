@@ -14,7 +14,7 @@ import (
 )
 
 // mkNamedUpload uploads a subtitle for a fresh oshash carrying enough name
-// metadata to pass every catalogue query's hasNameMeta-equivalent gate
+// metadata to pass every catalogue query's name-metadata gate
 // (name_tokens IS NOT NULL), returning the created release/track ids.
 func mkNamedUpload(t *testing.T, ts *httptest.Server, token, oshash, title, lang string) uploadResponse {
 	t.Helper()

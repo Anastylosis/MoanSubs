@@ -104,14 +104,6 @@ func nameBlob(r Release) string {
 	return strings.Join(parts, " ")
 }
 
-// hasNameMeta reports whether r carries any migration-0003 metadata at all
-// — the gate for both the backfill UPDATE and its all-columns-NULL WHERE
-// condition, which must agree on what "has metadata" means.
-func hasNameMeta(r Release) bool {
-	return r.Title != nil || r.Stem != nil || r.ReleaseDate != nil ||
-		r.Studio != nil || r.Performers != nil
-}
-
 // CreateRelease inserts r and returns its assigned id. The 5 MIH block
 // columns are computed here in Go from r.PHash and stored alongside the raw
 // phash so each block can carry its own index; the name token/code columns
@@ -146,45 +138,57 @@ func (s *Store) CreateRelease(ctx context.Context, r Release) (int64, error) {
 // byte-identical file = same release"). Requires the migration 0002 unique
 // index on releases(oshash).
 //
-// Name metadata (migration 0003) is BACKFILLED, never overwritten, and
-// all-or-nothing: when the release already exists, r's metadata is taken
-// only if the existing row has none at all. Per-column merging is
-// deliberately avoided — it could blend two uploaders' descriptions of the
-// same file (title from one, stem from another) and desync the precomputed
-// name_tokens/name_codes from the metadata they were computed over. The
-// backfill UPDATE re-checks its all-columns-NULL condition under the row
-// lock, so two racing metadata-bearing uploaders resolve to exactly one
-// winner writing all seven columns together.
+// Name metadata is NOT written here. As of migration 0016 the
+// title/release_date/studio/performers columns are DeriveMetadata's cache
+// and have a single writer; an upload contributes what it observed by
+// recording a MetadataProposal, and derivation decides what the release
+// says. Passing those fields in r is silently ignored — record a proposal
+// instead, or the value lasts only until the first re-derivation.
+//
+// The stem is the exception, because it describes the file rather than the
+// scene: it is stored once, from whichever upload first supplies one, and
+// feeds name_tokens so level-5 retrieval can find a release by filename
+// before anyone has identified it.
 func (s *Store) GetOrCreateRelease(ctx context.Context, r Release) (*Release, error) {
 	phashBig, b0, b1, b2, b3, b4 := phashColumns(r)
-	tokens, codes := nameColumns(r)
+
+	// Only what describes the FILE. title/release_date/studio/performers
+	// are DeriveMetadata's cache as of migration 0016 and have exactly one
+	// writer; writing them here too would mean the row briefly disagrees
+	// with the evidence, and the first re-derivation — a link, another
+	// upload — would silently wipe whatever was put here directly.
+	// Callers contribute metadata by recording a proposal.
+	//
+	// name_tokens still lands, computed from the stem alone: the stem is a
+	// file fact known now, and level-5 retrieval should find this release
+	// by filename even before anyone has said what the scene is.
+	tokens, codes := nameColumns(Release{Stem: r.Stem})
 
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO releases (work_id, oshash, phash, phash_b0, phash_b1, phash_b2, phash_b3, phash_b4,
 		                       md5, duration_ms, width, height, video_codec,
-		                       title, stem, release_date, studio, performers, name_tokens, name_codes)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+		                       stem, name_tokens, name_codes)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		ON CONFLICT (oshash) DO NOTHING`,
 		r.WorkID, string(r.OSHash), phashBig, b0, b1, b2, b3, b4,
 		r.MD5, r.DurationMs, r.Width, r.Height, r.VideoCodec,
-		r.Title, r.Stem, r.ReleaseDate, r.Studio, r.Performers, tokens, codes,
+		r.Stem, tokens, codes,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("store: GetOrCreateRelease: inserting: %w", err)
 	}
 
-	if hasNameMeta(r) {
+	// A release created before anyone had a filename for it gains one from
+	// the first upload that does. Never overwritten afterwards: every
+	// uploader has their own filename, and the row records the one that
+	// created it.
+	if r.Stem != nil {
 		if _, err := s.pool.Exec(ctx, `
-			UPDATE releases
-			SET title = $2, stem = $3, release_date = $4, studio = $5,
-			    performers = $6, name_tokens = $7, name_codes = $8
-			WHERE oshash = $1
-			  AND title IS NULL AND stem IS NULL AND release_date IS NULL
-			  AND studio IS NULL AND performers IS NULL`,
-			string(r.OSHash), r.Title, r.Stem, r.ReleaseDate, r.Studio,
-			r.Performers, tokens, codes,
+			UPDATE releases SET stem = $2, name_tokens = $3, name_codes = $4
+			WHERE oshash = $1 AND stem IS NULL`,
+			string(r.OSHash), r.Stem, tokens, codes,
 		); err != nil {
-			return nil, fmt.Errorf("store: GetOrCreateRelease: backfilling name metadata: %w", err)
+			return nil, fmt.Errorf("store: GetOrCreateRelease: recording stem: %w", err)
 		}
 	}
 

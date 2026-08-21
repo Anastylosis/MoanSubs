@@ -12,12 +12,9 @@ import (
 func mkNamedRelease(t *testing.T, s *Store, oshash, title, lang string) *Release {
 	t.Helper()
 	ctx := context.Background()
-	r, err := s.GetOrCreateRelease(ctx, Release{
+	r := createWithMetadata(t, s, Release{
 		OSHash: mustOSHash(t, oshash), DurationMs: 1, Title: strPtr(title),
 	})
-	if err != nil {
-		t.Fatalf("GetOrCreateRelease(%s): %v", oshash, err)
-	}
 	if _, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
 		ReleaseID: r.ID, Lang: lang, Body: "1\n00:00:01,000 --> 00:00:02,000\nHi.\n\n",
 	}); err != nil {
@@ -33,7 +30,7 @@ func TestStore_BrowseReleases_RequiresNameMetaAndVisibleTrack(t *testing.T) {
 	named := mkNamedRelease(t, s, "1000000000000001", "Named Release", "en")
 
 	// No name metadata at all: BrowseReleases must never list it, per its
-	// own doc comment and GetOrCreateRelease's "hasNameMeta" gate.
+	// own doc comment; the columns are DeriveMetadata's cache now.
 	bare, err := s.GetOrCreateRelease(ctx, Release{OSHash: mustOSHash(t, "1000000000000002"), DurationMs: 1})
 	if err != nil {
 		t.Fatalf("GetOrCreateRelease (bare): %v", err)

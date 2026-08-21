@@ -18,20 +18,10 @@ func TestSiblings_OfferedAndRetimedOnDownload(t *testing.T) {
 	ts, st := webServer(t, true)
 	ctx := context.Background()
 
-	a, err := st.GetOrCreateRelease(ctx, store.Release{
-		OSHash: mustOSHashAPI(t, "9fb6be9c13df176c"), DurationMs: 2206920,
-		Title: strPtrAPI("La novia celosa"),
-	})
-	if err != nil {
-		t.Fatalf("release A: %v", err)
-	}
-	b, err := st.GetOrCreateRelease(ctx, store.Release{
-		OSHash: mustOSHashAPI(t, "244237405dbaece9"), DurationMs: 2210000,
-		Title: strPtrAPI("La Novia Celosa"),
-	})
-	if err != nil {
-		t.Fatalf("release B: %v", err)
-	}
+	// Titles arrive as proposals and are derived onto the row (migration
+	// 0016); a release page needs one to exist at all.
+	a := mkTitledRelease(t, st, "9fb6be9c13df176c", 2206920, "La novia celosa")
+	b := mkTitledRelease(t, st, "244237405dbaece9", 2210000, "La Novia Celosa")
 	trackID, err := st.CreateSubtitleTrack(ctx, store.SubtitleTrack{
 		ReleaseID: a.ID, Lang: "es",
 		Body: "1\n00:00:05,270 --> 00:00:06,599\nEsto es aquí.\n\n",
@@ -161,4 +151,31 @@ func TestFooter_ShowsTheRunningVersion(t *testing.T) {
 			t.Errorf("GET %s: footer does not show the build version", path)
 		}
 	}
+}
+
+// mkTitledRelease creates a release whose derived title is set, the shape
+// every catalogue page gates on.
+func mkTitledRelease(t *testing.T, st *store.Store, oshash string, durationMs int64, title string) *store.Release {
+	t.Helper()
+	ctx := context.Background()
+
+	r, err := st.GetOrCreateRelease(ctx, store.Release{
+		OSHash: mustOSHashAPI(t, oshash), DurationMs: durationMs,
+	})
+	if err != nil {
+		t.Fatalf("GetOrCreateRelease(%s): %v", oshash, err)
+	}
+	if _, err := st.RecordProposal(ctx, store.MetadataProposal{
+		ReleaseID: r.ID, Title: strPtrAPI(title),
+	}); err != nil {
+		t.Fatalf("RecordProposal(%s): %v", oshash, err)
+	}
+	if err := st.DeriveMetadata(ctx, r.ID); err != nil {
+		t.Fatalf("DeriveMetadata(%s): %v", oshash, err)
+	}
+	fresh, err := st.GetReleaseByID(ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetReleaseByID(%s): %v", oshash, err)
+	}
+	return fresh
 }

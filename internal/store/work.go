@@ -151,6 +151,15 @@ func (s *Store) LinkReleases(ctx context.Context, a, b int64) (int64, error) {
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("store: LinkReleases: commit: %w", err)
 	}
+
+	// Grouping widens what every member's metadata is derived from
+	// (migration 0016), so the cached columns are stale the moment the
+	// link lands. Re-derived here rather than at the four call sites,
+	// because a caller that forgets leaves the catalogue disagreeing with
+	// the evidence and nothing points at why.
+	if err := s.DeriveWork(ctx, workID); err != nil {
+		return 0, fmt.Errorf("store: LinkReleases: deriving metadata: %w", err)
+	}
 	return workID, nil
 }
 
@@ -193,7 +202,27 @@ func (s *Store) UnlinkRelease(ctx context.Context, releaseID int64) error {
 		`SELECT count(*) FROM releases WHERE work_id = $1`, *workID).Scan(&left); err != nil {
 		return fmt.Errorf("store: UnlinkRelease: counting: %w", err)
 	}
+	var dissolved []int64
 	if left < 2 {
+		// Noted before the update clears work_id, so the post-commit
+		// re-derivation still knows who was affected.
+		rows, err := tx.Query(ctx, `SELECT id FROM releases WHERE work_id = $1`, *workID)
+		if err != nil {
+			return fmt.Errorf("store: UnlinkRelease: listing dissolved members: %w", err)
+		}
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return fmt.Errorf("store: UnlinkRelease: scanning dissolved member: %w", err)
+			}
+			dissolved = append(dissolved, id)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("store: UnlinkRelease: listing dissolved members: %w", err)
+		}
+
 		if _, err := tx.Exec(ctx, `UPDATE releases SET work_id = NULL WHERE work_id = $1`, *workID); err != nil {
 			return fmt.Errorf("store: UnlinkRelease: dissolving: %w", err)
 		}
@@ -203,6 +232,27 @@ func (s *Store) UnlinkRelease(ctx context.Context, releaseID int64) error {
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("store: UnlinkRelease: commit: %w", err)
+	}
+
+	// The unlinked release falls back to its own proposals, and whatever
+	// remains of the work loses that release's evidence. Re-deriving both
+	// is what makes an unlink a true undo: nothing was ever moved onto the
+	// work, so this restores exactly the answer that stood before.
+	if err := s.DeriveMetadata(ctx, releaseID); err != nil {
+		return fmt.Errorf("store: UnlinkRelease: deriving metadata: %w", err)
+	}
+	if left >= 2 {
+		if err := s.DeriveWork(ctx, *workID); err != nil {
+			return fmt.Errorf("store: UnlinkRelease: deriving former siblings: %w", err)
+		}
+	} else {
+		// The work dissolved; its last members are ungrouped now and each
+		// derives from itself alone.
+		for _, id := range dissolved {
+			if err := s.DeriveMetadata(ctx, id); err != nil {
+				return fmt.Errorf("store: UnlinkRelease: deriving dissolved member: %w", err)
+			}
+		}
 	}
 	return nil
 }

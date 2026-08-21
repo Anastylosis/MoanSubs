@@ -407,6 +407,35 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 		}
 	}
 
+	// What this uploader observed, recorded as evidence rather than written
+	// straight onto the release (migration 0016). Also unconditional on the
+	// duplicate check below: a re-push whose subtitle body is already
+	// stored is still the most common way better metadata arrives, and
+	// discarding it there is exactly the bug this replaced.
+	//
+	// Metadata is not what the caller asked for, so a failure to record it
+	// is logged and swallowed — the upload itself succeeded, and failing it
+	// here would turn a bookkeeping error into a lost subtitle.
+	proposal := store.MetadataProposal{
+		ReleaseID:   release.ID,
+		ProposedBy:  &account.ID,
+		Title:       nameMeta.Title,
+		ReleaseDate: optString(req.Date),
+		Studio:      nameMeta.Studio,
+		Performers:  nameMeta.Performers,
+	}
+	if len(stashIDs) > 0 {
+		proposal.StashID = &stashIDs[0].StashID
+		proposal.Endpoint = &stashIDs[0].Endpoint
+	}
+	if recorded, err := s.Store.RecordProposal(ctx, proposal); err != nil {
+		log.Printf("api: RecordProposal(release %d): %v", release.ID, err)
+	} else if recorded {
+		if err := s.Store.DeriveMetadata(ctx, release.ID); err != nil {
+			log.Printf("api: DeriveMetadata(release %d): %v", release.ID, err)
+		}
+	}
+
 	// Idempotent upload: a byte-identical track for the same release and
 	// language returns the existing id (200, duplicate:true) instead of
 	// inserting again. Bulk seeding (the plugin's push task over a whole
