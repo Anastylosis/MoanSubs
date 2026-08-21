@@ -24,7 +24,6 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_LOGIN_RATE_PER_HOUR` | `20` | Login budget per IP, same shape as `MOANSUBS_REGISTER_RATE_PER_HOUR` — the abuse case is a stranger guessing passwords against `POST /login`. |
 | `MOANSUBS_SESSION_TTL` | `720h` | How long a browser session (the `moansubs_session` cookie from `POST /login`) stays valid, parsed with Go's `time.ParseDuration`. |
 | `MOANSUBS_TRUSTED_PROXY_CIDRS` | *(unset)* | Comma-separated CIDRs (e.g. `172.28.0.0/24,10.0.0.0/8`) — list **every** hop's range, not just the one directly in front of this node: if a CDN sits in front of the reference Caddy, its published ranges belong here too, alongside Caddy's own address or subnet. The rate limiters' `X-Forwarded-For` handling only trusts the header when the request's direct peer address falls inside one of these — see "Reverse proxies" below. It also gates whether `X-Forwarded-Proto: https` is believed for the session cookie's `Secure` flag. Unset means none are trusted. |
-
 | `MOANSUBS_SEARCH_RATE_PER_MINUTE` | `30` | Per-IP budget for `GET /search`. The only catalogue page where an anonymous visitor makes the database do real work (a GIN array-overlap query), rather than an indexed lookup by prefix or id. |
 | `MOANSUBS_DUMP_URL` | *(unset)* | Link the front page shows under "download the latest dump". Publishing a dump (WP-B2, `moansubs dump`) is an out-of-band operator choice; unset hides the link entirely. |
 | `MOANSUBS_VOTE_RATE_PER_HOUR` | `60` | Per-account budget for `PUT`/`DELETE /api/v1/subtitles/{id}/vote` (API.md "Votes"). Generous enough for a person triaging their own downloads in one sitting, tight enough to stop a script grinding a track's score. |
@@ -62,6 +61,10 @@ moansubs: created initial admin account "admin" (id 1)
   API token: <64 hex characters>
   log in and change the password at /me soon: this line stays in the container logs
 ```
+
+Changing the password does not touch the API token above — it stays valid
+until rotated (`moansubs account rotate-token admin`, or /me's "Rotate
+token" button), regardless of how stale the printed line itself is.
 
 Every start after that finds an admin already present and stays silent —
 the trigger is "no admin exists", not "first run" specifically, so promoting

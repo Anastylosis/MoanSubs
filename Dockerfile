@@ -43,8 +43,10 @@ WORKDIR /home/moansubs
 
 EXPOSE 8080
 
-# /healthz doesn't exist yet (lands with the API in a later step) — the
-# healthcheck is wired up now so the server ships with one from day one.
+# /healthz pings Postgres (internal/api.handleHealthz) and only reports
+# 200 when that succeeds, so this also catches a server that's up but has
+# lost its database, surfaced in `docker ps`/`docker inspect` like any
+# other container health status.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD wget -q -O - http://localhost:8080/healthz || exit 1
 

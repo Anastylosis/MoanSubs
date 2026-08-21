@@ -38,9 +38,14 @@ the stack — private infrastructure details never enter tracked files.
    automatically the first time it finds none, and prints the name,
    password, and API token to stdout exactly once —
    `docker compose logs server | grep -A3 'created initial admin account'`.
-   Log in at `https://<DOMAIN>/me` and change the password there
-   immediately; that's also what makes the credentials in the log stale.
-   Prefer not to have them in the log at all? Set
+   Log in at `https://<DOMAIN>/me`, change the password, and rotate the API
+   token too (`/me` → Rotate token) — changing the password does *not*
+   invalidate the token that was printed alongside it, only rotating it
+   does. Either way the printed line itself stays in `docker compose logs
+   server` until the container is actually recreated (`docker compose rm
+   -f server` — followed by `docker compose up -d` to bring it back —
+   is what clears it; changing credentials does not touch already-written
+   log lines). Prefer not to have them in the log at all? Set
    `MOANSUBS_BOOTSTRAP_ADMIN=false` before first boot and run
    `docker compose exec server moansubs admin bootstrap` by hand instead —
    same account, same one-time printout, but to your own terminal.
@@ -64,18 +69,29 @@ traffic. Migrations are additive and safe to re-run.
 ## Restore drill
 
 Practice this before you need it for real — a backup nobody has restored
-from is a hope, not a backup:
+from is a hope, not a backup. Restore into a throwaway database, never
+`-d moansubs` itself — the point of the drill is confirming the dump is
+actually usable, and running it against the live one risks the exact
+outage you're rehearsing for:
 
 ```sh
-docker compose exec backup sh -c \
+docker compose exec -T postgres createdb -U moansubs moansubs_drill
+docker compose exec -T backup sh -c \
   'rclone cat "${RCLONE_REMOTE}:${BACKUP_BUCKET}/backups/<date>.sql.gz" | gunzip' \
-  | docker compose exec -T postgres psql -U moansubs -d moansubs
+  | docker compose exec -T postgres psql -U moansubs -d moansubs_drill
+docker compose exec -T postgres psql -U moansubs -d moansubs_drill \
+  -c 'select count(*) from subtitle_tracks'
+docker compose exec -T postgres dropdb -U moansubs moansubs_drill
 ```
 
-Restore into a throwaway `postgres` volume or a scratch database, not the
-live one — the point of the drill is confirming the dump is actually
-usable, and running it against production data risks the exact outage
-you're rehearsing for.
+`-T` on *every* `exec` above, not only the one either side of the pipe —
+without it Docker allocates a pseudo-tty that mangles the piped stream
+between the two containers exactly the same way it would a raw binary
+one (see "Publishing a mirror dump" below), and gunzip reports corruption
+even though the backup itself is fine. `pg_dump --clean --if-exists`
+(backup.sh) is what makes replaying the dump into `moansubs_drill` safe
+to repeat — each object is dropped and recreated rather than colliding
+with whatever a previous drill run left behind.
 
 ## Analytics
 

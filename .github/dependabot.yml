@@ -8,3 +8,15 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /deploy
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /deploy/backup
+    schedule:
+      interval: weekly
