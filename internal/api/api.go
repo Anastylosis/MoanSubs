@@ -227,6 +227,15 @@ type Server struct {
 	// (analytics.go, MOANSUBS_ANALYTICS_SCRIPT/_WEBSITE_ID). Nil — the
 	// default — means no tracker and the unwidened CSP on every page.
 	Analytics *Analytics
+	// Indexable opens this node to search engines (MOANSUBS_INDEXABLE).
+	// False — the default — keeps the historical posture: /robots.txt
+	// disallows everything and every catalogue page sends
+	// X-Robots-Tag: noindex, nofollow. True narrows both to the public
+	// catalogue and lets the major crawlers past the age gate
+	// (agegate.go), which would otherwise be all they ever see. Whether an
+	// adult catalogue belongs in a search index depends on an operator's
+	// jurisdiction and appetite, so it is not a default this server picks.
+	Indexable bool
 }
 
 // NewServer builds a Server backed by s, with its own rate limiters.

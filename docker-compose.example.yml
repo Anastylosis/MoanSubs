@@ -12,8 +12,10 @@ services:
     environment:
       MOANSUBS_LISTEN: ":8080"
       DATABASE_URL: "postgres://moansubs:moansubs@postgres:5432/moansubs?sslmode=disable"
-      # Optional visitor analytics, off by default — see MANUAL.md. Both
-      # variables are needed or the server refuses to start.
+      # Both optional and off by default — see MANUAL.md. Indexing also
+      # changes how the age gate treats crawlers; analytics needs both
+      # variables or the server refuses to start.
+      # MOANSUBS_INDEXABLE: "true"
       # MOANSUBS_ANALYTICS_SCRIPT: "https://analytics.example/script.js"
       # MOANSUBS_ANALYTICS_WEBSITE_ID: "00000000-0000-0000-0000-000000000000"
     depends_on:

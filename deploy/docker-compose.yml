@@ -40,6 +40,11 @@ services:
       # Generate one with `openssl rand -hex 32` (64 hex chars); leaving it
       # unset is safe — tokens just aren't redisplayable, /me says so.
       MOANSUBS_TOKEN_KEY: ${MOANSUBS_TOKEN_KEY:?set MOANSUBS_TOKEN_KEY, e.g. via: openssl rand -hex 32}
+      # Search-engine indexing, off by default. Read "Indexing and the age
+      # gate" in MANUAL.md before turning it on: on a node with the age
+      # gate up it also lets crawlers past the click-through, which is a
+      # deliberate trade rather than a free win.
+      # MOANSUBS_INDEXABLE: "true"
       # Visitor analytics, off by default. The path form below pairs with
       # the /s/* proxy in Caddyfile, which keeps the tag same-origin — see
       # "Analytics" in README.md. An absolute https:// URL also works.

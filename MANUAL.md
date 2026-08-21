@@ -32,6 +32,7 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_ADMIN_NAME` | `admin` | The name the first-run admin bootstrap (below) creates, when one runs at all. |
 | `MOANSUBS_BOOTSTRAP_ADMIN` | `true` | Set to `false` to disable the automatic first-run admin creation below — for an operator who'd rather keep credentials out of container logs entirely and mint the account by hand with `moansubs admin bootstrap` (via `docker compose exec`) instead. |
 | `MOANSUBS_AGE_GATE` | `true` | Shows an 18+ click-through interstitial (`GET`/`POST /age`) in front of every human page until a visitor accepts it — a plain "I am 18 or older" button, **not** age or identity verification (no ID, no face check). `false` disables it entirely, for an operator who satisfies a jurisdiction's real verification requirement some other way (a dedicated third-party provider, or a reverse proxy gating the whole node) rather than through this server. Never gates `/api/*`, `/healthz`, `/robots.txt`, `/favicon.ico`, or `/static/*`. |
+| `MOANSUBS_INDEXABLE` | `false` | Opens this node to search engines. The default is the historical posture: `/robots.txt` is a blanket `Disallow: /` and `/browse`, `/search`, `/release/*`, `/u/*` all send `X-Robots-Tag: noindex, nofollow`. `true` narrows both to the public catalogue — `/`, `/browse`, `/release/*`, `/u/*` become indexable, while `/admin`, `/api/`, `/login`, `/me`, `/mod`, `/register`, `/search` and `/upload` stay disallowed (`/search` keeps its `noindex` on every node: it is `/browse`'s rows behind a query string, and the one catalogue page that does real database work per hit). It also lets the major search crawlers past the age gate, which is a real trade and is described under "Indexing and the age gate" below. Whether an adult catalogue belongs in a search index depends on your jurisdiction and appetite, so this server will not decide it for you. |
 | `MOANSUBS_ANALYTICS_SCRIPT` | *(unset)* | URL of a visitor-analytics tracker script, written into every public page as `<script defer src=… data-website-id=… data-exclude-search="true">`. Built against [Umami](https://umami.is) — self-hosted and cookieless — but anything served as a `<script>` that reads `data-website-id` works. Two forms are accepted: a **same-origin path** (`/s/script.js`, for a reverse proxy in front of this node — see `deploy/README.md`), which keeps the page's CSP on `script-src 'self'; connect-src 'self'` with no third-party origin in it at all; or an **absolute http(s) URL**, whose origin is added to `script-src` and `connect-src` instead. A scheme-relative `//host/path` is rejected rather than guessed at. Must be set together with `MOANSUBS_ANALYTICS_WEBSITE_ID`; setting one alone fails startup, because the resulting tag would load and then silently record nothing. |
 | `MOANSUBS_ANALYTICS_WEBSITE_ID` | *(unset)* | The tracker's site identifier, emitted verbatim as `data-website-id`. See `MOANSUBS_ANALYTICS_SCRIPT`. |
 | `MOANSUBS_STASH_ENDPOINTS` | `https://stashdb.org/graphql,https://fansdb.cc/graphql` | Comma-separated allow-list of stash-box GraphQL endpoints an upload's `stash_ids` may name (WP-R6, defense in depth against a rogue uploader attaching an arbitrary URL the UI would render as a link — API.md "`POST /api/v1/subtitles`"). An endpoint outside it is rejected with `400 stash_ids: endpoint not accepted by this node`. The single value `*` accepts any http(s) endpoint. `GET /api/v1/version` advertises the resolved list as `stash_endpoints`, so the plugin filters what it pushes against it rather than racing the 400 one id at a time; the `/upload` form's endpoint `<select>` lists exactly this set too (plus "other" only when it's `*`). |
@@ -622,3 +623,34 @@ absolute URL and reverse-proxy it to your analytics host (see
 another host, and the common ad-blocker rules that match a known analytics
 path do not fire. An absolute URL works and is simpler to set up; it just
 costs all three of those.
+
+## Indexing and the age gate
+
+`MOANSUBS_INDEXABLE=true` on its own would achieve nothing on a node with
+the age gate up. The interstitial is a `200` carrying its own content, so a
+crawler asking for `/release/123` gets "Before you enter" — and that, not
+the release, is what would land in the index, for every URL on the site.
+
+So `MOANSUBS_INDEXABLE=true` also lets the major search crawlers
+(Googlebot, bingbot, DuckDuckBot, Applebot, YandexBot, Baiduspider,
+matched case-insensitively on `User-Agent`) skip the click-through. Be
+clear about what that is: the node serves a crawler something a first-time
+human does not get. Search engines describe that pattern as cloaking and
+dislike it in general, though an age notice is a common and largely
+tolerated instance of it. The header is also trivially forged — which
+costs nothing here, because the gate is a notice rather than an access
+control, so forging Googlebot buys a visitor exactly what clicking the
+button would.
+
+The alternatives, if that trade is not one you want to make:
+
+- Leave `MOANSUBS_INDEXABLE=false` and stay unlisted. Nothing about the
+  plugin, the API or a direct link depends on being indexed.
+- Set `MOANSUBS_AGE_GATE=false` alongside it and let the RTA label every
+  page already carries (`<meta name="rating">`) do the work, with the
+  age-verification requirement handled in front of this node — a
+  third-party provider or a reverse proxy gating the whole thing.
+
+Either way `/search` keeps `noindex` and the private surface stays
+disallowed in `robots.txt`; see `MOANSUBS_INDEXABLE` in the table above for
+the exact split.

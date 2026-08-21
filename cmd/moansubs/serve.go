@@ -229,6 +229,20 @@ var serveCmd = &cobra.Command{
 			ageGate = b
 		}
 
+		// Search-engine indexing is off by default: /robots.txt disallows
+		// everything and the catalogue pages send noindex, which is what
+		// this node has always done. MOANSUBS_INDEXABLE=true opens the
+		// public catalogue and lets the major crawlers past the age gate —
+		// see MANUAL.md, including what that second part trades away.
+		indexable := false
+		if v := os.Getenv("MOANSUBS_INDEXABLE"); v != "" {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_INDEXABLE %q", v)
+			}
+			indexable = b
+		}
+
 		// The optional analytics tag (MOANSUBS_ANALYTICS_SCRIPT plus
 		// MOANSUBS_ANALYTICS_WEBSITE_ID). Unset on both leaves the node
 		// with no tracker and the unwidened CSP; setting one without the
@@ -298,6 +312,7 @@ var serveCmd = &cobra.Command{
 		apiSrv.AgeGate = ageGate
 		apiSrv.StashEndpoints = stashEndpoints
 		apiSrv.Analytics = analytics
+		apiSrv.Indexable = indexable
 		srv := &http.Server{
 			Addr:    listen,
 			Handler: api.NewMux(apiSrv),

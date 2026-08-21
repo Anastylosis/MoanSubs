@@ -196,12 +196,49 @@ func (s *Server) buildCatalogueReleases(ctx context.Context, releases []store.Re
 
 // -- GET /robots.txt --------------------------------------------------------
 
+// robotsClosed is /robots.txt on a node that is not Indexable: the blanket
+// disallow this server has always served.
+const robotsClosed = "User-agent: *\nDisallow: /\n"
+
+// robotsOpen is /robots.txt on an Indexable node. What stays disallowed is
+// everything that is private (/me, /admin, /mod), a form rather than
+// content (/login, /register, /upload), or an unbounded query space a
+// crawler would grind forever for nothing (/search). The catalogue — /,
+// /browse, /release/*, /u/* — is what there is to index, and is left
+// implicitly allowed rather than spelled out, since Allow has no effect
+// without a Disallow to carve out of.
+const robotsOpen = `User-agent: *
+Disallow: /admin
+Disallow: /api/
+Disallow: /login
+Disallow: /me
+Disallow: /mod
+Disallow: /register
+Disallow: /search
+Disallow: /upload
+`
+
 // handleRobotsTxt implements GET /robots.txt (WP-C2): every catalogue page
 // also sends its own X-Robots-Tag, but a well-behaved crawler checks
 // robots.txt before ever fetching a page at all.
 func (s *Server) handleRobotsTxt(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	_, _ = w.Write([]byte("User-agent: *\nDisallow: /\n"))
+	body := robotsClosed
+	if s.Indexable {
+		body = robotsOpen
+	}
+	_, _ = w.Write([]byte(body))
+}
+
+// setCatalogueRobots sends X-Robots-Tag for a page an Indexable node wants
+// kept: noindex while the node is closed, and no header at all once it is
+// open, since the header's absence is what lets a crawler keep the page.
+// Pages that must never be indexed either way (mod.go's setModPageHeaders,
+// and handleSearch below) set the header themselves instead of calling it.
+func (s *Server) setCatalogueRobots(w http.ResponseWriter) {
+	if !s.Indexable {
+		w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	}
 }
 
 // -- GET /browse --------------------------------------------------------
@@ -219,7 +256,7 @@ type browsePageData struct {
 // carrying name metadata with at least one visible track, newest first, 50
 // per page, keyset-paginated by id.
 func (s *Server) handleBrowse(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	s.setCatalogueRobots(w)
 
 	var afterID int64
 	if v := r.URL.Query().Get("after"); v != "" {
@@ -279,6 +316,11 @@ type searchPageData struct {
 // of them. Per-IP rate-limited — the only catalogue page where a stranger
 // makes the database do real work.
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	// Not setCatalogueRobots: results stay out of an index even on an
+	// Indexable node. They are a view of /browse's rows through a query
+	// string, so indexing them buys duplicates of pages a crawler already
+	// has, at the cost of the one catalogue page that does real database
+	// work per hit.
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
@@ -376,7 +418,7 @@ func (s *Server) handleReleasePage(w http.ResponseWriter, r *http.Request) {
 // so a rejected vote lands back on the same page rather than a bare error
 // response.
 func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id int64, status int, formError string) {
-	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	s.setCatalogueRobots(w)
 
 	ctx := r.Context()
 	release, err := s.Store.CatalogueRelease(ctx, id)
@@ -552,7 +594,7 @@ type uploaderPageData struct {
 // disabled account shouldn't keep advertising its name here, and either way
 // there's nothing to distinguish from "never existed" on a public page.
 func (s *Server) handleUploaderPage(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	s.setCatalogueRobots(w)
 
 	name := r.PathValue("name")
 	ctx := r.Context()

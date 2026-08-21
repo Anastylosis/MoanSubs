@@ -129,9 +129,13 @@ The server also carries a small public catalogue for browsers: `/browse`
 and `/search` list releases that have name metadata (title, studio,
 performers, or a filename stem — a bare hash has nothing to show), and
 `/release/{id}` shows one release's tracks with download links, `/u/{name}`
-credits an uploader's contributions. These pages are deliberately kept out
-of search engines (`/robots.txt`, `X-Robots-Tag: noindex`) — they're for
-people who already know this node exists, not for driving traffic to it.
+credits an uploader's contributions. By default these pages are kept out of
+search engines (`/robots.txt`, `X-Robots-Tag: noindex`) — for people who
+already know this node exists, rather than for driving traffic to it. An
+operator who wants the catalogue indexed sets `MOANSUBS_INDEXABLE=true`,
+which opens the public pages while leaving the private surface disallowed;
+MANUAL.md covers what that changes, including how it has to treat the age
+gate for crawlers.
 
 Every human page (not the API, not a download) sits behind a one-click 18+
 interstitial by default: "I am 18 or older — enter", plus an RTA label

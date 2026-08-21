@@ -44,6 +44,16 @@ func (s *Server) page(h http.HandlerFunc) http.HandlerFunc {
 			h(w, r)
 			return
 		}
+		// An Indexable node has to let crawlers through, or the gate is all
+		// they ever index: the interstitial is a 200 carrying its own
+		// content, so every URL on the site would come back as "Before you
+		// enter" and nothing else. This does serve a crawler what a
+		// first-time human doesn't get — MANUAL.md states the trade
+		// plainly, and MOANSUBS_INDEXABLE is the operator opting into it.
+		if s.Indexable && isCrawler(r.Header.Get("User-Agent")) {
+			h(w, r)
+			return
+		}
 		// Only a GET can be gated meaningfully: rendering the interstitial
 		// in place of a POST would discard the form and, after the click-
 		// through, land on a GET of a POST-only path (a 404). A POST without
@@ -72,6 +82,36 @@ func (s *Server) renderAgeGate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Robots-Tag", "noindex")
 	data := ageGateData{Title: "Before you enter", Next: sanitizeNext(r.URL.RequestURI())}
 	s.renderPage(w, r, http.StatusOK, "agegate.html", data, true)
+}
+
+// crawlerUAs are the User-Agent substrings that identify a major search
+// engine's crawler. Deliberately short: this list exists to get the
+// catalogue indexed, not to enumerate every bot on the internet, and a
+// crawler missing from it degrades to seeing the gate — the behaviour on
+// every non-Indexable node anyway.
+//
+// Matching on a spoofable header is fine here for the reason the doc
+// comment on page gives: the gate is a notice, not an access control.
+// Forging Googlebot buys a visitor exactly what clicking the button would.
+//
+// Lower-cased, and matched case-insensitively: the real header spells
+// these inconsistently — Google sends "Googlebot" but Microsoft sends
+// "bingbot" — and a list that has to guess each vendor's capitalisation is
+// a list that silently stops matching one of them.
+var crawlerUAs = []string{
+	"googlebot", "google-inspectiontool", "bingbot", "duckduckbot",
+	"applebot", "yandexbot", "baiduspider",
+}
+
+// isCrawler reports whether ua names one of crawlerUAs.
+func isCrawler(ua string) bool {
+	ua = strings.ToLower(ua)
+	for _, c := range crawlerUAs {
+		if strings.Contains(ua, c) {
+			return true
+		}
+	}
+	return false
 }
 
 // sanitizeNext is WP-C10's open-redirect guard for the gate's "next"
