@@ -14,7 +14,7 @@
   :root {
     color-scheme: dark light;
     --bg: #1b1d22; --surface: #22252b; --fg: #ece8df; --muted: #9a9ea8;
-    --line: #33373f; --accent: #f3ce4a; --accent-ink: #1b1d22;
+    --line: #33373f; --accent: {{theme.AccentDark}}; --accent-ink: {{theme.InkDark}};
     --cue-bg: #0b0c0f; --cue-fg: #f7f4ec; --danger: #e2675a; --ok: #7fc27a;
     --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
     --sans: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
@@ -22,7 +22,7 @@
   }
   @media (prefers-color-scheme: light) {
     :root { --bg: #e9e7e1; --surface: #f3f1ec; --fg: #1b1d22; --muted: #5e626b;
-            --line: #cfccc4; --accent: #8a6d00; --accent-ink: #fffdf5; --ok: #3d7a39; --danger: #b9402f; }
+            --line: #cfccc4; --accent: {{theme.AccentLight}}; --accent-ink: {{theme.InkLight}}; --ok: #3d7a39; --danger: #b9402f; }
   }
   * { box-sizing: border-box; }
   html { background: var(--bg); }

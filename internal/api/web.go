@@ -63,6 +63,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"loggedIn":    func() bool { return false },
 	"roleAtLeast": func(string) bool { return false },
 	"analytics":   func() *Analytics { return nil },
+	"theme":       func() *Theme { return defaultTheme },
 }).ParseFS(templateFS, "templates/*.html"))
 
 // registerData is /register's data (both the form and its result). Name is
@@ -141,10 +142,15 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 		if analyticsPages[body] {
 			tracker = s.Analytics
 		}
+		th := s.Theme
+		if th == nil {
+			th = defaultTheme
+		}
 		tpl = tpl.Funcs(template.FuncMap{
 			"loggedIn":    func() bool { return loggedIn },
 			"roleAtLeast": func(want string) bool { return roleRank[role] >= roleRank[want] },
 			"analytics":   func() *Analytics { return tracker },
+			"theme":       func() *Theme { return th },
 		})
 	}
 	if err == nil {

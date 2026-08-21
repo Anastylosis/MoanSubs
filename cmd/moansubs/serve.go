@@ -243,6 +243,15 @@ var serveCmd = &cobra.Command{
 			indexable = b
 		}
 
+		// The accent colour every page is built around (MOANSUBS_ACCENT).
+		// Only hue and saturation are taken from it: the server re-derives
+		// a lightness per theme so the result stays legible on both, which
+		// is why an operator cannot configure an unreadable site here.
+		theme, err := api.ParseAccent(os.Getenv("MOANSUBS_ACCENT"))
+		if err != nil {
+			return fmt.Errorf("moansubs serve: invalid MOANSUBS_ACCENT: %w", err)
+		}
+
 		// The optional analytics tag (MOANSUBS_ANALYTICS_SCRIPT plus
 		// MOANSUBS_ANALYTICS_WEBSITE_ID). Unset on both leaves the node
 		// with no tracker and the unwidened CSP; setting one without the
@@ -330,6 +339,7 @@ var serveCmd = &cobra.Command{
 		apiSrv.StashEndpoints = stashEndpoints
 		apiSrv.Analytics = analytics
 		apiSrv.Indexable = indexable
+		apiSrv.Theme = theme
 		srv := &http.Server{
 			Addr:    listen,
 			Handler: api.NewMux(apiSrv),

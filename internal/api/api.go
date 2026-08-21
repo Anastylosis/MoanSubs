@@ -265,6 +265,10 @@ type Server struct {
 	// (analytics.go, MOANSUBS_ANALYTICS_SCRIPT/_WEBSITE_ID). Nil — the
 	// default — means no tracker and the unwidened CSP on every page.
 	Analytics *Analytics
+	// Theme is the derived accent palette every page renders into its
+	// :root blocks (theme.go, MOANSUBS_ACCENT). Never nil on a Server from
+	// NewServer; renderPage falls back to the default if it ever is.
+	Theme *Theme
 	// Indexable opens this node to search engines (MOANSUBS_INDEXABLE).
 	// False — the default — keeps the historical posture: /robots.txt
 	// disallows everything and every catalogue page sends
@@ -302,6 +306,9 @@ func NewServer(s *store.Store) *Server {
 		AgeGate: true,
 		// WP-R6's default allow-list; MOANSUBS_STASH_ENDPOINTS overrides it.
 		StashEndpoints: append([]string(nil), DefaultStashEndpoints...),
+		// MOANSUBS_ACCENT overrides this; the error case cannot happen for
+		// DefaultAccent, which is a compile-time constant this package owns.
+		Theme: defaultTheme,
 	}
 }
 
