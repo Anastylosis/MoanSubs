@@ -190,7 +190,14 @@ func TestRegisterAccount_WithoutPassword_WorksButCannotWebLogin(t *testing.T) {
 		t.Fatalf("upload with the API-only account's token = %d, want 201", upload.StatusCode)
 	}
 
-	loginResp, err := http.PostForm(ts.URL+"/login", url.Values{"name": {"api-only-newcomer"}, "password": {"whatever-1234"}})
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/login",
+		strings.NewReader(url.Values{"name": {"api-only-newcomer"}, "password": {"whatever-1234"}}.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", ts.URL)
+	loginResp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("POST /login: %v", err)
 	}
@@ -221,7 +228,14 @@ func TestRegisterAccount_WithPassword_CanWebLogin(t *testing.T) {
 	// login failure behind /me's own 200 — disable redirects so the login
 	// response itself is what gets asserted on.
 	noRedirect := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
-	loginResp, err := noRedirect.PostForm(ts.URL+"/login", url.Values{"name": {"with-password-newcomer"}, "password": {"a fine password here"}})
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/login",
+		strings.NewReader(url.Values{"name": {"with-password-newcomer"}, "password": {"a fine password here"}}.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", ts.URL)
+	loginResp, err := noRedirect.Do(req)
 	if err != nil {
 		t.Fatalf("POST /login: %v", err)
 	}

@@ -234,6 +234,33 @@ func TestLogin_DisabledAccountCannotLogIn(t *testing.T) {
 	}
 }
 
+func TestLogin_WrongOriginRejected(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	srv.AgeGate = false // WP-C10: irrelevant here, see web_test.go's webServer
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	createWebAccount(t, ts, "crossorigin-user")
+
+	client := jarClient(t)
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/login",
+		strings.NewReader(url.Values{"name": {"crossorigin-user"}, "password": {testAccountPassword}}.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "https://evil.example")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST /login: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("POST /login with a cross-origin Origin = %d, want 403", resp.StatusCode)
+	}
+}
+
 // Disabling an account must kill its existing session too (WP-C1 spec) —
 // this is store.DeleteSessionsForAccount, exercised here the way
 // `moansubs account disable` calls it (SetAccountDisabled then

@@ -103,6 +103,13 @@ func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 // has no password set, or the password is simply wrong — so this handler
 // can't be used to enumerate which names are registered.
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	// Login CSRF: a cross-site form could log a visitor into an account
+	// the attacker controls, so their later uploads and votes land there.
+	// Checked before the limiter so a refused post spends no budget.
+	if !checkOrigin(w, r) {
+		return
+	}
+
 	if err := r.ParseForm(); err != nil {
 		s.renderPage(w, r, http.StatusBadRequest, "login.html", loginData{
 			Title: "Log in", Error: "could not read the submitted form",
@@ -464,7 +471,7 @@ func (s *Server) handleDisableInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if inv.CreatedBy != ares.Account.ID && !requireRole(ares, "admin") {
-		http.Error(w, "not your invite code", http.StatusForbidden)
+		http.NotFound(w, r)
 		return
 	}
 
@@ -487,8 +494,12 @@ func sameOrigin(r *http.Request) bool {
 	if origin == "" || origin == "null" {
 		origin = r.Header.Get("Referer")
 	}
+	pathStr := r.URL.Path
+	if r.Pattern != "" {
+		pathStr = r.Pattern
+	}
 	if origin == "" {
-		log.Printf("api: origin check: %s %s from %s sent neither Origin nor Referer", r.Method, r.URL.Path, r.RemoteAddr)
+		log.Printf("api: origin check: %s %s from %s sent neither Origin nor Referer", r.Method, pathStr, r.RemoteAddr)
 		return false
 	}
 	u, err := url.Parse(origin)
@@ -496,7 +507,7 @@ func sameOrigin(r *http.Request) bool {
 		return false
 	}
 	if u.Host != r.Host {
-		log.Printf("api: origin check: %s %s: origin host %q != request host %q", r.Method, r.URL.Path, u.Host, r.Host)
+		log.Printf("api: origin check: %s %s: origin host %q != request host %q", r.Method, pathStr, u.Host, r.Host)
 		return false
 	}
 	return true

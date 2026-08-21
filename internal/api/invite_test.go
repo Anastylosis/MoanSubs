@@ -572,7 +572,7 @@ func TestDisableInvite_OwnCodeSucceeds(t *testing.T) {
 	}
 }
 
-func TestDisableInvite_SomeoneElsesCodeForbidden(t *testing.T) {
+func TestDisableInvite_SomeoneElsesCodeNotFound(t *testing.T) {
 	ts, st, client, _ := sessionServer(t)
 
 	otherID, _, err := st.CreateAccount(context.Background(), "someoneelse")
@@ -594,8 +594,8 @@ func TestDisableInvite_SomeoneElsesCodeForbidden(t *testing.T) {
 		t.Fatalf("POST /me/invites/.../disable: %v", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusForbidden {
-		t.Errorf("disabling someone else's code = %d, want 403", resp.StatusCode)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("disabling someone else's code = %d, want 404", resp.StatusCode)
 	}
 
 	inv, err := st.GetInvite(context.Background(), code)

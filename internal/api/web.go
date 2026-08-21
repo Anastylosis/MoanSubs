@@ -302,6 +302,12 @@ func (s *Server) handleRegisterForm(w http.ResponseWriter, r *http.Request) {
 // register() (shared with the passwordless-capable JSON path) has no
 // business knowing about.
 func (s *Server) handleRegisterSubmit(w http.ResponseWriter, r *http.Request) {
+	// Same login-CSRF reasoning as handleLogin: registering logs the new
+	// account in, so a cross-site post is a cross-site login.
+	if !checkOrigin(w, r) {
+		return
+	}
+
 	inviteRequired := s.Registration == RegistrationInvite
 	if err := r.ParseForm(); err != nil {
 		s.renderPage(w, r, http.StatusBadRequest, "register.html", registerData{

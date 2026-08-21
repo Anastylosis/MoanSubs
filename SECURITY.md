@@ -101,8 +101,8 @@ registration codes, and disabling a code never refunds the mint that
 created it.
 
 **Roles.** Every account has a role (`user`, `mod`, or `admin`; default
-`user`), set by the operator with `moansubs account role`. `mod` and above
-can disable someone else's invite code; `mod` and above can also reach the
+`user`), set by the operator with `moansubs account role`. `admin` can
+disable someone else's invite code; `mod` and above can also reach the
 moderation pages (`/mod/flagged`, `/mod/track/{id}`, `/mod/release/{id}`,
 MANUAL.md "Moderating from the browser") to withdraw or restore a track or
 release; `admin` additionally reaches `/admin`, `/admin/accounts`, and

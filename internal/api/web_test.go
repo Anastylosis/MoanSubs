@@ -54,9 +54,16 @@ const registerFormPassword = "a fine registration password"
 
 func postForm(t *testing.T, ts *httptest.Server, name string) (*http.Response, string) {
 	t.Helper()
-	resp, err := http.PostForm(ts.URL+"/register", url.Values{
-		"name": {name}, "password": {registerFormPassword}, "password2": {registerFormPassword},
-	})
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/register",
+		strings.NewReader(url.Values{
+			"name": {name}, "password": {registerFormPassword}, "password2": {registerFormPassword},
+		}.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", ts.URL)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("POST /register: %v", err)
 	}
@@ -189,9 +196,16 @@ func TestRegisterForm_RejectionsKeepTheirStatus(t *testing.T) {
 func TestRegisterForm_MismatchedPasswordsRejected(t *testing.T) {
 	ts, _ := webServer(t, true)
 
-	resp, err := http.PostForm(ts.URL+"/register", url.Values{
-		"name": {"mismatched-pw-user"}, "password": {"first-password-here"}, "password2": {"second-password-here"},
-	})
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/register",
+		strings.NewReader(url.Values{
+			"name": {"mismatched-pw-user"}, "password": {"first-password-here"}, "password2": {"second-password-here"},
+		}.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", ts.URL)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("POST /register: %v", err)
 	}
@@ -235,5 +249,27 @@ func TestRegisterForm_ClosedNodeOffersNoForm(t *testing.T) {
 
 	if resp, _ := postForm(t, ts, "sneaky"); resp.StatusCode != http.StatusForbidden {
 		t.Errorf("POST /register on a closed node = %d, want 403", resp.StatusCode)
+	}
+}
+
+func TestRegisterForm_WrongOriginRejected(t *testing.T) {
+	ts, _ := webServer(t, true)
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/register",
+		strings.NewReader(url.Values{
+			"name": {"crossorigin-user"}, "password": {registerFormPassword}, "password2": {registerFormPassword},
+		}.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "https://evil.example")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /register: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("POST /register with a cross-origin Origin = %d, want 403", resp.StatusCode)
 	}
 }
