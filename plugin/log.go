@@ -15,6 +15,7 @@ import (
 // level. Stdout is the RPC channel and must never be written to directly.
 const (
 	logPrefixInfo     = "\x01i\x02"
+	logPrefixWarning  = "\x01w\x02"
 	logPrefixError    = "\x01e\x02"
 	logPrefixProgress = "\x01p\x02"
 )
@@ -28,8 +29,15 @@ func logLine(prefix, format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "%s%s\n", prefix, msg)
 }
 
-func logInfo(format string, args ...any)  { logLine(logPrefixInfo, format, args...) }
-func logError(format string, args ...any) { logLine(logPrefixError, format, args...) }
+// Level matters more than it looks: Stash drops anything below its
+// configured log level before it is ever stored, and an instance left at
+// Warning — a common setting — shows nothing this plugin logs at Info. So
+// anything a user needs in order to understand why a task did not do what
+// they expected belongs at Warning or above, and Info is reserved for the
+// running commentary of a task that is working.
+func logInfo(format string, args ...any)    { logLine(logPrefixInfo, format, args...) }
+func logWarning(format string, args ...any) { logLine(logPrefixWarning, format, args...) }
+func logError(format string, args ...any)   { logLine(logPrefixError, format, args...) }
 
 // logProgress reports task progress to Stash's job bar; v is clamped to [0,1].
 func logProgress(v float64) {

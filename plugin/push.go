@@ -142,7 +142,7 @@ func (a *app) pushScene(ctx context.Context, scene *stash.Scene, dryRun bool, st
 		if err != nil {
 			st.Errors++
 			st.note("uploading %s: %v", sc.Path, err)
-			logInfo("push: %s: %v", sc.Path, err)
+			logWarning("push: %s: %v", sc.Path, err)
 			continue
 		}
 		if res.Duplicate {

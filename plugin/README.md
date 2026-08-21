@@ -127,11 +127,43 @@ across different people's libraries is nearly never.
   way before the push is even sent; if any are dropped, the plugin logs
   once per scene.
 
+## Where task output goes
+
+Everything a task reports — Probe's verdict included — goes to Stash's own
+log: **Settings → Logs** in the UI, and the Stash container's stdout. The
+plugin never writes a log file of its own.
+
+**Stash's log level decides whether you see any of it.** Stash drops
+anything below the configured level before storing it, so an instance set
+to `Warning` shows nothing logged at Info, and a task that ran perfectly
+looks identical to one whose output vanished. If Probe seems to produce
+nothing at all, check **Settings → Logging → Log Level** before assuming
+the task failed.
+
+What the plugin logs, and at which level:
+
+| Level | What appears |
+|---|---|
+| Error | Probe could not reach the server or read its version — the one failure Probe exists to surface |
+| Warning | Anything that silently degraded: a scene's phash was unparseable, stash ids were dropped, the name-match fallback was skipped or failed, a language was written as a bare subtag, a push or badge failed for one scene |
+| Info | The running commentary of a task that is working: candidate counts, files written, per-file push results, the push summary |
+
+So a node at `Warning` still surfaces every failure and every silent
+degrade; raising it to `Info` adds the detail of what a working task did.
+Nothing the plugin considers a problem is Info-only.
+
+Stash's log level is global, so raising it makes every other plugin more
+verbose too.
+
 ## Troubleshooting
 
 - **Nothing happens / no candidates ever**: run **Probe**. Then check the
   scene actually has an oshash (it always does after a scan) and ideally a
   phash.
+- **Probe ran but printed nothing**: see "Where task output goes" above —
+  a Stash set to `Warning` hides Info lines, and a Probe that succeeded has
+  nothing above Info to say. A Probe that *failed* logs at Error and is
+  visible at any level.
 - **A caption downloaded but doesn't show in the player**: reload the page
   first; if it's still missing, check the panel's message — if a metadata
   scan was triggered, wait for it to finish. The plugin refuses up front to

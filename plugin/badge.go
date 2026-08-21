@@ -47,7 +47,7 @@ func (a *app) badge(ctx context.Context, sceneIDs []string) (any, error) {
 		out[id] = badgeStatus{} // default: no matches
 		scene, err := a.stash.FindScene(ctx, id)
 		if err != nil {
-			logInfo("badge: scene %s: %v", id, err)
+			logWarning("badge: scene %s: %v", id, err)
 			continue
 		}
 		oh, ph, durationMs, _, _, err := sceneKeys(scene)

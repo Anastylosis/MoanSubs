@@ -98,7 +98,7 @@ func (a *app) probe(ctx context.Context) (any, error) {
 	// rather than failing the whole probe call.
 	v, err := a.serverVersion(ctx)
 	if err != nil {
-		logInfo("probe: reading server version failed: %v", err)
+		logError("probe: reading server version failed: %v", err)
 		v = &msclient.ServerVersion{}
 	}
 	return probeResult{
@@ -162,7 +162,7 @@ func sceneKeys(s *stash.Scene) (hash.OSHash, *hash.PHash, int64, string, []stash
 		if err == nil {
 			ph = &p
 		} else {
-			logInfo("scene %s: unparseable phash %q ignored: %v", s.ID, phStr, err)
+			logWarning("scene %s: unparseable phash %q ignored: %v", s.ID, phStr, err)
 		}
 	}
 
@@ -228,7 +228,7 @@ func (a *app) msclientStashIDs(ctx context.Context, ids []stash.StashID, sceneID
 	}
 
 	if dropped && sceneID != "" {
-		logInfo("scene %s: some stash IDs were dropped (invalid format, endpoint not accepted by this node, or too many)", sceneID)
+		logWarning("scene %s: some stash IDs were dropped (invalid format, endpoint not accepted by this node, or too many)", sceneID)
 	}
 
 	return out
@@ -244,7 +244,7 @@ func (a *app) stashIdentityCandidates(ctx context.Context, sceneID string, ids [
 	query := a.msclientStashIDs(ctx, ids, sceneID)
 	perID, err := a.ms.LookupStashIDs(ctx, query)
 	if err != nil {
-		logInfo("stash id lookup failed: %v", err)
+		logWarning("stash id lookup failed: %v", err)
 		return nil
 	}
 
@@ -359,7 +359,7 @@ func (a *app) search(ctx context.Context, sceneID string) (any, error) {
 	if v, verr := a.serverVersion(ctx); verr == nil {
 		res.Features = v.Features
 	} else {
-		logInfo("search scene %s: could not read server version for feature flags: %v", sceneID, verr)
+		logWarning("search scene %s: could not read server version for feature flags: %v", sceneID, verr)
 	}
 	if ph == nil {
 		// Across strangers' libraries oshash almost never matches; phash is
@@ -403,11 +403,11 @@ func (a *app) nameMatchFallback(ctx context.Context, scene *stash.Scene, path st
 	// log line instead of an error surfaced from the request itself.
 	v, err := a.serverVersion(ctx)
 	if err != nil {
-		logInfo("search scene %s: could not read server version, skipping name-match fallback: %v", scene.ID, err)
+		logWarning("search scene %s: could not read server version, skipping name-match fallback: %v", scene.ID, err)
 		return nil
 	}
 	if !hasFeature(v.Features, "match") {
-		logInfo("server %s has no name matching; upgrade the node", v.Version)
+		logWarning("server %s has no name matching; upgrade the node", v.Version)
 		return nil
 	}
 
@@ -424,7 +424,7 @@ func (a *app) nameMatchFallback(ctx context.Context, scene *stash.Scene, path st
 			logInfo("search scene %s: server has no name-match endpoint, skipping fallback", scene.ID)
 			return nil
 		}
-		logInfo("search scene %s: name-match fallback failed: %v", scene.ID, err)
+		logWarning("search scene %s: name-match fallback failed: %v", scene.ID, err)
 		return nil
 	}
 	return nameCandidates(result)
@@ -475,7 +475,7 @@ func (a *app) download(ctx context.Context, args downloadArgs) (any, error) {
 		return nil, err
 	}
 	if lang.Normalized {
-		logInfo("language %q written as bare subtag %q — Stash caption filenames cannot carry a region", lang.Original, lang.Base)
+		logWarning("language %q written as bare subtag %q — Stash caption filenames cannot carry a region", lang.Original, lang.Base)
 	}
 
 	logProgress(0.5)
