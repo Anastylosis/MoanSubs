@@ -1,8 +1,9 @@
 // The moderation surface (WP-C7b): a browser front end onto the exact same
 // store primitives `moansubs track/release withdraw|restore` and `track
 // list --flagged`/`track show` already use — no new semantics here, only
-// pages. Every page and POST here is session-only in spirit: authenticate
-// accepts Bearer too (same as /me and /upload), but the Origin check on
+// pages. Every page and POST here is session-only, full stop:
+// requireWebRole reads the session cookie only (authenticateWeb, WP-P1) — a
+// Bearer header reaches nothing on this surface — and the Origin check on
 // every POST is unconditional, matching /me/rotate-token and /logout rather
 // than the Bearer-exempt pattern subtitles.go/votes.go use, since nothing
 // here is meant to be driven by a script holding a bare token.
@@ -47,14 +48,15 @@ func setModPageHeaders(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-store")
 }
 
-// requireWebRole is every moderation/admin page's gate. A missing or
-// invalid session sends the visitor to /login exactly like /me does; an
-// insufficient role answers a plain 404, not 403 — deliberately, so a mod
-// or admin page's very existence isn't advertised to an account that isn't
-// allowed to see it (WP-C7b spec). Writes the response itself; ok is false
-// iff it did.
+// requireWebRole is every moderation/admin page's gate. It authenticates
+// via authenticateWeb (WP-P1) — the session cookie only, so a Bearer
+// header carries no weight here — and a missing or invalid session sends
+// the visitor to /login exactly like /me does; an insufficient role
+// answers a plain 404, not 403 — deliberately, so a mod or admin page's
+// very existence isn't advertised to an account that isn't allowed to see
+// it (WP-C7b spec). Writes the response itself; ok is false iff it did.
 func (s *Server) requireWebRole(w http.ResponseWriter, r *http.Request, want string) (*authResult, bool) {
-	ares, err := authenticate(r.Context(), s.Store, r)
+	ares, err := authenticateWeb(r.Context(), s.Store, r)
 	if err != nil {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return nil, false

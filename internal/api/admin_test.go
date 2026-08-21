@@ -115,6 +115,48 @@ func TestAdminAccountDisable_OtherAccountSucceeds(t *testing.T) {
 	}
 }
 
+// A Bearer header carries no weight on an admin POST either (WP-P1): a
+// leaked admin token must not be able to reach POST
+// /admin/accounts/{name}/role (or any other admin action) — a matching
+// Origin and a valid admin Bearer with no session cookie gets exactly the
+// no-session redirect, and the target account's role is untouched.
+func TestAdminAccountRole_BearerOnlyRedirectsToLogin(t *testing.T) {
+	ts, st, _, token := sessionServer(t)
+	if err := st.SetAccountRole(context.Background(), "webuser", "admin"); err != nil {
+		t.Fatalf("SetAccountRole: %v", err)
+	}
+	createWebAccount(t, ts, "target-role")
+
+	form := url.Values{"role": {"admin"}}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/admin/accounts/target-role/role", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Origin", ts.URL)
+	client := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST role: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Errorf("POST /admin/accounts/.../role with only a Bearer admin token = %d, want 303 (ignored, same as no session)", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/login" {
+		t.Errorf("Location = %q, want /login", loc)
+	}
+
+	account, err := st.GetAccountByName(context.Background(), "target-role")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+	if account.Role != "user" {
+		t.Errorf("role = %q, want unchanged user — a Bearer-only request must not act as a session", account.Role)
+	}
+}
+
 // -- Purge: wrong confirm refused, right confirm withdraws + disables ------
 
 func TestAdminAccountPurge_WrongConfirmRefused(t *testing.T) {

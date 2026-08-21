@@ -103,7 +103,7 @@ type uploadPageData struct {
 // an anonymous visitor is sent to /login rather than shown a form they
 // cannot submit.
 func (s *Server) handleUploadForm(w http.ResponseWriter, r *http.Request) {
-	ares, err := authenticate(r.Context(), s.Store, r)
+	ares, err := authenticateWeb(r.Context(), s.Store, r)
 	if err != nil {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
@@ -124,7 +124,7 @@ func (s *Server) handleUploadForm(w http.ResponseWriter, r *http.Request) {
 // Bearer path here, unlike the JSON API, so the Origin check is
 // unconditional rather than gated on ViaCookie.
 func (s *Server) handleUploadSubmit(w http.ResponseWriter, r *http.Request) {
-	ares, err := authenticate(r.Context(), s.Store, r)
+	ares, err := authenticateWeb(r.Context(), s.Store, r)
 	if err != nil {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return

@@ -433,9 +433,13 @@ replacement.
 Every page here is session-only (log in at `/login` first) and gated by
 role (`moansubs account role`, above): an account that isn't allowed on a
 given page gets a plain `404`, not `403` or a login prompt, so the page's
-existence isn't advertised to someone who can't use it. Every state-changing
-action is a same-origin POST (WP-C1's Origin/Referer check, SECURITY.md),
-same as `/me`'s own buttons.
+existence isn't advertised to someone who can't use it. An API token in an
+`Authorization: Bearer` header is not accepted here, or on any other
+human-facing page (`/me`, `/upload`, and this section): only the session
+cookie logs a browser in, so a leaked token can't be used to reach a mod
+or admin page (SECURITY.md). Every state-changing action is a same-origin
+POST (WP-C1's Origin/Referer check, SECURITY.md), same as `/me`'s own
+buttons.
 
 **Role `mod` or higher:**
 

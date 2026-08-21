@@ -120,6 +120,48 @@ func TestMod_NoSessionRedirectsToLogin(t *testing.T) {
 	}
 }
 
+// A Bearer header carries no weight on a mod POST either (WP-P1): a valid
+// admin token with a matching Origin and no session cookie gets exactly
+// the no-session redirect above, never a distinct response that would
+// confirm the token itself works — and the track must not actually be
+// withdrawn.
+func TestModTrackWithdraw_BearerOnlyRedirectsToLogin(t *testing.T) {
+	ts, st, _, token := sessionServer(t)
+	if err := st.SetAccountRole(context.Background(), "webuser", "admin"); err != nil {
+		t.Fatalf("SetAccountRole: %v", err)
+	}
+	_, trackID := modFixture(t, st, "bea7bea7bea7bea7")
+
+	form := url.Values{"reason": {"policy violation"}}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/mod/track/"+strconv.FormatInt(trackID, 10)+"/withdraw", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Origin", ts.URL)
+	client := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST withdraw: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Errorf("POST /mod/track/.../withdraw with only a Bearer admin token = %d, want 303 (ignored, same as no session)", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/login" {
+		t.Errorf("Location = %q, want /login", loc)
+	}
+
+	detail, err := st.GetTrackDetail(context.Background(), trackID)
+	if err != nil {
+		t.Fatalf("GetTrackDetail: %v", err)
+	}
+	if detail.WithdrawnAt != nil {
+		t.Error("track was withdrawn by a Bearer-only request — the token must not act as a session")
+	}
+}
+
 // -- Origin check on a mod POST --------------------------------------------
 
 func TestModTrackWithdraw_WrongOriginRejected(t *testing.T) {

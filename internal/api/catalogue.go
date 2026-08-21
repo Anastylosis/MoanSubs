@@ -452,11 +452,13 @@ func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id in
 
 	// Check for authResult in context first (WP-R7) — a handler that
 	// authenticated may have stored it there to avoid a redundant session
-	// lookup here. Fall back to authenticate if not present.
+	// lookup here. Fall back to authenticateWeb if not present — the
+	// release page is a human page, so a Bearer header carries no weight
+	// here (WP-P1).
 	ares := authFromContext(r)
 	if ares == nil {
 		var err error
-		ares, err = authenticate(ctx, s.Store, r)
+		ares, err = authenticateWeb(ctx, s.Store, r)
 		if err != nil {
 			ares = nil
 		}
@@ -515,11 +517,15 @@ func (s *Server) applyViewerVoteState(ctx context.Context, rel *catalogueRelease
 
 // handleReleaseVote implements POST /release/{id}/vote (WP-C5): the
 // plain-forms front end onto castVote/retractVote, so a vote cast from the
-// release page runs exactly the same auth, Origin check, validation and
-// rules as PUT/DELETE /api/v1/subtitles/{id}/vote — never a second,
-// divergent implementation. track_id and value come from the submitted
-// form; value=0 means "retract" rather than a distinct button, since a
-// plain form has no DELETE method to send.
+// release page runs exactly the same validation and rules as PUT/DELETE
+// /api/v1/subtitles/{id}/vote — never a second, divergent implementation.
+// The auth step itself is not shared with those: this is a browser form
+// post, not a script holding a bare token, so it authenticates via
+// authenticateWeb (session cookie only, WP-P1) with an unconditional
+// Origin check, rather than authenticateStateChange's
+// Bearer-or-cookie-with-conditional-Origin-check. track_id and value come
+// from the submitted form; value=0 means "retract" rather than a distinct
+// button, since a plain form has no DELETE method to send.
 func (s *Server) handleReleaseVote(w http.ResponseWriter, r *http.Request) {
 	releaseID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -527,7 +533,7 @@ func (s *Server) handleReleaseVote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ares, err := authenticate(r.Context(), s.Store, r)
+	ares, err := authenticateWeb(r.Context(), s.Store, r)
 	if err != nil {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return

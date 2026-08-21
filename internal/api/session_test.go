@@ -131,6 +131,37 @@ func TestLogin_SetsCookieAndReachesMe(t *testing.T) {
 	}
 }
 
+// A Bearer header carries no weight on /me (WP-P1): the same admin token
+// that reaches /api/v1/* fine must be invisible here, so the response is
+// exactly what a visitor with no session at all gets — a redirect to
+// /login, never a distinct message that would tell an attacker the token
+// itself was valid.
+func TestMe_BearerOnlyRedirectsToLogin(t *testing.T) {
+	ts, st, _, token := sessionServer(t)
+	if err := st.SetAccountRole(context.Background(), "webuser", "admin"); err != nil {
+		t.Fatalf("SetAccountRole: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/me", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Origin", ts.URL)
+	client := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /me: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Errorf("GET /me with only a Bearer admin token = %d, want 303 (ignored, same as no session)", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/login" {
+		t.Errorf("Location = %q, want /login", loc)
+	}
+}
+
 func TestLogin_WrongPasswordRejected(t *testing.T) {
 	st := openTestStore(t)
 	srv := NewServer(st)

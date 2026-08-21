@@ -20,8 +20,11 @@ password, and they unlock different surfaces:
 
 - **The API token** is the plugin's (and any script's) credential:
   `Authorization: Bearer <token>` on every state-changing API route,
-  nothing else. It never logs you into the website. Every account gets one
-  at creation, whichever way it was created.
+  nothing else. It never logs you into the website: every human-facing page
+  (`/me`, `/upload`, `/mod/*`, `/admin/*`, and every other page and form)
+  reads the `moansubs_session` cookie only — a Bearer header sent there is
+  ignored exactly as if absent, never a way in, even for an admin's own
+  token. Every account gets one at creation, whichever way it was created.
 - **The password** is the *web* login only (`POST /login`, name +
   password) — it never authenticates an API call. Not every account has
   one: `POST /api/v1/accounts` without a `password` field, or an account

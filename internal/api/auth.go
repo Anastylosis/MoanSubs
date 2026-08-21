@@ -68,7 +68,9 @@ func requireRole(ares *authResult, want string) bool {
 // authenticate identifies the caller behind r: a Bearer token if present,
 // else the moansubs_session cookie (PLAN.md "Upload safety" + WP-C1).
 // Bearer takes precedence when both are sent — a cookie is additive, not a
-// way to override an explicit token.
+// way to override an explicit token. Reserved for /api/v1/* — every
+// human-facing page uses authenticateWeb below instead (WP-P1), since a web
+// route must never accept a bearer token as a login.
 //
 // An invalid, expired, or absent cookie with no Bearer header is reported
 // exactly like a missing token (errMissingToken), never a distinct error:
@@ -90,6 +92,24 @@ func authenticate(ctx context.Context, s *store.Store, r *http.Request) (*authRe
 		return &authResult{Account: account, Role: account.Role}, nil
 	}
 
+	return authenticateWeb(ctx, s, r)
+}
+
+// authenticateWeb identifies the caller behind r from the session cookie
+// only — never a Bearer header (WP-P1). Every human-page handler (/me,
+// /upload, /mod/*, /admin/*, requireWebRole, and renderPage's nav fallback)
+// calls this instead of authenticate: an Authorization header sent to one
+// of those routes must be ignored exactly as if absent, the same
+// no-session response as a visitor with no cookie at all — otherwise a
+// leaked API token (one that, for instance, already sits in the operator's
+// own Stash plugin config) logs its holder into the website with whatever
+// role the account carries, including admin.
+//
+// Error mapping is identical to authenticate's own cookie half: an
+// invalid, expired, absent, or disabled-account cookie is all
+// errMissingToken/errAccountDisabled, never a distinct message a caller
+// could use to fingerprint which case applies.
+func authenticateWeb(ctx context.Context, s *store.Store, r *http.Request) (*authResult, error) {
 	cookie, err := r.Cookie(sessionCookieName)
 	if err != nil {
 		return nil, errMissingToken

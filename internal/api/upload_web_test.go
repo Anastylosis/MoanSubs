@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -88,6 +89,72 @@ func TestUploadForm_NotLoggedInRedirectsToLogin(t *testing.T) {
 	postResp := doWebUpload(t, ts, client, ts.URL, webUploadFields("d0d0d0d0d0d0d0d0"), basicSRT)
 	if postResp.StatusCode != http.StatusSeeOther {
 		t.Errorf("POST /upload with no session = %d, want 303", postResp.StatusCode)
+	}
+	if loc := postResp.Header.Get("Location"); loc != "/login" {
+		t.Errorf("Location = %q, want /login", loc)
+	}
+}
+
+// A Bearer header carries no weight on /upload either half, GET or POST
+// (WP-P1): a valid admin token with a matching Origin and no session
+// cookie gets exactly the no-session redirect to /login, same as
+// TestUploadForm_NotLoggedInRedirectsToLogin above.
+func TestUploadForm_BearerOnlyRedirectsToLogin(t *testing.T) {
+	ts, st, _, token := sessionServer(t)
+	if err := st.SetAccountRole(context.Background(), "webuser", "admin"); err != nil {
+		t.Fatalf("SetAccountRole: %v", err)
+	}
+	client := &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+
+	getReq, err := http.NewRequest(http.MethodGet, ts.URL+"/upload", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	getReq.Header.Set("Authorization", "Bearer "+token)
+	getReq.Header.Set("Origin", ts.URL)
+	getResp, err := client.Do(getReq)
+	if err != nil {
+		t.Fatalf("GET /upload: %v", err)
+	}
+	defer func() { _ = getResp.Body.Close() }()
+	if getResp.StatusCode != http.StatusSeeOther {
+		t.Errorf("GET /upload with only a Bearer admin token = %d, want 303 (ignored, same as no session)", getResp.StatusCode)
+	}
+	if loc := getResp.Header.Get("Location"); loc != "/login" {
+		t.Errorf("Location = %q, want /login", loc)
+	}
+
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	for k, v := range webUploadFields("bea4bea4bea4bea4") {
+		if err := w.WriteField(k, v); err != nil {
+			t.Fatalf("WriteField(%q): %v", k, err)
+		}
+	}
+	fw, err := w.CreateFormFile("file", "subs.srt")
+	if err != nil {
+		t.Fatalf("CreateFormFile: %v", err)
+	}
+	if _, err := fw.Write([]byte(basicSRT)); err != nil {
+		t.Fatalf("writing file field: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("closing multipart writer: %v", err)
+	}
+	postReq, err := http.NewRequest(http.MethodPost, ts.URL+"/upload", &buf)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	postReq.Header.Set("Content-Type", w.FormDataContentType())
+	postReq.Header.Set("Authorization", "Bearer "+token)
+	postReq.Header.Set("Origin", ts.URL)
+	postResp, err := client.Do(postReq)
+	if err != nil {
+		t.Fatalf("POST /upload: %v", err)
+	}
+	defer func() { _ = postResp.Body.Close() }()
+	if postResp.StatusCode != http.StatusSeeOther {
+		t.Errorf("POST /upload with only a Bearer admin token = %d, want 303 (ignored, same as no session)", postResp.StatusCode)
 	}
 	if loc := postResp.Header.Get("Location"); loc != "/login" {
 		t.Errorf("Location = %q, want /login", loc)

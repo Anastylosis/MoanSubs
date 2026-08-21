@@ -112,7 +112,10 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 			role = ares.Role
 		} else {
 			// Fallback to a cookie lookup when no authResult was passed.
-			cookie, cerr := r.Cookie(sessionCookieName)
+			// Cookie presence, not validity — a stale cookie just means /me
+			// bounces to /login, which is fine for a signpost and costs no
+			// query per page.
+			_, cerr := r.Cookie(sessionCookieName)
 			loggedIn = cerr == nil
 
 			// roleAtLeast (WP-C7b) gates the nav's "Moderate"/"Admin" links —
@@ -120,10 +123,13 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 			// the cookie's presence, so it costs one lookup per page render
 			// when a cookie is present. Deliberately uncached: a role change
 			// (or a session dying) must be reflected on the very next page a
-			// visitor loads, not after some TTL.
+			// visitor loads, not after some TTL. Goes through authenticateWeb
+			// (WP-P1) rather than a second inlined GetSessionAccount call, so
+			// there is exactly one place that turns this cookie into an
+			// account.
 			if loggedIn {
-				if account, aerr := s.Store.GetSessionAccount(r.Context(), cookie.Value); aerr == nil {
-					role = account.Role
+				if wares, werr := authenticateWeb(r.Context(), s.Store, r); werr == nil {
+					role = wares.Role
 				}
 				sessionLookups++
 			}

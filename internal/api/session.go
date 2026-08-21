@@ -184,7 +184,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 // handleMe implements GET /me: the caller's own account summary and track
 // list.
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
-	ares, err := authenticate(r.Context(), s.Store, r)
+	ares, err := authenticateWeb(r.Context(), s.Store, r)
 	if err != nil {
 		// An invalid, expired, or absent cookie sends a browser to /login
 		// rather than a bare 401 or 500 (WP-C1 spec).
@@ -206,7 +206,7 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 // shows it once, on the same page. Session-only like /logout, so the
 // Origin check is unconditional.
 func (s *Server) handleRotateToken(w http.ResponseWriter, r *http.Request) {
-	ares, err := authenticate(r.Context(), s.Store, r)
+	ares, err := authenticateWeb(r.Context(), s.Store, r)
 	if err != nil {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
@@ -302,7 +302,7 @@ func (s *Server) meDataFor(ctx context.Context, account *store.Account, rotatedT
 // (DeleteOtherSessions) while the one that just made the change stays
 // logged in.
 func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
-	ares, err := authenticate(r.Context(), s.Store, r)
+	ares, err := authenticateWeb(r.Context(), s.Store, r)
 	if err != nil {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
@@ -397,7 +397,7 @@ func (s *Server) renderMeInviteError(w http.ResponseWriter, r *http.Request, are
 // than worth a transaction/lock. Session-only like /me/rotate-token, so
 // the Origin check is unconditional.
 func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
-	ares, err := authenticate(r.Context(), s.Store, r)
+	ares, err := authenticateWeb(r.Context(), s.Store, r)
 	if err != nil {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
@@ -443,7 +443,7 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 // one down regardless of who minted it. Session-only like /logout and
 // /me/rotate-token, so the Origin check is unconditional.
 func (s *Server) handleDisableInvite(w http.ResponseWriter, r *http.Request) {
-	ares, err := authenticate(r.Context(), s.Store, r)
+	ares, err := authenticateWeb(r.Context(), s.Store, r)
 	if err != nil {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
