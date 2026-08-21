@@ -206,3 +206,125 @@ func (s *Store) UnlinkRelease(ctx context.Context, releaseID int64) error {
 	}
 	return nil
 }
+
+// -- candidate discovery ---------------------------------------------------
+
+// CandidatePair is two ungrouped-or-differently-grouped releases the store
+// thinks are worth comparing, with whatever the query already knows about
+// them so the caller need not fetch each row again.
+type CandidatePair struct {
+	A, B             int64
+	NameA, NameB     string
+	DurationA        int64
+	DurationB        int64
+	SharedStashID    bool
+	SharedStashIDVal string
+}
+
+// StashIDCandidates finds releases that carry the same stash-box id. That
+// is an external catalogue asserting the two are one scene, so it is the
+// one signal strong enough to link without review.
+//
+// Pairs already in the same work are skipped: re-proposing a grouping a
+// moderator has already made is noise.
+func (s *Store) StashIDCandidates(ctx context.Context) ([]CandidatePair, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT a.release_id, b.release_id, a.stash_id,
+		       ra.duration_ms, rb.duration_ms
+		FROM release_stash_ids a
+		JOIN release_stash_ids b
+		  ON a.endpoint = b.endpoint AND a.stash_id = b.stash_id
+		 AND a.release_id < b.release_id
+		JOIN releases ra ON ra.id = a.release_id
+		JOIN releases rb ON rb.id = b.release_id
+		WHERE ra.withdrawn_at IS NULL AND rb.withdrawn_at IS NULL
+		  AND (ra.work_id IS NULL OR rb.work_id IS NULL OR ra.work_id <> rb.work_id)
+		ORDER BY a.release_id, b.release_id`)
+	if err != nil {
+		return nil, fmt.Errorf("store: StashIDCandidates: %w", err)
+	}
+	defer rows.Close()
+
+	var out []CandidatePair
+	for rows.Next() {
+		var p CandidatePair
+		if err := rows.Scan(&p.A, &p.B, &p.SharedStashIDVal, &p.DurationA, &p.DurationB); err != nil {
+			return nil, fmt.Errorf("store: StashIDCandidates: scanning: %w", err)
+		}
+		p.SharedStashID = true
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: StashIDCandidates: %w", err)
+	}
+	return out, nil
+}
+
+// NearDurationCandidates finds pairs whose runtimes are within maxDeltaMs
+// and which both carry a name, the pool the subtitle-overlap and
+// name-duration signals then judge.
+//
+// Duration is the pre-filter rather than the evidence: it is indexed,
+// cheap, and cuts an O(n^2) comparison down to the handful of releases
+// that could plausibly be the same film. phash cannot serve this role —
+// re-cuts land far apart in Hamming distance by construction.
+func (s *Store) NearDurationCandidates(ctx context.Context, maxDeltaMs int64, limit int) ([]CandidatePair, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT a.id, b.id,
+		       coalesce(a.title, a.stem, ''), coalesce(b.title, b.stem, ''),
+		       a.duration_ms, b.duration_ms
+		FROM releases a
+		JOIN releases b
+		  ON b.id > a.id
+		 AND abs(b.duration_ms - a.duration_ms) <= $1
+		WHERE a.withdrawn_at IS NULL AND b.withdrawn_at IS NULL
+		  AND coalesce(a.title, a.stem) IS NOT NULL
+		  AND coalesce(b.title, b.stem) IS NOT NULL
+		  AND (a.work_id IS NULL OR b.work_id IS NULL OR a.work_id <> b.work_id)
+		ORDER BY a.id, b.id
+		LIMIT $2`, maxDeltaMs, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: NearDurationCandidates: %w", err)
+	}
+	defer rows.Close()
+
+	var out []CandidatePair
+	for rows.Next() {
+		var p CandidatePair
+		if err := rows.Scan(&p.A, &p.B, &p.NameA, &p.NameB, &p.DurationA, &p.DurationB); err != nil {
+			return nil, fmt.Errorf("store: NearDurationCandidates: scanning: %w", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: NearDurationCandidates: %w", err)
+	}
+	return out, nil
+}
+
+// TrackBodiesByRelease returns every visible track body for a release,
+// keyed by language so a caller can compare like with like — an English
+// track against a Spanish one shares nothing and would only waste the
+// comparison.
+func (s *Store) TrackBodiesByRelease(ctx context.Context, releaseID int64) (map[string][]string, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT lang, body FROM subtitle_tracks
+		WHERE release_id = $1 AND withdrawn_at IS NULL`, releaseID)
+	if err != nil {
+		return nil, fmt.Errorf("store: TrackBodiesByRelease: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[string][]string{}
+	for rows.Next() {
+		var lang, body string
+		if err := rows.Scan(&lang, &body); err != nil {
+			return nil, fmt.Errorf("store: TrackBodiesByRelease: scanning: %w", err)
+		}
+		out[lang] = append(out[lang], body)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: TrackBodiesByRelease: %w", err)
+	}
+	return out, nil
+}
