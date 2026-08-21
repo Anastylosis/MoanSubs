@@ -73,6 +73,20 @@ type Candidate struct {
 	Score   float64  `json:"score,omitempty"`
 	Reasons []string `json:"reasons,omitempty"`
 	Date    string   `json:"date,omitempty"`
+	// SiblingOf is the release this candidate's track was authored
+	// against, when that is NOT the release the local file matched — the
+	// same video cut differently. Zero for an ordinary candidate.
+	//
+	// This is a stronger claim than CrossRelease above, which only means
+	// "a near phash". A sibling is a grouping somebody or something
+	// asserted, and it can carry a measured correction; a near-phash match
+	// carries nothing but a hope that the timings line up.
+	SiblingOf int64 `json:"sibling_of,omitempty"`
+	// SiblingOffsetMs is the shift the server will apply on download, and
+	// SiblingSyncKnown says whether one is recorded at all. Unknown sync is
+	// offered but never presented as a fit.
+	SiblingOffsetMs  int64 `json:"sibling_offset_ms,omitempty"`
+	SiblingSyncKnown bool  `json:"sibling_sync_known,omitempty"`
 }
 
 // rankCandidates filters bucket results down to real matches, client-side.
@@ -90,6 +104,7 @@ func rankCandidates(releases []msclient.Release, sceneOshash hash.OSHash, sceneP
 				Release: r, Confidence: ConfidenceExact,
 				HammingDistance: -1, DurationDeltaMs: deltaMs,
 			})
+			out = append(out, siblingCandidates(r, deltaMs)...)
 			continue
 		}
 
@@ -164,6 +179,45 @@ func nameCandidates(result *msclient.MatchResult) []Candidate {
 			cand.Date = *c.Date
 		}
 		out = append(out, cand)
+	}
+	return out
+}
+
+// siblingCandidates turns a matched release's sibling tracks into offers.
+//
+// They ride on an already-matched release rather than matching on their
+// own: the local file identifies exactly one release, and the siblings are
+// what the node says also fits that video. This is the path that reaches a
+// re-cut, which phash cannot — a trimmed intro moves every sampled frame,
+// so two copies of one film can sit 14 bits apart with no shared MIH block.
+//
+// Confidence is deliberately ConfidenceOffer even when the sync is known:
+// the grouping is advisory, and a subtitle authored for another cut is
+// never the same claim as one authored for this file.
+func siblingCandidates(r msclient.Release, deltaMs int64) []Candidate {
+	if len(r.Siblings) == 0 {
+		return nil
+	}
+	out := make([]Candidate, 0, len(r.Siblings))
+	for _, sb := range r.Siblings {
+		// A sibling is presented as its own one-track release so the panel
+		// can render it with the machinery it already has.
+		rel := r
+		rel.Tracks = []msclient.TrackSummary{{
+			ID: sb.ID, Lang: sb.Lang, Generated: sb.Generated, Downloads: sb.Downloads,
+		}}
+		rel.Siblings = nil
+		c := Candidate{
+			Release: rel, Confidence: ConfidenceOffer,
+			HammingDistance: -1, DurationDeltaMs: deltaMs,
+			CrossRelease: true,
+			SiblingOf:    sb.ReleaseID,
+		}
+		if sb.OffsetMs != nil {
+			c.SiblingSyncKnown = true
+			c.SiblingOffsetMs = *sb.OffsetMs
+		}
+		out = append(out, c)
 	}
 	return out
 }

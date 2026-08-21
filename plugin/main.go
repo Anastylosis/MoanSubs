@@ -134,9 +134,10 @@ func dispatch(ctx context.Context, input PluginInput) (any, error) {
 		return app.pushAll(ctx, argBool(input.Args, "dry_run"))
 	default:
 		return app.download(ctx, downloadArgs{
-			SceneID:   argString(input.Args, "scene_id"),
-			TrackID:   argString(input.Args, "track_id"),
-			Overwrite: argBool(input.Args, "overwrite"),
+			SceneID:    argString(input.Args, "scene_id"),
+			TrackID:    argString(input.Args, "track_id"),
+			ForRelease: argInt64(input.Args, "for_release"),
+			Overwrite:  argBool(input.Args, "overwrite"),
 		})
 	}
 }
@@ -174,6 +175,23 @@ func argBool(args map[string]any, key string) bool {
 		return v != 0
 	}
 	return false
+}
+
+// argInt64 reads a numeric arg, coercing the same way argString and
+// argBool do — Stash hands a task's defaultArgs over as strings, and a
+// bare assertion would silently yield zero.
+func argInt64(args map[string]any, key string) int64 {
+	switch v := args[key].(type) {
+	case float64:
+		return int64(v)
+	case string:
+		n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		if err != nil {
+			return 0
+		}
+		return n
+	}
+	return 0
 }
 
 // argStrings reads an array arg of string-or-number scene ids.

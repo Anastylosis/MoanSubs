@@ -289,9 +289,27 @@
       const meta =
         (c.hamming_distance >= 0 ? "phash distance " + c.hamming_distance + ", " : "") +
         "Δ " + delta + "s";
-      const sync = c.cross_release
-        ? ' <span class="badge badge-warning" title="Timed against a different release of this scene — sync may be off by a few seconds.">sync?</span>'
-        : "";
+      // Three states, kept distinct on purpose. A subtitle authored for
+      // this exact file, one authored for another cut with a measured
+      // correction the server applies on download, and one authored for
+      // another cut that nobody has checked. Collapsing the last two into
+      // a single "sync?" badge is what left a subtitle running seconds
+      // early with nothing on screen to explain it.
+      let sync = "";
+      if (c.sibling_of && c.sibling_sync_known) {
+        const shift = Math.round(c.sibling_offset_ms / 10) / 100;
+        sync =
+          ' <span class="badge badge-info" title="Authored for another cut of this video. The server shifts it by ' +
+          shift +
+          's on download, so the file you get is already corrected.">sync ' +
+          (shift >= 0 ? "+" : "") + shift + "s</span>";
+      } else if (c.sibling_of) {
+        sync =
+          ' <span class="badge badge-warning" title="Authored for another cut of this video, and nobody has recorded how far out it is. Offered as-is — it may not line up.">sync unknown</span>';
+      } else if (c.cross_release) {
+        sync =
+          ' <span class="badge badge-warning" title="Timed against a different release of this scene — sync may be off by a few seconds.">sync?</span>';
+      }
       // Date is only present on name-match candidates — the release's own
       // stored date, so a mismatch with the scene's date is visible
       // alongside the score-based reasons below.
@@ -366,7 +384,8 @@
             ' <span class="moansubs-counts text-muted small ml-2"></span>' +
             ' <span class="moansubs-vote-controls ml-2"></span>' +
             ' <button class="btn btn-sm btn-primary ml-auto moansubs-dl" data-track="' +
-            esc(t.id) + '">Download</button>' +
+            esc(t.id) + '" data-for-release="' + esc(c.sibling_of ? c.release.id : "") +
+            '">Download</button>' +
             "</div>"
           );
         })
@@ -386,16 +405,22 @@
     decorateTrackRows(panel, votesEnabled, !!result.has_token);
   }
 
-  async function download(panel, sceneId, trackId, overwrite) {
+  // forRelease is the release the local file actually matched, sent only
+  // when the chosen track belongs to a different cut so the server can
+  // retime it. Omitted otherwise: a track fetched for its own release
+  // needs no shift and must come back exactly as authored.
+  async function download(panel, sceneId, trackId, overwrite, forRelease) {
     const body = panel.querySelector(".moansubs-body");
     const note = document.createElement("div");
     try {
-      const res = await runOp({
+      const args = {
         mode: "download",
         scene_id: sceneId,
         track_id: String(trackId),
         overwrite: !!overwrite,
-      });
+      };
+      if (forRelease) args.for_release = String(forRelease);
+      const res = await runOp(args);
       let text = "Saved " + res.path + ".";
       if (res.lang_normalized) {
         text += " Language written as ." + res.lang +
@@ -413,7 +438,7 @@
         const btn = document.createElement("button");
         btn.className = "btn btn-sm btn-outline-danger ml-2";
         btn.textContent = "Overwrite";
-        btn.onclick = () => download(panel, sceneId, trackId, true);
+        btn.onclick = () => download(panel, sceneId, trackId, true, forRelease);
         note.appendChild(btn);
       }
     }
@@ -466,7 +491,7 @@
     };
     panel.addEventListener("click", (e) => {
       const dl = e.target.closest(".moansubs-dl");
-      if (dl) download(panel, sceneId, dl.dataset.track, false);
+      if (dl) download(panel, sceneId, dl.dataset.track, false, dl.dataset.forRelease);
     });
 
     host.appendChild(panel);

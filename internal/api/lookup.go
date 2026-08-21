@@ -63,6 +63,29 @@ type lookupRelease struct {
 	// StashIDs is migration 0011's stash-box scene identities (WP-C9a),
 	// additive like Downloads/Up/Down above — always present, [] when none.
 	StashIDs []lookupStashID `json:"stash_ids"`
+	// Siblings are tracks belonging to OTHER releases of the same work —
+	// the same video cut or encoded differently. They are listed separately
+	// from Tracks rather than mixed in, because a client must be able to
+	// tell "authored for this exact file" from "authored for another cut
+	// and shifted to fit", and only offer the second with that caveat
+	// visible. Always present, [] when the release is ungrouped.
+	Siblings []lookupSibling `json:"siblings"`
+}
+
+// lookupSibling is one track from another encode of the same video.
+//
+// OffsetMs is a pointer on purpose: a recorded zero ("checked, they line
+// up") and no recording at all ("nobody has checked") are different
+// claims, and collapsing them would let a client present an unverified
+// subtitle as a verified fit.
+type lookupSibling struct {
+	ID         int64   `json:"id"`
+	ReleaseID  int64   `json:"release_id"`
+	Lang       string  `json:"lang"`
+	Generated  bool    `json:"generated"`
+	Downloads  int64   `json:"downloads"`
+	OffsetMs   *int64  `json:"offset_ms"`
+	OffsetFrom *string `json:"offset_source,omitempty"`
 }
 
 // lookupReleases fetches track summaries and stash ids for releases in two
@@ -110,6 +133,21 @@ func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) (
 			})
 		}
 
+		// Siblings are per release rather than batched: a grouped release
+		// is the exception, so the common path does no extra query at all.
+		siblings := make([]lookupSibling, 0)
+		if sib, serr := s.Store.SiblingTracks(ctx, r.ID); serr != nil {
+			log.Printf("api: SiblingTracks(%d): %v", r.ID, serr)
+		} else {
+			for _, t := range sib {
+				siblings = append(siblings, lookupSibling{
+					ID: t.TrackID, ReleaseID: t.ReleaseID, Lang: t.Lang,
+					Generated: t.Generated, Downloads: t.Downloads,
+					OffsetMs: t.OffsetMs, OffsetFrom: t.Source,
+				})
+			}
+		}
+
 		stashIDRows := stashIDsByRelease[r.ID]
 		stashIDs := make([]lookupStashID, 0, len(stashIDRows))
 		for _, sid := range stashIDRows {
@@ -126,6 +164,7 @@ func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) (
 			VideoCodec: r.VideoCodec,
 			Tracks:     tracks,
 			StashIDs:   stashIDs,
+			Siblings:   siblings,
 		})
 	}
 	return out, nil

@@ -431,9 +431,14 @@ func (a *app) nameMatchFallback(ctx context.Context, scene *stash.Scene, path st
 }
 
 type downloadArgs struct {
-	SceneID   string
-	TrackID   string
-	Overwrite bool
+	SceneID string
+	TrackID string
+	// ForRelease is the release the local file matched, sent when the
+	// chosen track belongs to a DIFFERENT encode of the same video so the
+	// server can retime it. Zero means "the track's own release", which
+	// needs no shift.
+	ForRelease int64
+	Overwrite  bool
 }
 
 // downloadResult is the "download" mode's output.
@@ -465,9 +470,13 @@ func (a *app) download(ctx context.Context, args downloadArgs) (any, error) {
 	}
 	scenePath := scene.Files[0].Path
 
-	track, err := a.ms.GetTrack(ctx, trackID)
+	track, err := a.ms.GetTrackFor(ctx, trackID, args.ForRelease)
 	if err != nil {
 		return nil, err
+	}
+	if track.OffsetMs != 0 {
+		logInfo("download: track %d shifted %+.2fs to fit this encode (%s)",
+			trackID, float64(track.OffsetMs)/1000, track.OffsetFrom)
 	}
 
 	lang, err := ResolveCaptionLang(track.Lang)

@@ -86,10 +86,34 @@ type Release struct {
 	// StashIDs is migration 0011's stash-box scene identities (WP-C9a),
 	// present on every release a lookup response carries.
 	StashIDs []StashID `json:"stash_ids"`
+	// Siblings are tracks from other encodes of the same video, kept apart
+	// from Tracks so the panel can say plainly that they were timed
+	// against a different file. Absent on a server that predates works,
+	// which simply means no siblings are offered.
+	Siblings []Sibling `json:"siblings"`
+}
+
+// Sibling is a subtitle authored against another cut of the same video.
+//
+// OffsetMs is a pointer because "checked, no shift needed" and "nobody has
+// checked" are different things, and showing the second as the first would
+// promise a fit that was never verified.
+type Sibling struct {
+	ID         int64   `json:"id"`
+	ReleaseID  int64   `json:"release_id"`
+	Lang       string  `json:"lang"`
+	Generated  bool    `json:"generated"`
+	Downloads  int64   `json:"downloads"`
+	OffsetMs   *int64  `json:"offset_ms"`
+	OffsetFrom *string `json:"offset_source,omitempty"`
 }
 
 // Track is a full subtitle track as returned by GET /api/v1/subtitles/{id}.
 type Track struct {
+	// OffsetMs is the shift the server applied because this was fetched
+	// for another release; 0 when none was.
+	OffsetMs   int64           `json:"offset_ms"`
+	OffsetFrom string          `json:"offset_source"`
 	ID         int64           `json:"id"`
 	ReleaseID  int64           `json:"release_id"`
 	Lang       string          `json:"lang"`
@@ -505,8 +529,21 @@ func (c *Client) Upload(ctx context.Context, req UploadRequest) (*UploadResult, 
 
 // GetTrack downloads one full subtitle track.
 func (c *Client) GetTrack(ctx context.Context, id int64) (*Track, error) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		fmt.Sprintf("%s/api/v1/subtitles/%d", c.BaseURL, id), nil)
+	return c.GetTrackFor(ctx, id, 0)
+}
+
+// GetTrackFor fetches a track timed for forRelease. Pass 0 (or the track's
+// own release) to get the body exactly as its uploader authored it.
+//
+// The shift is the server's to apply, not the plugin's: it holds the
+// recorded offset for the pairing, and doing it there keeps one
+// implementation of the retiming instead of two that can disagree.
+func (c *Client) GetTrackFor(ctx context.Context, id, forRelease int64) (*Track, error) {
+	url := fmt.Sprintf("%s/api/v1/subtitles/%d", c.BaseURL, id)
+	if forRelease > 0 {
+		url += fmt.Sprintf("?for_release=%d", forRelease)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
