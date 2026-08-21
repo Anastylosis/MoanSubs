@@ -553,6 +553,38 @@ networks:
 
 and point the plugin at `http://moansubs:8080` instead of the LAN address.
 
+**Logs.** Every request except `GET /healthz` (Docker polls it every 30s;
+a line for each poll would just be noise) writes one completion line to
+stderr on its own:
+
+```
+req GET /release/{id} 200 4213B 1.2ms ip=203.0.113.7 ua=Mozilla/5.0 (…)
+```
+
+Method, route, status, response size, latency, the caller's IP (subject to
+`MOANSUBS_TRUSTED_PROXY_CIDRS` above), and the first 80 characters of
+`User-Agent` with control characters stripped. The route is `r.Pattern`
+when the mux matched one, so `/release/{id}` aggregates into one log shape
+regardless of which release id was requested; a request that matched no
+route at all falls back to the literal path. Never the query string —
+`/search?q=` is as private in the log as it is in the visitor-analytics tag
+(`MOANSUBS_ANALYTICS_SCRIPT` above already excludes it the same way). A
+handler panic is caught before it can take the process down: the panic
+value and a stack trace go to stderr, and the caller gets a plain 500
+`internal error` if nothing had been written yet.
+
+There is no metrics endpoint (Prometheus or otherwise) — that would need a
+new dependency, and this project's dependencies are minimal by policy
+(CLAUDE.md). The stderr request log plus `GET /api/v1/stats` (below) is
+what a small node has instead; an operator who needs real metrics is
+expected to scrape the request log itself.
+
+The reference `deploy/docker-compose.yml` caps every service's own
+container log at 100MiB (`json-file`, 20MiB × 5 files) — without a
+`logging:` block Docker's `json-file` driver keeps no cap of its own, and a
+long-running node's logs (this request log included) grow without bound
+on the host disk otherwise.
+
 ## Upload semantics (what the server does to a subtitle)
 
 1. Parses SRT or WebVTT anchored on timestamp lines; cue numbers, headers,

@@ -284,6 +284,11 @@ func (s *Server) OpenForStrangers() bool {
 // routes itself are left bare — a script or crawler must never be asked to
 // click through an HTML interstitial, and /age is how the cookie gets set
 // in the first place.
+//
+// The whole thing, baseHeaders included, is wrapped in s.requestLog
+// (middleware.go, WP-P5): one completion-line log per request and panic
+// recovery, both outside baseHeaders so they see the same ResponseWriter
+// every handler actually writes to.
 func NewMux(s *Server) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", s.page(s.handleIndex))
@@ -348,14 +353,17 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("GET /admin/invites", s.page(s.handleAdminInvites))
 	mux.HandleFunc("POST /admin/invites", s.page(s.handleAdminInviteCreate))
 	mux.HandleFunc("POST /admin/invites/{code}/disable", s.page(s.handleAdminInviteDisable))
-	return baseHeaders(mux)
+	return s.requestLog(baseHeaders(mux))
 }
 
 // baseHeaders sets the headers every response should carry, page or API:
 // nosniff keeps a browser from sniffing a JSON or SRT body into something
 // executable, and no-referrer-downgrade is the page layer's Referrer-Policy
 // restated for non-page responses. Per-page headers (CSP, robots) stay
-// with the handlers that know them.
+// with the handlers that know them. Wrapped by s.requestLog (middleware.go)
+// rather than wrapping it, so the request log sees the exact same
+// ResponseWriter — and therefore the exact final status — every handler
+// below writes to.
 func baseHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")

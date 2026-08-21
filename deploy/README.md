@@ -45,6 +45,11 @@ the stack — private infrastructure details never enter tracked files.
    `docker compose exec server moansubs admin bootstrap` by hand instead —
    same account, same one-time printout, but to your own terminal.
 
+Every service here (`caddy`, `server`, `postgres`, `backup`) carries the
+same `logging:` cap via one YAML anchor, so none of their container logs
+grows without bound on the host disk — see MANUAL.md's "Operations" →
+"Logs" for the per-request log line format and what it doesn't log.
+
 ## Upgrades
 
 ```sh

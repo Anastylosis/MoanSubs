@@ -5,10 +5,23 @@
 # placeholder below (DOMAIN, <bucket>, POSTGRES_PASSWORD, MOANSUBS_TAG,
 # MOANSUBS_TOKEN_KEY) needs a real value before `docker compose up -d`. See
 # README.md for the first-boot, upgrade and restore steps.
+
+# json-file is the daemon default, which keeps no cap of its own — a long-
+# running node's logs (this compose file's own request-log line included,
+# WP-P5/MANUAL.md "Operating") grow without bound. One anchor, applied to
+# every service below, caps each container at 100MiB (5 x 20m) of on-disk
+# log rather than each needing its own copy of the same three lines.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   caddy:
     image: caddy:2
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
       - "443:443"
@@ -26,6 +39,7 @@ services:
     # default tag to fall back to — MOANSUBS_TAG must name a real one.
     image: ghcr.io/anastylosis/moansubs:${MOANSUBS_TAG:?set MOANSUBS_TAG to a released version}
     restart: unless-stopped
+    logging: *default-logging
     # `serve` applies pending migrations on startup (MANUAL.md), so
     # `docker compose pull && up -d` is a complete upgrade on its own.
     environment:
@@ -57,6 +71,7 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_USER: moansubs
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
@@ -72,6 +87,7 @@ services:
   backup:
     build: ./backup
     restart: unless-stopped
+    logging: *default-logging
     environment:
       PGHOST: postgres
       PGUSER: moansubs
