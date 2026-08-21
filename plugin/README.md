@@ -70,7 +70,10 @@ across different people's libraries is nearly never.
   encode** (near phash, duration agrees; flagged **sync?** because timing
   may be off by a few seconds), **Possible match** (full-hash mode only;
   never auto-applied). A candidate carrying a stash-box id shows a
-  "StashDB ↗" (or "FansDB ↗", …) link straight to that scene. If hash-based lookup finds nothing at all, and the
+  "StashDB ↗" (or "FansDB ↗", …) link straight to that scene — rendered as a
+  live link only when the release's stored endpoint is genuinely `http:` or
+  `https:`; anything else (a malicious or corrupted node could hand back
+  something else) shows as plain text instead. If hash-based lookup finds nothing at all, and the
   scene's title/filename was pushed with name metadata, a **Name match**
   candidate may appear instead — a title/filename score from the server,
   always offer-only regardless of how confident the server is, shown with

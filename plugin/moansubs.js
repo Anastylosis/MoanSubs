@@ -317,19 +317,29 @@
       // plus "/scenes/<id>" is the scene page on that stash-box.
       const stashLinks = (c.release.stash_ids || [])
         .map((s) => {
+          // The endpoint is server-controlled data, not a trusted config
+          // value — a hostile or compromised server could hand back
+          // "javascript:..." instead of a URL. esc() only HTML-escapes; it
+          // does nothing to stop an anchor whose href scheme itself runs
+          // script in Stash's origin on click. Parse first and only ever
+          // render an <a> when the scheme is genuinely http(s); anything
+          // else falls back to a plain-text label with no link at all.
+          let parsed = null;
+          try {
+            parsed = new URL(s.endpoint);
+          } catch (e) {
+            parsed = null;
+          }
+          const host = parsed ? parsed.host : String(s.endpoint);
+          const label =
+            host === "stashdb.org" ? "StashDB" : host === "fansdb.cc" ? "FansDB" : host;
+          if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) {
+            return esc(label);
+          }
           const url =
             String(s.endpoint).replace(/\/graphql\/?$/, "") +
             "/scenes/" +
             encodeURIComponent(s.stash_id);
-          const host = (function () {
-            try {
-              return new URL(s.endpoint).host;
-            } catch (e) {
-              return s.endpoint;
-            }
-          })();
-          const label =
-            host === "stashdb.org" ? "StashDB" : host === "fansdb.cc" ? "FansDB" : host;
           return (
             '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(label) + " ↗</a>"
           );

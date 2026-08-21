@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Anastylosis/MoanSubs/internal/subtitle"
 )
 
 func TestResolveCaptionLang(t *testing.T) {
@@ -92,5 +94,66 @@ func TestWriteSidecar(t *testing.T) {
 	}
 	if needsScan {
 		t.Error("in-place overwrite must not need a scan")
+	}
+}
+
+// TestWriteSidecar_RejectsOversizedBody guards WP-P4: a hostile or broken
+// server's track body could be gigabytes; refuse rather than write it, and
+// name the cap so the log line is actionable.
+func TestWriteSidecar_RejectsOversizedBody(t *testing.T) {
+	dir := t.TempDir()
+	scene := filepath.Join(dir, "video.mp4")
+	if err := os.WriteFile(scene, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lang := CaptionLang{Base: "en"}
+	huge := strings.Repeat("a", subtitle.MaxBytes+1)
+
+	path, _, err := WriteSidecar(scene, lang, huge, false)
+	if err == nil {
+		t.Fatalf("WriteSidecar with a %d byte body: want error, got path %q", len(huge), path)
+	}
+	if !strings.Contains(err.Error(), "byte cap") {
+		t.Errorf("error should name the cap, got: %v", err)
+	}
+	if _, statErr := os.Stat(SidecarPath(scene, lang)); statErr == nil {
+		t.Error("oversized body must not be written at all")
+	}
+}
+
+// TestWriteSidecar_FailureLeavesNoFileOrTemp guards WP-P4 (c): a write that
+// fails partway — here, a read-only directory that refuses even the
+// temp-file create — must leave neither a truncated caption at the final
+// name (which the never-overwrite guard would then protect forever) nor a
+// stray temp file behind.
+func TestWriteSidecar_FailureLeavesNoFileOrTemp(t *testing.T) {
+	dir := t.TempDir()
+	scene := filepath.Join(dir, "video.mp4")
+	if err := os.WriteFile(scene, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lang := CaptionLang{Base: "en"}
+
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) }) // let t.TempDir clean up
+
+	path, _, err := WriteSidecar(scene, lang, "1\n00:00:01,000 --> 00:00:02,000\nhi\n", false)
+	if err == nil {
+		t.Fatalf("WriteSidecar into a read-only directory: want error, got path %q", path)
+	}
+
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() != filepath.Base(scene) {
+			t.Errorf("directory has leftover entry %q after a failed write; want only the scene file", e.Name())
+		}
 	}
 }

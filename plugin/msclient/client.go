@@ -31,6 +31,14 @@ type Client struct {
 	HTTP *http.Client
 }
 
+// MaxResponseBytes caps a decoded success response body: a subtitle track
+// (internal/subtitle.MaxBytes, 2 MiB) plus JSON field overhead comfortably
+// fits under this. A hostile or merely broken server that answers 200 with
+// an unbounded body must fail loudly here instead of exhausting the
+// caller's memory — the error path already caps at 4096 bytes, but the
+// success path used to decode straight off the wire with no limit at all.
+const MaxResponseBytes = 4 << 20 // 4 MiB
+
 // New returns a client for the moansubs server at baseURL, authenticating
 // with token. A trailing slash on baseURL is ignored.
 func New(baseURL, token string) *Client {
@@ -607,7 +615,17 @@ func (c *Client) doRaw(req *http.Request, out any, preferJSONError bool) error {
 		}
 	}
 	if out != nil {
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		// Read one byte past the cap so an oversized body is caught as a
+		// distinct, named error rather than silently truncated into a
+		// (possibly still valid-looking) partial decode.
+		b, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBytes+1))
+		if err != nil {
+			return fmt.Errorf("msclient: reading response: %w", err)
+		}
+		if len(b) > MaxResponseBytes {
+			return fmt.Errorf("msclient: response exceeds %d byte cap", MaxResponseBytes)
+		}
+		if err := json.Unmarshal(b, out); err != nil {
 			return fmt.Errorf("msclient: decoding response: %w", err)
 		}
 	}

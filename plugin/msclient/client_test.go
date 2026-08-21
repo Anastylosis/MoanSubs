@@ -221,6 +221,43 @@ func TestGetTrack_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestGetTrack_RejectsOversizedBody guards WP-P4: a hostile or merely
+// broken server answering 200 with an unbounded body must not be decoded
+// straight off the wire — it must fail with a named-cap error instead of an
+// OOM or a silently truncated Track. No real store or DB needed: the point
+// is the client's own response-size guard, not anything server-side.
+func TestGetTrack_RejectsOversizedBody(t *testing.T) {
+	huge := make([]byte, 5<<20) // 5 MiB, over the 4 MiB MaxResponseBytes cap
+	for i := range huge {
+		huge[i] = 'a'
+	}
+	body, err := json.Marshal(map[string]any{
+		"id": 1, "release_id": 1, "lang": "en", "body": string(huge),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(body) <= MaxResponseBytes {
+		t.Fatalf("test body is %d bytes, want > MaxResponseBytes (%d)", len(body), MaxResponseBytes)
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(body)
+	}))
+	defer ts.Close()
+
+	c := New(ts.URL, "")
+	track, err := c.GetTrack(context.Background(), 1)
+	if err == nil {
+		t.Fatalf("GetTrack against a %d byte body: want error, got track %+v", len(body), track)
+	}
+	if !strings.Contains(err.Error(), "byte cap") {
+		t.Errorf("error should name the cap, got: %v", err)
+	}
+}
+
 func TestMatch_Success(t *testing.T) {
 	c, s := newTestServer(t)
 	ctx := context.Background()
