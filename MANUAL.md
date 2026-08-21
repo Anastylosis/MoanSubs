@@ -382,6 +382,55 @@ prints how many tracks were withdrawn. Use this for a leaked or clearly
 abusive account, where taking down its whole contribution by hand (finding
 every track id and stash id by hand) would be impractical.
 
+### `moansubs work`
+
+Groups releases that are the same video cut or encoded differently, so each
+can offer the others' subtitles.
+
+**Why this exists as its own thing.** Stash's phash samples 25 frames at
+fixed *fractions* of a video's duration, so trimming an intro shifts every
+sample. Two copies of one film can sit 14 bits apart with no shared MIH
+block, which means the fuzzy lookup can never retrieve one from the other —
+by construction, not by accident. Grouping is what reaches that case.
+
+A work is **advisory**: it never gates a lookup, never merges rows, and
+never edits a release beyond its `work_id`. Ungrouping restores the
+previous state exactly, which is what makes a wrong guess cheap.
+
+- `work suggest [--limit N] [--signal S] [--apply]` — propose groupings.
+  Three signals, and they deserve different trust:
+  - **`stash-id`** — both releases carry the same stash-box id. An external
+    catalogue asserting they are one scene, so `--apply` links these and
+    only these.
+  - **`subtitle-overlap`** — their subtitles share many identical lines.
+    This is the answer for files with no stash-box entry: it needs no
+    external service and no API key, only the corpus the node already has.
+    Proposed for review, never applied automatically.
+  - **`name-duration`** — identical normalised names, runtimes within 60s.
+    Weakest; it is how "La novia celosa" and "La Novia Celosa" find each
+    other, and equally how two unrelated files with a generic name would.
+- `work link <a> <b>` / `work unlink <id>` — assert or break a grouping by
+  hand. A person always wins over inference.
+- `work show <id>` — the work, its releases, and each sibling track's sync.
+- `work offset <track> <release> <ms> [--source S]` — record how far a
+  track must shift to fit a release. A positive offset delays the subtitle,
+  which is the case when the target encode carries extra footage at the
+  head.
+
+**Nothing derives an offset automatically, and the reason is not
+squeamishness.** Correlating two subtitle files does not work: both are
+usually timed for the same cut, so they agree with each other while both
+disagree with the video. An offset is a property of a (track, release)
+pair measured against the *video* — by a person, or by a client comparing
+frames against its own copy. The runtime difference is offered as a
+*suggestion* (`--source duration-delta`) because it is right only when the
+extra footage sits at the head.
+
+A wrong offset is worse than none: a missing subtitle is obvious, a
+silently desynced one is not. That is why "no sync recorded" and "an offset
+of zero" stay distinct everywhere — the release page says *sync unknown*
+rather than implying a fit nobody checked.
+
 ### `moansubs dump [-o FILE]`
 
 Writes every non-withdrawn release and track as gzip-compressed JSONL: a

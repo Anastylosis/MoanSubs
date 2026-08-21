@@ -131,6 +131,11 @@ single `spam` vote, shows up in `moansubs track list --flagged` for an
 operator to review; see [API.md](API.md) and [MANUAL.md](MANUAL.md) for
 the endpoints and CLI.
 
+Releases that are the same video cut or encoded differently can be grouped
+into a *work*, so each offers the others' subtitles with the timing shift
+needed to fit — the case fingerprinting cannot see, since a trimmed intro
+moves every frame Stash samples. See `moansubs work` in MANUAL.md.
+
 The server also carries a small public catalogue for browsers: `/browse`
 and `/search` list releases that have name metadata (title, studio,
 performers, or a filename stem — a bare hash has nothing to show), and

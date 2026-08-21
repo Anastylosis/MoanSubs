@@ -103,6 +103,35 @@ across different people's libraries is nearly never.
   for that scene. Badges for a whole wall resolve in one batched call; if
   the server is down they simply don't appear.
 
+## Subtitles from another cut
+
+A scene sometimes matches a release whose subtitles were authored against a
+*different* cut of the same video — someone trimmed a few seconds of dead
+footage from the head, or re-encoded at another frame rate. The panel
+offers those too, and says plainly which kind of match each one is:
+
+| Badge | Meaning |
+|---|---|
+| *(none)* | Authored for this exact file. |
+| `sync +3.08s` | Authored for another cut, and the server shifts it by that much on download — the file you get is already corrected. |
+| `sync unknown` | Authored for another cut, and nobody has recorded how far out it is. Offered as-is; it may not line up. |
+| `sync?` | A near-identical phash, not a recorded grouping. Sync may be off by a second or two. |
+
+The first three are the important distinction. A subtitle that is silently
+three seconds early looks identical to one that fits until you watch it,
+which is exactly the failure this replaces — the old panel collapsed every
+one of these into a single amber `sync?`.
+
+Nothing with an unknown sync is ever downloaded on your behalf: it takes an
+explicit click, because a subtitle that is quietly wrong is worse than one
+that is obviously missing.
+
+Note that a re-cut is invisible to fingerprinting. Stash's phash samples
+frames at fixed fractions of the runtime, so trimming an intro shifts every
+sample — two copies of one film can be 14 bits apart with no shared hash
+block. These candidates reach you because the server *grouped* the
+releases, not because the hashes matched.
+
 ## Tasks (Settings → Tasks → Plugin tasks)
 
 - **Probe** — connectivity/diagnostics check; also reports the server's

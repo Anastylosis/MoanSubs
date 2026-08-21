@@ -511,3 +511,34 @@ Public, unauthenticated — feeds the release page's per-track detail.
 (most recently cast or changed) first, capped at 50. `by` is the voter's
 account name. Same withdrawn-track/-release handling as
 `GET /api/v1/subtitles/{id}` (`410`), and the same `404` for no such id.
+
+## Works and sibling subtitles
+
+A release may belong to a *work* — an advisory grouping of releases that
+are the same video in different encodes or cuts. Every lookup response's
+release carries a `siblings` array: visible tracks belonging to the other
+releases of that work. It is always present, `[]` when the release is
+ungrouped, and is deliberately separate from `tracks` so a client can tell
+"authored for this exact file" from "authored for another cut".
+
+```json
+"siblings": [
+  {"id": 665, "release_id": 662, "lang": "es", "generated": false,
+   "downloads": 3, "offset_ms": 3080, "offset_source": "measured"}
+]
+```
+
+`offset_ms` is **nullable on purpose**. `null` means no sync has been
+recorded — which is not the same claim as `0`, "checked, they line up".
+A client must not present the first as the second.
+
+`GET /api/v1/subtitles/{id}?for_release=N` returns the track retimed for
+release `N`, and echoes `offset_ms` / `offset_source` for what it applied.
+Without `for_release`, or when no offset is recorded for that pairing, the
+body is exactly as its uploader authored it — the stored track is never
+modified, the shift happens at render.
+
+Why phash cannot do this instead: Stash samples 25 frames at fixed
+fractions of a video's duration, so a trimmed intro moves every sample.
+Two copies of one film measured 14 bits apart with 0 of 5 MIH blocks
+matching, well outside the distance the bucket scheme can retrieve.
