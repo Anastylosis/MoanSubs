@@ -32,7 +32,7 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_BOOTSTRAP_ADMIN` | `true` | Set to `false` to disable the automatic first-run admin creation below — for an operator who'd rather keep credentials out of container logs entirely and mint the account by hand with `moansubs admin bootstrap` (via `docker compose exec`) instead. |
 | `MOANSUBS_AGE_GATE` | `true` | Shows an 18+ click-through interstitial (`GET`/`POST /age`) in front of every human page until a visitor accepts it — a plain "I am 18 or older" button, **not** age or identity verification (no ID, no face check). `false` disables it entirely, for an operator who satisfies a jurisdiction's real verification requirement some other way (a dedicated third-party provider, or a reverse proxy gating the whole node) rather than through this server. Never gates `/api/*`, `/healthz`, `/robots.txt`, `/favicon.ico`, or `/static/*`. |
 | `MOANSUBS_ACCENT` | `#f02460` | The colour every page is built around — links, focus rings, the wordmark, button fills. Six hex digits, with or without the leading `#`; the default is the dominant colour of the site's own icon. Only the **hue and saturation** are taken from what you set: the server re-derives a lightness for each theme until the result clears WCAG AA (4.5:1) against both of that theme's grounds — the page background and the slightly-offset surface behind the nav bar, tags and notices — and picks the button label colour the same way. So any colour you pick renders legibly on both the dark and light themes, and an invalid value refuses to start rather than serving an unreadable site. |
-| `MOANSUBS_INDEXABLE` | `false` | Opens this node to search engines. The default is the historical posture: `/robots.txt` is a blanket `Disallow: /` and `/browse`, `/search`, `/release/*`, `/u/*` all send `X-Robots-Tag: noindex, nofollow`. `true` narrows both to the public catalogue — `/`, `/browse`, `/release/*`, `/u/*` become indexable, while `/admin`, `/api/`, `/login`, `/me`, `/mod`, `/register`, `/search` and `/upload` stay disallowed (`/search` keeps its `noindex` on every node: it is `/browse`'s rows behind a query string, and the one catalogue page that does real database work per hit). It also lets the major search crawlers past the age gate, which is a real trade and is described under "Indexing and the age gate" below. Whether an adult catalogue belongs in a search index depends on your jurisdiction and appetite, so this server will not decide it for you. |
+| `MOANSUBS_INDEXABLE` | `false` | Opens this node to search engines. The default is the historical posture: `/robots.txt` is a blanket `Disallow: /` and `/browse`, `/search`, `/release/*`, `/u/*` all send `X-Robots-Tag: noindex, nofollow`. `true` narrows both to the public catalogue — `/`, `/browse`, `/release/*`, `/u/*` become indexable **once a release has a title someone asserted**: a release known only by an uploader's filename keeps its `noindex` and shows `(untitled)` in listings, however readable that filename is (see "Filenames are not titles" below), while `/admin`, `/api/`, `/login`, `/me`, `/mod`, `/register`, `/search` and `/upload` stay disallowed (`/search` keeps its `noindex` on every node: it is `/browse`'s rows behind a query string, and the one catalogue page that does real database work per hit). It also lets the major search crawlers past the age gate, which is a real trade and is described under "Indexing and the age gate" below. Whether an adult catalogue belongs in a search index depends on your jurisdiction and appetite, so this server will not decide it for you. |
 | `MOANSUBS_ANALYTICS_SCRIPT` | *(unset)* | URL of a visitor-analytics tracker script, written into every public page as `<script defer src=… data-website-id=… data-exclude-search="true">`. Built against [Umami](https://umami.is) — self-hosted and cookieless — but anything served as a `<script>` that reads `data-website-id` works. Two forms are accepted: a **same-origin path** (`/s/script.js`, for a reverse proxy in front of this node — see `deploy/README.md`), which keeps the page's CSP on `script-src 'self'; connect-src 'self'` with no third-party origin in it at all; or an **absolute http(s) URL**, whose origin is added to `script-src` and `connect-src` instead. A scheme-relative `//host/path` is rejected rather than guessed at. Must be set together with `MOANSUBS_ANALYTICS_WEBSITE_ID`; setting one alone fails startup, because the resulting tag would load and then silently record nothing. |
 | `MOANSUBS_ANALYTICS_WEBSITE_ID` | *(unset)* | The tracker's site identifier, emitted verbatim as `data-website-id`. See `MOANSUBS_ANALYTICS_SCRIPT`. |
 | `MOANSUBS_STASH_ENDPOINTS` | `https://stashdb.org/graphql,https://fansdb.cc/graphql` | Comma-separated allow-list of stash-box GraphQL endpoints an upload's `stash_ids` may name (WP-R6, defense in depth against a rogue uploader attaching an arbitrary URL the UI would render as a link — API.md "`POST /api/v1/subtitles`"). An endpoint outside it is rejected with `400 stash_ids: endpoint not accepted by this node`. The single value `*` accepts any http(s) endpoint. `GET /api/v1/version` advertises the resolved list as `stash_endpoints`, so the plugin filters what it pushes against it rather than racing the 400 one id at a time; the `/upload` form's endpoint `<select>` lists exactly this set too (plus "other" only when it's `*`). |
@@ -470,11 +470,13 @@ Import never creates an account or sets a track's uploader — there is
 nothing on this node to attach it to. Instead the uploader's name from the
 dump (if any) is folded into `source` as `mirror:<name>`, or plain `mirror`
 when the dump line had no uploader; `license` is carried over unchanged.
-Release name metadata is backfill-only, exactly as for uploads: it fills a
-release this node knows nothing about and never overwrites one it does.
-Stash ids, unlike name metadata, are additive on import too — attached
-regardless of whatever the release already had, same as an ordinary upload's
-`stash_ids` (a malformed endpoint or id in the dump is skipped and printed,
+Release name metadata arrives as a proposal, exactly as for uploads, but
+attributed to nobody: the exporting node's account ids mean nothing here.
+It is therefore evidence like any other, and derivation decides what the
+release says — an import can improve a release this node already knows
+without overwriting what local uploaders contributed. Stash ids are
+additive on import too — attached regardless of whatever the release
+already had, same as an ordinary upload's `stash_ids` (a malformed endpoint or id in the dump is skipped and printed,
 not fatal to the import). A release withdrawn *on this node* stays withdrawn — its tracks in the dump
 are counted and dropped, so a local takedown survives re-importing
 upstream. Prints final counts: releases seen, and tracks imported/already
@@ -748,6 +750,82 @@ absolute URL and reverse-proxy it to your analytics host (see
 another host, and the common ad-blocker rules that match a known analytics
 path do not fire. An absolute URL works and is simpler to set up; it just
 costs all three of those.
+
+## Where a release's name comes from
+
+A release is a file. Its `stem` — the uploader's filename — describes that
+file. Its title, studio, performers and date describe the *scene*, which
+usually exists in several encodes, each a separate release with its own
+uploader and its own filename.
+
+So those four are never written directly. Every upload records a
+**proposal**: that uploader's account of the scene, attributed to them and
+stored alongside everyone else's. What a release displays is *derived*
+from the proposals of every release in its work, resolved field by field:
+
+1. a bundle that arrived with a stash-box id outranks one that did not —
+   in practice those fields were populated *from* that stash-box by
+   Stash's own tagger;
+2. then agreement, which is what makes one bad actor cheap;
+3. then recency, so a correction lands.
+
+Performers accumulate rather than compete: two uploaders listing different
+halves of a cast are both right, where two giving different titles cannot
+be.
+
+One row per account per release, revised rather than stacked — re-running
+a bulk push cannot let one account outvote the room. Nothing is stored on
+the work itself, so ungrouping is a true undo: the previous answer returns
+with nothing to migrate.
+
+This is why **re-pushing corrects a release**. A scene that gains its
+stash-box id in Stash later, and is pushed again, picks up the metadata
+that comes with it — and because derivation pools across the work, naming
+one encode names every copy of it.
+
+### Filenames are not titles
+
+`(untitled)` on a listing is deliberate. A release known only by its
+uploader's filename is held out of search-engine indexes until someone
+asserts a name for it, and its filename is not rendered at all on pages a
+crawler may keep.
+
+The reason is not tidiness. Scene filenames routinely carry a performer's
+legal name, a site's internal id, or a path fragment, and a name crawled
+once is cached beyond this server's reach — no later correction here
+retracts it. A legibility test cannot help: the filenames that matter for
+privacy are the readable ones. So the rule is structural rather than a
+heuristic. Filenames still feed the matcher's retrieval tokens, so
+level-5 filename matching is unaffected; on a node that indexes nothing
+(`MOANSUBS_INDEXABLE` unset, the default) they are shown, tidied up, since
+nothing is crawled.
+
+### Moderating metadata
+
+Any logged-in account can correct a release from its page. Contribution is
+cheap and revisable; what a moderator gates is **indexing**, which is where
+the irreversible harm lives.
+
+On `/mod/release/{id}`:
+
+- **Confirm** pins the current derived values and lets the page be
+  indexed. Pinning, not flagging: a proposal filed after a bare
+  "confirmed" bit would rewrite a page search engines have already cached,
+  so the marker would amplify vandalism rather than contain it. Pins are
+  per release, so linking into a confirmed work cannot make a
+  mis-grouped page indexable on someone else's authority.
+- **Unpin** lets derivation move again — the revert for a confirmation
+  that blessed something wrong.
+- **Purge** destroys every proposal for the release and re-derives. Use it
+  for a name that must leave the database rather than merely be outvoted;
+  it clears the derived retrieval tokens too, which a plain overwrite
+  would leave searchable.
+
+`noindex` restrains well-behaved crawlers and nothing else — scrapers and
+archives ignore it. It sequences indexing; the structural rule above is
+the actual control. De-indexing is also not retroactive: a page that was
+indexed before it was found wrong needs a removal request to the search
+engine, which no setting here performs.
 
 ## Indexing and the age gate
 

@@ -387,12 +387,29 @@ rejected with `400`. The canonical form is what's stored and compared for
 the identical-track dedup below, so `EN` and `en_US` uploads dedupe
 against existing `en` and `en-US` tracks respectively.
 `title`/`stem`/`date`/`studio`/`performers` are optional scene
-name metadata, stored on the release for `POST /api/v1/match` to use
-later. They are **backfill-only**: recorded when the release has no name
-metadata at all yet, never overwritten or merged column-by-column on a
-release that already has some, so two uploaders' descriptions of the same
-file can't blend into an inconsistent record. Omit a field entirely if
-Stash didn't report it — an empty string is a value, not "absent".
+name metadata, used by `POST /api/v1/match` and shown on the catalogue.
+Omit a field entirely if Stash didn't report it — an empty string is a
+value, not "absent".
+
+`title`/`date`/`studio`/`performers` are recorded as a **proposal**: your
+account's own account of what this scene is, stored alongside every other
+uploader's and never overwriting theirs. What the release ends up saying
+is derived from all of them, resolved field by field — a bundle that
+arrived with a stash-box id outranks one that did not, then agreement
+between uploaders, then recency. Re-uploading revises your own proposal
+rather than adding another, so re-running a bulk push cannot let one
+account outvote the rest.
+
+Two consequences worth relying on. Uploading again with better metadata
+**does** correct a release, including when the subtitle body is a
+duplicate — that is the normal way a scene gains its details once someone
+identifies it. And a release grouped into a work derives from every
+member's proposals, so identifying one encode names all of them.
+
+`stem` is the exception: it describes your file, not the scene, so it is
+stored once (from whichever upload first supplies one), never proposed
+against, and never shown as a title on a page search engines may index.
+It still feeds the matcher's retrieval tokens.
 
 Each is capped (WP-P3), measured in runes after trimming surrounding
 whitespace, and none may contain a control character: `title`
@@ -418,9 +435,11 @@ this node"}` rejects the whole upload the same way — defense in depth
 against a rogue uploader attaching an arbitrary URL the UI would otherwise
 render as a link; `GET /api/v1/version`'s `stash_endpoints` is how a client
 finds out what's accepted before trying.
-Unlike name metadata this is **additive, not backfill-only**: like votes and
-downloads, a later upload can add a stash id to a release that already has
-some, on top of whatever was there before; a moderator can remove one from the moderation page; uploads never do.
+Stash ids are **additive**: like votes and downloads, a later upload can
+add one to a release that already has some, on top of whatever was there
+before; a moderator can remove one from the moderation page; uploads never
+do. They stay attached to the release rather than the work, which is what
+lets two releases sharing an id be recognised as the same scene.
 See MANUAL.md "Upload semantics" for the sanitization pipeline. Responses:
 
 - `201` `{"track_id": n, "release_id": n, "generated": bool}` — stored.
