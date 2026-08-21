@@ -71,7 +71,7 @@ func NewRateLimiterPerMinute(perMinute int) *RateLimiter {
 // itself is inside one — the host portion of RemoteAddr otherwise.
 //
 // A chain can have more than one trusted hop (e.g. a CDN in front of the
-// reference Caddy), so this walks the header right-to-left rather than
+// reference proxy), so this walks the header right-to-left rather than
 // trusting only the last entry: each proxy appends the peer address it
 // saw, so a trusted entry is a hop's own signature and gets skipped, while
 // the first entry that isn't inside any TrustedProxyCIDRs is whatever the

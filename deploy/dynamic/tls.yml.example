@@ -1,0 +1,16 @@
+# A certificate you supply yourself, for a node that cannot answer an ACME
+# challenge (LAN, VPN, no public DNS). Use together with the
+# docker-compose.tls-file.yml override, which is what actually stops Traefik
+# asking Let's Encrypt for one.
+#
+# Rename to tls.yml and put cert.pem/key.pem in deploy/certs/ (untracked --
+# a private key must never enter this repository).
+tls:
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /certs/cert.pem
+        keyFile: /certs/key.pem
+  certificates:
+    - certFile: /certs/cert.pem
+      keyFile: /certs/key.pem

@@ -1,10 +1,14 @@
-# Reference stack for a public moansubs node: Caddy terminates TLS and is
-# the only thing that talks to `server` directly, `server` runs the API,
-# Postgres holds all state, and `backup` takes a nightly pg_dump to object
-# storage via rclone with a 30-day retention. Generic on purpose — every
-# placeholder below (DOMAIN, <bucket>, POSTGRES_PASSWORD, MOANSUBS_TAG,
-# MOANSUBS_TOKEN_KEY) needs a real value before `docker compose up -d`. See
-# README.md for the first-boot, upgrade and restore steps.
+# Reference stack for a public moansubs node: Traefik terminates TLS and is
+# the only thing that talks to `server` directly, `server` runs the API, and
+# Postgres holds all state. A fourth service, `backup`, takes a nightly
+# pg_dump to object storage via rclone; it sits behind a compose profile, so
+# `docker compose up -d` brings up three containers and adding backups is an
+# explicit `--profile backup` rather than something that must be configured
+# before the node can start at all.
+#
+# DOMAIN, ACME_EMAIL and POSTGRES_PASSWORD are the only values that must be
+# set before `docker compose up -d`. See README.md for first boot, upgrades,
+# TLS without Let's Encrypt, and the restore drill.
 
 # json-file is the daemon default, which keeps no cap of its own — a long-
 # running node's logs (this compose file's own request-log line included,
@@ -18,35 +22,64 @@ x-logging: &default-logging
     max-file: "5"
 
 services:
-  caddy:
-    image: caddy:2
+  traefik:
+    # v3.7 or newer. Up to and including v3.5 the Docker provider asked for
+    # API version 1.24 and never negotiated, which a current daemon (minimum
+    # 1.40) refuses outright -- the provider then discovers no containers at
+    # all, so TLS terminates perfectly and every request still 404s. Setting
+    # DOCKER_API_VERSION does not help; Traefik builds its own client and
+    # ignores it. Upgrading is the fix.
+    image: traefik:v3.7
     restart: unless-stopped
     logging: *default-logging
+    # Routing lives on the `server` service's labels (below); everything
+    # static lives here. The dashboard and the insecure API are deliberately
+    # never enabled -- this container is on the public internet.
+    #
+    # TLS is attached to the entrypoint rather than to the router, so the
+    # override in docker-compose.tls-file.yml can drop ACME entirely by
+    # replacing this one list. A router-level certresolver label could not
+    # be removed by an override, only pointed somewhere else.
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      # Anything that is not a container -- an external analytics upstream,
+      # a certificate you supply yourself -- cannot be expressed as a
+      # Docker label, so the file provider covers those. The directory is
+      # empty by default and watched, so dropping a file in takes effect
+      # without a restart. See dynamic/*.yml.example.
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.http.tls=true
+      - --entrypoints.websecure.http.tls.certResolver=le
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL:?set ACME_EMAIL, the address Let's Encrypt sends expiry warnings to}
+      - --certificatesresolvers.le.acme.storage=/acme/acme.json
+      - --certificatesresolvers.le.acme.httpchallenge=true
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
     ports:
       - "80:80"
       - "443:443"
-    environment:
-      DOMAIN: ${DOMAIN:?set DOMAIN to the node's hostname, e.g. subs.example.org}
-      # Empty leaves Caddy on Let's Encrypt, which needs this node to be
-      # publicly reachable. A LAN or VPN-only node sets this to a whole
-      # Caddyfile tls directive instead — `tls internal` for Caddy's own
-      # CA, or `tls /certs/cert.pem /certs/key.pem` for one you supply.
-      # See "TLS without Let's Encrypt" in README.md.
-      CADDY_TLS_DIRECTIVE: ${CADDY_TLS_DIRECTIVE:-}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      # Uncomment alongside a `tls /certs/...` directive above to supply
-      # your own certificate and key.
-      # - ./certs:/certs:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      # Read-only, but still the host's Docker socket: anything that can
+      # read it can enumerate and control every container on this host.
+      # README.md ("Why Traefik sees the Docker socket") covers what that
+      # means and how to take it away with a socket proxy.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./dynamic:/etc/traefik/dynamic:ro
+      # Issued certificates and the ACME account key. Losing this volume
+      # means re-issuing from scratch, which Let's Encrypt rate-limits.
+      - traefik_acme:/acme
     depends_on:
       - server
 
   server:
-    # No release has been cut yet (README.md "Status"), so there is no
-    # default tag to fall back to — MOANSUBS_TAG must name a real one.
-    image: ghcr.io/anastylosis/moansubs:${MOANSUBS_TAG:?set MOANSUBS_TAG to a released version}
+    # Pinned to a released tag rather than a moving one, so a restart can
+    # never change versions under you. Override MOANSUBS_TAG to upgrade.
+    image: ghcr.io/anastylosis/moansubs:${MOANSUBS_TAG:-v0.1.0}
     restart: unless-stopped
     logging: *default-logging
     # `serve` applies pending migrations on startup (MANUAL.md), so
@@ -54,7 +87,7 @@ services:
     environment:
       DATABASE_URL: postgres://moansubs:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/moansubs?sslmode=disable
       MOANSUBS_LISTEN: ":8080"
-      # Caddy is the only thing that reaches `server` directly on this
+      # Traefik is the only thing that reaches `server` directly on this
       # stack, always from this compose network — see the "Trust proxy
       # note" in README.md before changing or removing this.
       MOANSUBS_TRUSTED_PROXY_CIDRS: "172.28.0.0/24"
@@ -70,13 +103,27 @@ services:
       # deliberate trade rather than a free win.
       # MOANSUBS_INDEXABLE: "true"
       # Visitor analytics, off by default. The path form below pairs with
-      # the /s/* proxy in Caddyfile, which keeps the tag same-origin — see
+      # the /s/* router in this file, which keeps the tag same-origin — see
       # "Analytics" in README.md. An absolute https:// URL also works.
       # MOANSUBS_ANALYTICS_SCRIPT: "/s/script.js"
       # MOANSUBS_ANALYTICS_WEBSITE_ID: ${MOANSUBS_ANALYTICS_WEBSITE_ID:-}
     depends_on:
       postgres:
         condition: service_healthy
+    # Traefik discovers the node here. exposedbydefault=false means nothing
+    # is routed without traefik.enable, so postgres and backup stay
+    # invisible to the proxy no matter what else changes.
+    labels:
+      - traefik.enable=true
+      - "traefik.http.routers.moansubs.rule=Host(`${DOMAIN}`)"
+      - traefik.http.routers.moansubs.entrypoints=websecure
+      - traefik.http.services.moansubs.loadbalancer.server.port=8080
+      - traefik.http.routers.moansubs.middlewares=moansubs-compress,moansubs-hsts
+      - traefik.http.middlewares.moansubs-compress.compress=true
+      # A year of HSTS, matching what the reference proxy has always sent.
+      # Add preload only when you are certain this name will never be
+      # served over plain HTTP again.
+      - traefik.http.middlewares.moansubs-hsts.headers.stsSeconds=31536000
 
   postgres:
     image: postgres:16-alpine
@@ -95,6 +142,10 @@ services:
       retries: 10
 
   backup:
+    # Opt-in: `docker compose --profile backup up -d`. Off by default so a
+    # first boot is not blocked on having object storage and an rclone
+    # config ready -- see "Backups" in README.md.
+    profiles: ["backup"]
     build: ./backup
     restart: unless-stopped
     logging: *default-logging
@@ -142,6 +193,5 @@ networks:
 
 volumes:
   pgdata:
-  caddy_data:
-  caddy_config:
+  traefik_acme:
   backup_state:

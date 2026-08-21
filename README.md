@@ -155,7 +155,7 @@ reverse proxies).
 ## Running a public node
 
 [`deploy/`](deploy/) has a reference compose stack for a public node:
-Caddy (auto-TLS) in front of the server, Postgres, and a nightly backup
+Traefik (auto-TLS) in front of the server, Postgres, and an opt-in nightly backup
 sidecar (`pg_dump | gzip | rclone rcat`, 30-day retention). It's generic —
 copy it, fill in the placeholders (domain, bucket, passwords), and see
 [deploy/README.md](deploy/README.md) for first boot, upgrades, and a

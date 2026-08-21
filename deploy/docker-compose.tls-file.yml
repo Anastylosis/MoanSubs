@@ -1,0 +1,31 @@
+# Overlay for a node that cannot answer an ACME challenge: no public DNS, a
+# LAN address, or a VPN-only name. Replaces Traefik's command list wholesale
+# -- a sequence is replaced rather than merged by an override, which is the
+# whole reason TLS is attached to the entrypoint in the base file instead of
+# to a router label that an override could only repoint, never remove.
+#
+#   cp dynamic/tls.yml.example dynamic/tls.yml   # then edit
+#   mkdir -p certs && cp your-cert.pem certs/cert.pem && cp your-key.pem certs/key.pem
+#   docker compose -f docker-compose.yml -f docker-compose.tls-file.yml up -d
+#
+# Unlike the previous Caddy-based kit, there is no built-in certificate
+# authority here: Traefik has no equivalent of `tls internal`, so the
+# certificate has to come from somewhere else (mkcert, your own CA, or an
+# internal PKI). README.md, "TLS without Let's Encrypt", covers the choice.
+services:
+  traefik:
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.http.tls=true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./dynamic:/etc/traefik/dynamic:ro
+      - ./certs:/certs:ro
+      - traefik_acme:/acme

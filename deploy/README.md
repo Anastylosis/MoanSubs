@@ -1,16 +1,23 @@
 # Deployment kit
 
-A reference compose stack for running a public moansubs node: `caddy`
-(auto-TLS reverse proxy), `server` (the moansubs API), `postgres:16-alpine`
-(all state), and `backup` (nightly `pg_dump | gzip | rclone rcat`, 30-day
-retention). Generic on purpose — no real hostnames, buckets or credentials
+A reference compose stack for running a public moansubs node: `traefik`
+(auto-TLS reverse proxy), `server` (the moansubs API) and `postgres:16-alpine`
+(all state). A fourth service, `backup` (nightly `pg_dump | gzip | rclone
+rcat`, 30-day retention), sits behind a compose profile and is off unless you
+ask for it. Generic on purpose — no real hostnames, buckets or credentials
 are checked in here; every placeholder needs a real value before you start
 the stack — private infrastructure details never enter tracked files.
 
 ## Layout
 
-- `docker-compose.yml` — the stack.
-- `Caddyfile` — reverse proxy + auto-TLS for `DOMAIN`.
+- `docker-compose.yml` — the stack. Routing lives on the `server`
+  service's Traefik labels; entrypoints and ACME live on the `traefik`
+  service's `command:`.
+- `docker-compose.tls-file.yml` — overlay for a node that cannot answer an
+  ACME challenge; see "TLS without Let's Encrypt".
+- `dynamic/` — Traefik's file provider, watched and empty by default. The
+  two `.example` files cover the only things a Docker label cannot express:
+  an external analytics upstream, and a certificate you supply yourself.
 - `backup/` — the nightly dump sidecar: `Dockerfile` (`postgres:16-alpine`
   + `rclone`, so `pg_dump` always matches the server's Postgres version),
   `backup.sh` (the dump/prune script), `entrypoint.sh` (snapshots the
@@ -21,20 +28,19 @@ the stack — private infrastructure details never enter tracked files.
 
 1. Copy this directory to the host and `cd` into it.
 2. Point `DOMAIN`'s DNS A/AAAA record at this host, and make sure ports
-   80/443 are reachable — Caddy's ACME challenge needs both before it can
+   80/443 are reachable — Traefik's ACME challenge needs both before it can
    issue a certificate.
-3. Set `POSTGRES_PASSWORD` and `MOANSUBS_TAG` (a real released tag; there is
-   no default, since no image has been published yet — see the main
-   README's "Status"), and `MOANSUBS_TOKEN_KEY` (`openssl rand -hex 32`) —
-   without it the server still runs fine, it just can't show an account's
-   API token again on `/me` after a restart.
-4. Set up the backup remote: write an `rclone.conf` (`rclone config`, or by
-   hand) into `backup/rclone.conf` — it's bind-mounted into the sidecar and
-   deliberately not tracked — and set `BACKUP_BUCKET` and, if you're not
-   using a remote named `s3`, `RCLONE_REMOTE` in `docker-compose.yml`.
-5. `docker compose up -d`.
-6. `curl https://<DOMAIN>/healthz` → `ok`.
-7. Get the initial admin account's credentials: `serve` creates one
+3. Set `POSTGRES_PASSWORD` and `ACME_EMAIL` (where Let's Encrypt sends
+   expiry warnings). Optionally set `MOANSUBS_TOKEN_KEY`
+   (`openssl rand -hex 32`) — without it the server still runs fine, it
+   just can't show an account's API token again on `/me` after a restart —
+   and `MOANSUBS_TAG` to pin a version other than the default. A `.env`
+   file in this directory is read automatically and is gitignored.
+4. `docker compose up -d`. That is three containers: `traefik`, `server`,
+   `postgres`. Backups are opt-in — see "Backups" below — so nothing here
+   blocks on having object storage ready.
+5. `curl https://<DOMAIN>/healthz` → `ok`.
+6. Get the initial admin account's credentials: `serve` creates one
    automatically the first time it finds none, and prints the name,
    password, and API token to stdout exactly once —
    `docker compose logs server | grep -A3 'created initial admin account'`.
@@ -66,6 +72,10 @@ docker compose up -d
 container start leaves the schema current before the new binary accepts
 traffic. Migrations are additive and safe to re-run.
 
+The image tag is pinned in `docker-compose.yml` and `pull` will not move it
+on its own — that is the point. Bump `MOANSUBS_TAG` in `.env` to upgrade
+deliberately.
+
 ## Restore drill
 
 Practice this before you need it for real — a backup nobody has restored
@@ -95,31 +105,35 @@ with whatever a previous drill run left behind.
 
 ## TLS without Let's Encrypt
 
-The default needs this node to be publicly reachable: Caddy answers an ACME
-challenge for `DOMAIN` on ports 80/443. A node on a LAN, behind a VPN, or
-on a domain with no public DNS cannot pass that challenge at all, so set
-`CADDY_TLS_DIRECTIVE` to a whole Caddyfile `tls` directive instead.
-
-**Caddy's own CA** (`CADDY_TLS_DIRECTIVE="tls internal"`). Caddy generates a
-root CA and signs the certificate itself. The root lives in the `caddy_data`
-volume, so it survives restarts — do not delete that volume, or every client
-has to be re-trusted. Export the root and install it wherever you browse:
+The default needs this node to be publicly reachable: Traefik answers an
+ACME HTTP-01 challenge for `DOMAIN` on port 80 and serves on 443. A node on
+a LAN, behind a VPN, or on a domain with no public DNS cannot pass that
+challenge at all, so supply the certificate yourself:
 
 ```sh
-docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./moansubs-root.crt
-# Debian/Ubuntu
-sudo cp moansubs-root.crt /usr/local/share/ca-certificates/moansubs-root.crt
-sudo update-ca-certificates
+cp dynamic/tls.yml.example dynamic/tls.yml     # then edit if your paths differ
+mkdir -p certs && cp fullchain.pem certs/cert.pem && cp privkey.pem certs/key.pem
+docker compose -f docker-compose.yml -f docker-compose.tls-file.yml up -d
 ```
 
-Firefox keeps its own trust store, so import it there separately
-(Settings → Privacy & Security → Certificates → View Certificates →
-Authorities → Import).
+`deploy/certs/` is untracked on purpose — a private key must never enter
+this repository.
 
-**A certificate you supply** (`CADDY_TLS_DIRECTIVE="tls /certs/cert.pem
-/certs/key.pem"`). Uncomment the `./certs:/certs:ro` mount on the `caddy`
-service and drop `cert.pem`/`key.pem` in `deploy/certs/`. That directory is
-untracked on purpose — a private key must never enter this repository.
+The overlay replaces Traefik's whole `command:` list rather than editing it.
+A compose override merges mappings but *replaces* sequences, and it can
+never remove a key — which is exactly why TLS is attached to the entrypoint
+(`--entrypoints.websecure.http.tls.certResolver=le`) in the base file
+instead of to a router label. A label could only be pointed at a different
+resolver, never taken away.
+
+**There is no built-in certificate authority.** Traefik has no equivalent of
+Caddy's `tls internal`, so nothing here will generate a trustable local CA
+for you. Produce the certificate elsewhere — [mkcert](https://github.com/FiloSottile/mkcert)
+is the least painful for a LAN, an internal PKI if you have one — and
+install that CA on every machine that will talk to this node. Traefik does
+fall back to an unsigned default certificate if you configure nothing, but
+it is a bare leaf with no CA behind it, so no client can ever be made to
+trust it; treat that fallback as a symptom, not an option.
 
 ### What this does to the Stash plugin
 
@@ -129,19 +143,18 @@ trust store and no override — an untrusted certificate surfaces as
 `x509: certificate signed by unknown authority` on every lookup and push,
 with no plugin setting to bypass it.
 
-So installing the root CA (above) on the machine running **Stash**, not
-just on the machine you browse from, is what makes the plugin work. On a
-containerised Stash that means getting the CA into that container's trust
-store, which usually means baking it into the image or mounting it into
-`/usr/local/share/ca-certificates` and running `update-ca-certificates` at
-start.
+So install your CA on the machine running **Stash**, not just on the machine
+you browse from. On a containerised Stash that means getting the CA into
+that container's trust store, which usually means baking it into the image
+or mounting it into `/usr/local/share/ca-certificates` and running
+`update-ca-certificates` at start.
 
 If that is more trouble than it is worth, point the plugin at the node over
 plain HTTP on the internal network and let TLS terminate only for browsers.
 
-Everything else is unaffected: Caddy still sets `X-Forwarded-Proto: https`,
-so the server still marks session cookies `Secure` exactly as it does
-behind a public certificate.
+Everything else is unaffected: Traefik still sets `X-Forwarded-Proto: https`,
+so the server still marks session cookies `Secure` exactly as it does behind
+a publicly-issued certificate.
 
 ## Analytics
 
@@ -150,15 +163,20 @@ built against [Umami](https://umami.is) — self-hosted, cookieless), the
 recommended wiring serves its tracker from *this* domain rather than
 sending visitors to another one:
 
-1. Uncomment the `handle_path /s/*` block in `Caddyfile` and set
-   `ANALYTICS_HOST` to your analytics hostname in the environment — not in
-   `Caddyfile` itself, which is tracked.
+1. `cp dynamic/analytics.yml.example dynamic/analytics.yml` and put your
+   own hostname in it. The `.example` file is tracked and the copy is not,
+   so the real host stays out of the repository. Traefik's file provider
+   watches that directory, so this needs no restart.
 2. Uncomment `MOANSUBS_ANALYTICS_SCRIPT: "/s/script.js"` and
    `MOANSUBS_ANALYTICS_WEBSITE_ID` on the `server` service, and set the
    website id to the one your analytics host issued for this site.
 3. `docker compose up -d`, then load any public page and confirm the
    `<script>` tag is there and the browser console reports no CSP
    violation.
+
+An external upstream cannot be expressed as a Docker label — labels only
+carry a port on an existing container — which is why this one route lives in
+the file provider rather than beside the others.
 
 The proxied path is worth the extra step: the page's CSP stays
 `script-src 'self'; connect-src 'self'` with no third-party origin in it,
@@ -181,8 +199,8 @@ versions trusted `X-Forwarded-For` unconditionally; the new default when
 the env var is unset is to trust nothing, so every caller is rate-limited
 by the raw socket address instead (see MANUAL.md). This compose file sets
 `MOANSUBS_TRUSTED_PROXY_CIDRS` to the stack's own fixed Docker subnet,
-since Caddy is the only thing that ever talks to `server` directly here.
-Caddy appends the address it saw to `X-Forwarded-For` and moansubs reads
+since Traefik is the only thing that ever talks to `server` directly here.
+Traefik appends the address it saw to `X-Forwarded-For` and moansubs reads
 the last entry, so a client can't smuggle a fake one through.
 
 ## Publishing a mirror dump

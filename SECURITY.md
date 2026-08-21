@@ -210,7 +210,7 @@ request body is size-capped per endpoint; the per-IP rate limiters evict
 idle entries so an address flood cannot grow them without bound; password
 verification is queued beyond a few concurrent checks so login attempts
 cannot pin every core; every response carries `X-Content-Type-Options:
-nosniff`; the reference Caddyfile sends HSTS. Postgres is never published
+nosniff`; the reference Traefik stack sends HSTS. Postgres is never published
 outside the compose network, and the backup bucket must stay private — it
 holds password hashes and encrypted tokens (the public dump holds neither;
 a test pins that).

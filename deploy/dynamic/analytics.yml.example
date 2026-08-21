@@ -1,0 +1,26 @@
+# Same-origin analytics proxy: serves your analytics host's tracker from
+# this domain, so MOANSUBS_ANALYTICS_SCRIPT can be the path /s/script.js and
+# the page's CSP stays script-src 'self' with no third-party origin in it.
+# Umami's tracker derives its collect endpoint from its own src, so this one
+# route carries both the script and the events it sends back.
+#
+# Rename to analytics.yml and put your own host in the two places below.
+# Traefik picks it up without a restart. This file is tracked, so keep the
+# real hostname out of it and in the renamed copy only.
+http:
+  routers:
+    analytics:
+      rule: "Host(`your-node.example.org`) && PathPrefix(`/s/`)"
+      entrypoints: [websecure]
+      middlewares: [analytics-strip]
+      service: analytics
+  middlewares:
+    analytics-strip:
+      stripPrefix:
+        prefixes: ["/s"]
+  services:
+    analytics:
+      loadBalancer:
+        passHostHeader: false
+        servers:
+          - url: "https://analytics.example.org"

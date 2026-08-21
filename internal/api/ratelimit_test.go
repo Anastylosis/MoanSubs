@@ -58,7 +58,7 @@ func TestClientIP_TrustedProxyUsesLastXForwardedFor(t *testing.T) {
 // read would.
 func TestClientIP_TwoTrustedHopsSkipsCDNEntry(t *testing.T) {
 	s := &Server{TrustedProxyCIDRs: []*net.IPNet{
-		mustCIDR(t, "10.0.0.0/24"),     // the reference Caddy
+		mustCIDR(t, "10.0.0.0/24"),     // the reference proxy
 		mustCIDR(t, "198.51.100.0/24"), // the CDN's published range
 	}}
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
