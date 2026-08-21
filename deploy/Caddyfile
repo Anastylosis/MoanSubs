@@ -1,7 +1,9 @@
 # Caddy 2 auto-provisions and renews a TLS cert for whatever DOMAIN
 # resolves to (Caddyfile env substitution: {$DOMAIN}, set in
 # docker-compose.yml). Point DOMAIN's DNS A/AAAA record at this host and
-# open 80/443 before starting the stack, or the ACME challenge fails.
+# open 80/443 before starting the stack, or the ACME challenge fails. A
+# node that is not publicly reachable sets CADDY_TLS_DIRECTIVE instead —
+# see the tls block below and README.md.
 {$DOMAIN} {
 	# Serves the analytics tracker from this domain instead of a third
 	# party's, so MOANSUBS_ANALYTICS_SCRIPT can be the path /s/script.js and
@@ -17,6 +19,26 @@
 	# 		header_up Host {$ANALYTICS_HOST}
 	# 	}
 	# }
+
+	# TLS. Empty — the default — leaves Caddy to auto-provision a Let's
+	# Encrypt certificate for DOMAIN, which needs public DNS and reachable
+	# ports 80/443. Set CADDY_TLS_DIRECTIVE in the environment to override
+	# with a whole directive, since a node that is not publicly reachable
+	# cannot pass an ACME challenge at all:
+	#
+	#   tls internal
+	#       Caddy's own CA signs the certificate. Right for a LAN or
+	#       VPN-only node. Clients must trust that CA — see "TLS without
+	#       Let's Encrypt" in README.md, including what it means for the
+	#       Stash plugin, which will refuse an untrusted certificate.
+	#
+	#   tls /certs/cert.pem /certs/key.pem
+	#       A certificate you supply yourself. Mount it into the caddy
+	#       service first (docker-compose.yml has the volume commented).
+	#
+	# The value is substituted as a line of Caddyfile before parsing, so it
+	# has to be the entire directive, not just its argument.
+	{$CADDY_TLS_DIRECTIVE:}
 
 	# Caddy appends the address it saw to X-Forwarded-For (its default);
 	# moansubs reads the *last* entry once it trusts the proxy that set it

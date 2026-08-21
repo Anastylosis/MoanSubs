@@ -93,6 +93,56 @@ even though the backup itself is fine. `pg_dump --clean --if-exists`
 to repeat — each object is dropped and recreated rather than colliding
 with whatever a previous drill run left behind.
 
+## TLS without Let's Encrypt
+
+The default needs this node to be publicly reachable: Caddy answers an ACME
+challenge for `DOMAIN` on ports 80/443. A node on a LAN, behind a VPN, or
+on a domain with no public DNS cannot pass that challenge at all, so set
+`CADDY_TLS_DIRECTIVE` to a whole Caddyfile `tls` directive instead.
+
+**Caddy's own CA** (`CADDY_TLS_DIRECTIVE="tls internal"`). Caddy generates a
+root CA and signs the certificate itself. The root lives in the `caddy_data`
+volume, so it survives restarts — do not delete that volume, or every client
+has to be re-trusted. Export the root and install it wherever you browse:
+
+```sh
+docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./moansubs-root.crt
+# Debian/Ubuntu
+sudo cp moansubs-root.crt /usr/local/share/ca-certificates/moansubs-root.crt
+sudo update-ca-certificates
+```
+
+Firefox keeps its own trust store, so import it there separately
+(Settings → Privacy & Security → Certificates → View Certificates →
+Authorities → Import).
+
+**A certificate you supply** (`CADDY_TLS_DIRECTIVE="tls /certs/cert.pem
+/certs/key.pem"`). Uncomment the `./certs:/certs:ro` mount on the `caddy`
+service and drop `cert.pem`/`key.pem` in `deploy/certs/`. That directory is
+untracked on purpose — a private key must never enter this repository.
+
+### What this does to the Stash plugin
+
+**The plugin will refuse a certificate it does not trust.** It uses Go's
+default HTTP client (`plugin/msclient/client.go`), which means the system
+trust store and no override — an untrusted certificate surfaces as
+`x509: certificate signed by unknown authority` on every lookup and push,
+with no plugin setting to bypass it.
+
+So installing the root CA (above) on the machine running **Stash**, not
+just on the machine you browse from, is what makes the plugin work. On a
+containerised Stash that means getting the CA into that container's trust
+store, which usually means baking it into the image or mounting it into
+`/usr/local/share/ca-certificates` and running `update-ca-certificates` at
+start.
+
+If that is more trouble than it is worth, point the plugin at the node over
+plain HTTP on the internal network and let TLS terminate only for browsers.
+
+Everything else is unaffected: Caddy still sets `X-Forwarded-Proto: https`,
+so the server still marks session cookies `Secure` exactly as it does
+behind a public certificate.
+
 ## Analytics
 
 Optional and off by default. If you run your own analytics host (this is

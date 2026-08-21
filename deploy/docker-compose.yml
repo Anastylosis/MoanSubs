@@ -27,8 +27,17 @@ services:
       - "443:443"
     environment:
       DOMAIN: ${DOMAIN:?set DOMAIN to the node's hostname, e.g. subs.example.org}
+      # Empty leaves Caddy on Let's Encrypt, which needs this node to be
+      # publicly reachable. A LAN or VPN-only node sets this to a whole
+      # Caddyfile tls directive instead — `tls internal` for Caddy's own
+      # CA, or `tls /certs/cert.pem /certs/key.pem` for one you supply.
+      # See "TLS without Let's Encrypt" in README.md.
+      CADDY_TLS_DIRECTIVE: ${CADDY_TLS_DIRECTIVE:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Uncomment alongside a `tls /certs/...` directive above to supply
+      # your own certificate and key.
+      # - ./certs:/certs:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

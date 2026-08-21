@@ -41,3 +41,7 @@ plugin/dist/
 # Local config — holds API keys and site credentials, never commit
 /config.yaml
 /config.yml
+
+# Operator-supplied TLS cert and key for the deploy kit (deploy/README.md).
+# A private key must never enter this repository.
+deploy/certs/
