@@ -46,4 +46,47 @@
 <p class="hint">A stash-box id makes the plugin treat this release as the same scene for everyone who has that id — remove one that points at the wrong scene.</p>
 {{end}}
 <p class="hint"><a href="/release/{{.Release.ID}}">View the public release page</a></p>
+
+<h2>Same video, other encodes</h2>
+{{if .WorkID}}
+<p class="hint">Work {{.WorkID}} — releases {{range $i, $r := .WorkReleaseIDs}}{{if $i}}, {{end}}<a href="/mod/release/{{$r}}">{{$r}}</a>{{end}}. Grouping is advisory: it never changes a lookup, and ungrouping restores the previous state exactly.</p>
+<form method="post" action="/mod/release/{{.Release.ID}}/work/unlink" class="inline">
+  <button type="submit" class="quiet sm">Remove this release from the group</button>
+</form>
+{{else}}
+<p class="hint">Not grouped. Link this release to another encode of the same video — a different rip, or one with a trimmed intro — so each can offer the other's subtitles.</p>
+{{end}}
+
+<form method="post" action="/mod/release/{{.Release.ID}}/work/link" class="inline" style="margin-top:.75rem">
+  <input type="text" name="other_id" inputmode="numeric" placeholder="other release id" aria-label="Other release id" style="width:12rem">
+  <button type="submit" class="quiet sm">Link</button>
+</form>
+
+{{if .Siblings}}
+<h3>Sync of the other encodes' subtitles against this release</h3>
+<p class="hint">A positive offset delays the subtitle, which is the case when <em>this</em> encode carries extra footage at the head. Leave the box empty and save to go back to "sync unknown". Nothing derives this automatically — two subtitle files usually agree with each other while both disagree with the video.</p>
+<table>
+  <thead><tr><th>Track</th><th>Language</th><th>From</th><th>Current</th><th>Set (ms)</th></tr></thead>
+  <tbody>
+  {{range $t := .Siblings}}
+  <tr>
+    <td class="n">{{$t.TrackID}}</td>
+    <td><span class="tag">{{$t.Lang}}</span></td>
+    <td><a href="/mod/release/{{$t.ReleaseID}}">release {{$t.ReleaseID}}</a></td>
+    <td>{{if $t.SyncKnown}}{{$t.OffsetText}}{{if $t.SourceText}} <span class="hint" style="display:inline">{{$t.SourceText}}</span>{{end}}{{else}}<span class="hint" style="display:inline">sync unknown</span>{{end}}</td>
+    <td>
+      <form method="post" action="/mod/release/{{$.Release.ID}}/work/offset" class="inline">
+        <input type="hidden" name="track_id" value="{{$t.TrackID}}">
+        <input type="text" name="offset_ms" inputmode="numeric" style="width:7rem"
+               value="{{with index $.SuggestedOffsets $t.TrackID}}{{.}}{{end}}"
+               aria-label="Offset in milliseconds">
+        <button type="submit" class="quiet sm">Save</button>
+      </form>
+      {{with index $.SuggestedOffsets $t.TrackID}}<span class="hint" style="display:inline">suggested from the runtime difference</span>{{end}}
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
 {{end}}

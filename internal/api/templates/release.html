@@ -69,7 +69,7 @@
   {{range $t := .Siblings}}
   <tr>
     <td><span class="tag{{if $t.Generated}} auto{{end}}">{{$t.Lang}}</span>{{if $t.Generated}} <span class="hint" style="display:inline">machine-generated</span>{{end}}</td>
-    <td><a href="/release/{{$t.ReleaseID}}">release {{$t.ReleaseID}}</a>{{if $t.DeltaText}} <span class="meta" style="display:inline">{{$t.DeltaText}}</span>{{end}}</td>
+    <td><a href="/release/{{$t.ReleaseID}}">release {{$t.ReleaseID}}</a></td>
     <td>{{if $t.SyncKnown}}<span class="tag">{{$t.OffsetText}}</span>{{if $t.SourceText}} <span class="hint" style="display:inline">{{$t.SourceText}}</span>{{end}}{{else}}<span class="hint" style="display:inline">sync unknown</span>{{end}}</td>
     <td><a href="/api/v1/subtitles/{{$t.TrackID}}?format=srt&amp;for_release={{$.Release.ID}}">Download .srt</a></td>
     <td class="n">{{$t.Downloads}}</td>

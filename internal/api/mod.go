@@ -418,6 +418,17 @@ type modReleaseData struct {
 	Release  modReleaseView
 	StashIDs []store.ReleaseStashID
 	Error    string
+	// WorkID is 0 when this release is ungrouped.
+	WorkID int64
+	// WorkReleaseIDs is every release in the group, this one included.
+	WorkReleaseIDs []int64
+	// Siblings are the other encodes' tracks, each with its current sync
+	// against THIS release so a mod can correct it in place.
+	Siblings []siblingTrackView
+	// SuggestedOffsetMs is the runtime difference, pre-filled in the form
+	// as a starting point. It is right only when the extra footage is at
+	// the head, so the form labels it a suggestion.
+	SuggestedOffsets map[int64]int64
 }
 
 // handleModRelease implements GET /mod/release/{id} (WP-C7b, "minimal").
@@ -453,10 +464,35 @@ func (s *Server) renderModRelease(w http.ResponseWriter, r *http.Request, ares *
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	s.renderPage(w, withAuth(r, ares), status, "mod_release.html", modReleaseData{
+	data := modReleaseData{
 		Title: "Release #" + strconv.FormatInt(id, 10), Release: newModReleaseView(release),
 		StashIDs: byRelease[id], Error: formErr,
-	}, true)
+	}
+	if w0, werr := s.Store.WorkOf(r.Context(), id); werr == nil {
+		data.WorkID = w0.ID
+		if ids, ierr := s.Store.WorkReleaseIDs(r.Context(), w0.ID); ierr == nil {
+			data.WorkReleaseIDs = ids
+		}
+	} else if !errors.Is(werr, store.ErrNotFound) {
+		log.Printf("api: WorkOf (mod): %v", werr)
+	}
+	data.Siblings = s.siblingViews(r.Context(), id)
+	// Pre-fill each form with the runtime delta so a mod has a starting
+	// number rather than a blank box — labelled a suggestion, because it
+	// only holds when the extra footage sits at the head.
+	if len(data.Siblings) > 0 {
+		data.SuggestedOffsets = map[int64]int64{}
+		sib, serr := s.Store.SiblingTracks(r.Context(), id)
+		if serr != nil {
+			log.Printf("api: SiblingTracks (mod): %v", serr)
+		}
+		for _, t := range sib {
+			if t.DurationMs != nil && release.DurationMs > 0 {
+				data.SuggestedOffsets[t.TrackID] = release.DurationMs - *t.DurationMs
+			}
+		}
+	}
+	s.renderPage(w, withAuth(r, ares), status, "mod_release.html", data, true)
 }
 
 // handleModReleaseStashRemove implements POST /mod/release/{id}/stash/remove:
@@ -561,3 +597,142 @@ func (s *Server) handleModReleaseRestore(w http.ResponseWriter, r *http.Request)
 	}
 	http.Redirect(w, r, "/mod/release/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
 }
+
+// -- works and offsets (WP-W5) ---------------------------------------------
+
+// handleModReleaseLink implements POST /mod/release/{id}/work/link: assert
+// that this release and another are the same video in different encodes.
+//
+// A mod's assertion always wins over inference, because the inferred
+// signals cannot see everything a person can — the two files being
+// visibly the same scene, or visibly not.
+func (s *Server) handleModReleaseLink(w http.ResponseWriter, r *http.Request) {
+	ares, ok := s.requireWebRole(w, r, "mod")
+	if !ok {
+		return
+	}
+	if !checkOrigin(w, r) {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "could not read the submitted form", http.StatusBadRequest)
+		return
+	}
+	other, err := strconv.ParseInt(strings.TrimSpace(r.PostFormValue("other_id")), 10, 64)
+	if err != nil || other <= 0 {
+		s.renderModRelease(w, r, ares, id, http.StatusBadRequest, "other release id must be a positive number")
+		return
+	}
+	if other == id {
+		s.renderModRelease(w, r, ares, id, http.StatusBadRequest, "a release cannot be linked to itself")
+		return
+	}
+	if _, err := s.Store.LinkReleases(r.Context(), id, other); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			s.renderModRelease(w, r, ares, id, http.StatusBadRequest, "no release with that id")
+			return
+		}
+		log.Printf("api: LinkReleases: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("api: mod %q linked releases %d and %d", ares.Account.Name, id, other)
+	http.Redirect(w, r, "/mod/release/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+}
+
+// handleModReleaseUnlink implements POST /mod/release/{id}/work/unlink —
+// the remedy for a wrong grouping, which restores the previous state
+// exactly and is what makes an advisory guess cheap to make.
+func (s *Server) handleModReleaseUnlink(w http.ResponseWriter, r *http.Request) {
+	ares, ok := s.requireWebRole(w, r, "mod")
+	if !ok {
+		return
+	}
+	if !checkOrigin(w, r) {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := s.Store.UnlinkRelease(r.Context(), id); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		log.Printf("api: UnlinkRelease: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("api: mod %q ungrouped release %d", ares.Account.Name, id)
+	http.Redirect(w, r, "/mod/release/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+}
+
+// handleModReleaseOffset implements POST /mod/release/{id}/work/offset:
+// record (or clear) how far a sibling's track must shift to fit this
+// release. Entered by a person, so it is stored as OffsetManual — the one
+// source the interface presents as authoritative rather than a suggestion.
+func (s *Server) handleModReleaseOffset(w http.ResponseWriter, r *http.Request) {
+	ares, ok := s.requireWebRole(w, r, "mod")
+	if !ok {
+		return
+	}
+	if !checkOrigin(w, r) {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "could not read the submitted form", http.StatusBadRequest)
+		return
+	}
+	trackID, err := strconv.ParseInt(r.PostFormValue("track_id"), 10, 64)
+	if err != nil || trackID <= 0 {
+		s.renderModRelease(w, r, ares, id, http.StatusBadRequest, "track_id is required")
+		return
+	}
+	raw := strings.TrimSpace(r.PostFormValue("offset_ms"))
+	if raw == "" {
+		if err := s.Store.ClearOffset(r.Context(), trackID, id); err != nil {
+			log.Printf("api: ClearOffset: %v", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		log.Printf("api: mod %q cleared the offset for track %d against release %d", ares.Account.Name, trackID, id)
+		http.Redirect(w, r, "/mod/release/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+		return
+	}
+	ms, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		s.renderModRelease(w, r, ares, id, http.StatusBadRequest, "offset must be whole milliseconds, or empty to clear it")
+		return
+	}
+	// A correction beyond a few minutes is a different video, not a
+	// different cut, and is far more likely to be a typo than a real sync.
+	if ms > maxOffsetMs || ms < -maxOffsetMs {
+		s.renderModRelease(w, r, ares, id, http.StatusBadRequest,
+			"offset must be within ±10 minutes — a larger one means these are not the same video")
+		return
+	}
+	if err := s.Store.SetOffset(r.Context(), trackID, id, ms, store.OffsetManual); err != nil {
+		log.Printf("api: SetOffset: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("api: mod %q set track %d against release %d to %dms", ares.Account.Name, trackID, id, ms)
+	http.Redirect(w, r, "/mod/release/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+}
+
+// maxOffsetMs bounds a manually entered correction. Ten minutes is far
+// past any real re-cut and catches the obvious slip of typing seconds
+// where milliseconds were meant.
+const maxOffsetMs int64 = 10 * 60 * 1000

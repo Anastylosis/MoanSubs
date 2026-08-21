@@ -431,7 +431,6 @@ type siblingTrackView struct {
 	SyncKnown  bool
 	OffsetText string // e.g. "+3.08s", only meaningful when SyncKnown
 	SourceText string // manual / duration-delta / measured
-	DeltaText  string // this encode's runtime difference, e.g. "+3.08s longer"
 }
 
 // handleReleasePage implements GET /release/{id} (WP-C2): title/stem/
@@ -487,7 +486,7 @@ func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id in
 	}
 
 	data := releasePageData{Title: rendered.Title, Release: rendered, Error: formError}
-	data.Siblings = s.siblingViews(ctx, release.ID, release.DurationMs)
+	data.Siblings = s.siblingViews(ctx, release.ID)
 
 	// Check for authResult in context first (WP-R7) — a handler that
 	// authenticated may have stored it there to avoid a redundant session
@@ -714,7 +713,7 @@ func (s *Server) handleUploaderPage(w http.ResponseWriter, r *http.Request) {
 // siblingViews assembles the "also fits this video" list. Best-effort like
 // every other panel on this page: a failure here omits the section rather
 // than failing a release page that is otherwise fine.
-func (s *Server) siblingViews(ctx context.Context, releaseID, ownDurationMs int64) []siblingTrackView {
+func (s *Server) siblingViews(ctx context.Context, releaseID int64) []siblingTrackView {
 	sib, err := s.Store.SiblingTracks(ctx, releaseID)
 	if err != nil {
 		log.Printf("api: SiblingTracks(%d): %v", releaseID, err)
@@ -733,11 +732,9 @@ func (s *Server) siblingViews(ctx context.Context, releaseID, ownDurationMs int6
 				v.SourceText = *t.Source
 			}
 		}
-		if t.DurationMs != nil && ownDurationMs > 0 {
-			if d := *t.DurationMs - ownDurationMs; d != 0 {
-				v.DeltaText = signedSeconds(d)
-			}
-		}
+		// The sibling encode's own runtime is deliberately not shown next to
+		// the sync: the two point opposite ways (a shorter encode needs a
+		// later shift), and side by side they read as a contradiction.
 		out = append(out, v)
 	}
 	return out
