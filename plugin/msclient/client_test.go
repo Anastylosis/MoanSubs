@@ -190,6 +190,95 @@ func TestUpload_RequiresToken(t *testing.T) {
 	}
 }
 
+// TestUpload_TruncatesNameMetadataToServerCaps covers the orchestrator note
+// on WP-P3: a scene whose Stash-reported title, stem, studio or performer
+// list is longer than the server now accepts (API.md's MaxTitleLen etc.)
+// must be truncated client-side before the request goes out, not pushed
+// as-is and refused with a 400 the plugin has no good way to surface
+// mid-bulk-push. No real store or DB needed — this is entirely about what
+// Upload puts on the wire, caught with a plain httptest handler that
+// decodes and echoes back the JSON body it received.
+func TestUpload_TruncatesNameMetadataToServerCaps(t *testing.T) {
+	var gotBody []byte
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		gotBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"track_id":1,"release_id":1,"generated":false}`))
+	}))
+	defer ts.Close()
+
+	c := New(ts.URL, "test-token")
+
+	performers := make([]string, maxUploadPerformers+5)
+	for i := range performers {
+		performers[i] = strings.Repeat("p", maxUploadPerformerLen+10)
+	}
+	req := UploadRequest{
+		OSHash:     "00000000deadbeef",
+		DurationMs: 60_000,
+		Lang:       "en",
+		Body:       "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+		Title:      strings.Repeat("t", maxUploadTitleLen+10),
+		Stem:       strings.Repeat("s", maxUploadStemLen+10),
+		Studio:     strings.Repeat("u", maxUploadStudioLen+10),
+		Performers: performers,
+	}
+	// The caller's own slice must not be mutated by Upload — only the sent
+	// wire form is capped.
+	wantOriginalPerformerCount := len(req.Performers)
+
+	if _, err := c.Upload(context.Background(), req); err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+	if len(req.Performers) != wantOriginalPerformerCount {
+		t.Errorf("caller's req.Performers was mutated: len = %d, want %d", len(req.Performers), wantOriginalPerformerCount)
+	}
+
+	var sent UploadRequest
+	if err := json.Unmarshal(gotBody, &sent); err != nil {
+		t.Fatalf("decoding what the server received: %v", err)
+	}
+	if got := len([]rune(sent.Title)); got != maxUploadTitleLen {
+		t.Errorf("sent Title len = %d runes, want %d", got, maxUploadTitleLen)
+	}
+	if got := len([]rune(sent.Stem)); got != maxUploadStemLen {
+		t.Errorf("sent Stem len = %d runes, want %d", got, maxUploadStemLen)
+	}
+	if got := len([]rune(sent.Studio)); got != maxUploadStudioLen {
+		t.Errorf("sent Studio len = %d runes, want %d", got, maxUploadStudioLen)
+	}
+	if len(sent.Performers) != maxUploadPerformers {
+		t.Fatalf("sent Performers count = %d, want %d", len(sent.Performers), maxUploadPerformers)
+	}
+	for i, p := range sent.Performers {
+		if got := len([]rune(p)); got != maxUploadPerformerLen {
+			t.Errorf("sent Performers[%d] len = %d runes, want %d", i, got, maxUploadPerformerLen)
+		}
+	}
+}
+
+// TestTruncateRunes covers the rune-safety truncateRunes exists for: a
+// multi-byte character must never be split mid-codepoint, and a string
+// already within the cap is returned unchanged.
+func TestTruncateRunes(t *testing.T) {
+	if got := truncateRunes("hello", 10); got != "hello" {
+		t.Errorf("truncateRunes(short string) = %q, want unchanged", got)
+	}
+	// Three 2-byte runes; capping at 2 runes must keep both whole, not cut
+	// a UTF-8 continuation byte off the second one.
+	if got := truncateRunes("héllo", 2); got != "hé" {
+		t.Errorf("truncateRunes(multi-byte, 2) = %q, want %q", got, "hé")
+	}
+	if got := truncateRunes("", 5); got != "" {
+		t.Errorf("truncateRunes(empty) = %q, want empty", got)
+	}
+}
+
 func TestGetTrack_RoundTrip(t *testing.T) {
 	c, s := newTestServer(t)
 	ctx := context.Background()

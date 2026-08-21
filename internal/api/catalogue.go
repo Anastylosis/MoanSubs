@@ -326,6 +326,15 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	lang := r.URL.Query().Get("lang")
 
+	// WP-P3: truncate rather than reject — a person pasting a whole
+	// filename (or a lot more) should still search on what fits, not get a
+	// 400 — since /search otherwise has no bound but SearchLimiter and
+	// store.CatalogueSearchCap's row cap. Runes, not bytes, so a
+	// multi-byte character is never split mid-codepoint.
+	if qRunes := []rune(q); len(qRunes) > MaxSearchQueryLen {
+		q = string(qRunes[:MaxSearchQueryLen])
+	}
+
 	if q == "" {
 		// Empty query: show the bare form. No DB hit and no rate-limit
 		// spend for a page load that hasn't asked for anything yet.
@@ -342,12 +351,21 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	// Same tokenizer/retrieval shape as POST /api/v1/match's handleMatch:
 	// subs.Tokens/subs.Codes over the query text, && overlap against the
-	// GIN-indexed name_tokens/name_codes columns (migration 0003).
+	// GIN-indexed name_tokens/name_codes columns (migration 0003). Each list
+	// is capped at MaxSearchQueryTokens (WP-P3): q is already bounded above,
+	// so this is a second, cheap guard rather than the thing doing the real
+	// work of keeping the overlap query small.
 	var tokens, codes []string
 	for t := range subs.Tokens(q) {
+		if len(tokens) >= MaxSearchQueryTokens {
+			break
+		}
 		tokens = append(tokens, t)
 	}
 	for c := range subs.Codes(q) {
+		if len(codes) >= MaxSearchQueryTokens {
+			break
+		}
 		codes = append(codes, c)
 	}
 

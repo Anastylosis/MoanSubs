@@ -395,6 +395,33 @@ func (c *Client) Version(ctx context.Context) (*ServerVersion, error) {
 	return &v, nil
 }
 
+// Server-side caps on an upload's optional scene name metadata (API.md
+// WP-P3, mirrored from internal/api's MaxTitleLen/MaxStemLen/MaxStudioLen/
+// MaxPerformers/MaxPerformerLen — not imported directly, since the plugin
+// binary deliberately doesn't link the server's HTTP/store packages).
+// Upload truncates to these before sending, so a long Stash title, stem,
+// studio or performer name is silently shortened client-side rather than
+// pushed as-is and refused with a 400 mid-bulk-push, where there is no good
+// way to surface it to whoever kicked off the task.
+const (
+	maxUploadTitleLen     = 300
+	maxUploadStemLen      = 255
+	maxUploadStudioLen    = 200
+	maxUploadPerformers   = 50
+	maxUploadPerformerLen = 100
+)
+
+// truncateRunes cuts s to at most n runes, left unchanged when it already
+// fits — rune-safe so a multi-byte character is never split mid-codepoint,
+// same measure the server's own caps use.
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
+}
+
 // UploadRequest is one subtitle upload (POST /api/v1/subtitles).
 type UploadRequest struct {
 	OSHash     string `json:"oshash"`
@@ -437,6 +464,28 @@ func (c *Client) Upload(ctx context.Context, req UploadRequest) (*UploadResult, 
 	if c.Token == "" {
 		return nil, fmt.Errorf("msclient: no upload token configured — create an account on the server and paste its token into the plugin settings")
 	}
+
+	// Cap name metadata to the server's own limits (WP-P3) before it ever
+	// reaches the wire — see the const block above for why this duplicates
+	// rather than imports the server's constants.
+	req.Title = truncateRunes(req.Title, maxUploadTitleLen)
+	req.Stem = truncateRunes(req.Stem, maxUploadStemLen)
+	req.Studio = truncateRunes(req.Studio, maxUploadStudioLen)
+	if len(req.Performers) > 0 {
+		// A fresh slice rather than truncating/overwriting req.Performers in
+		// place — the caller's own slice (e.g. scene.PerformerNames()) is
+		// not this function's to mutate.
+		performers := req.Performers
+		if len(performers) > maxUploadPerformers {
+			performers = performers[:maxUploadPerformers]
+		}
+		capped := make([]string, len(performers))
+		for i, p := range performers {
+			capped[i] = truncateRunes(p, maxUploadPerformerLen)
+		}
+		req.Performers = capped
+	}
+
 	b, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("msclient: marshalling upload: %w", err)

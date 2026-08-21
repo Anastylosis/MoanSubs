@@ -394,6 +394,20 @@ release that already has some, so two uploaders' descriptions of the same
 file can't blend into an inconsistent record. Omit a field entirely if
 Stash didn't report it — an empty string is a value, not "absent".
 
+Each is capped (WP-P3), measured in runes after trimming surrounding
+whitespace, and none may contain a control character: `title`
+(`internal/api.MaxTitleLen`, 300), `stem` (`MaxStemLen`, 255), `studio`
+(`MaxStudioLen`, 200), and each `performers` entry (`MaxPerformerLen`, 100)
+up to `MaxPerformers` (50) entries. An empty performer entry (after
+trimming) is dropped rather than counted against the cap or rejected — a
+`performers` list a client didn't bother to filter blanks out of still
+uploads cleanly. Exceeding any cap, or a control character (including a
+bare NUL byte) in any of these fields, refuses the whole upload with `400`
+naming the field — these are bare `text` columns with no limit of their
+own otherwise, and this metadata is what gets tokenized, rendered on
+`/browse` and `/release/{id}`, and shown in every Stash panel that matches
+the release.
+
 `stash_ids` (migration 0011, WP-C9a) is optional, at most 5 entries.
 `endpoint` is normalized (trimmed, scheme and host lowercased, path kept as
 given) before storage; `stash_id` is validated as a 36-character UUID shape

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Anastylosis/MoanSubs/internal/store"
 )
@@ -154,6 +155,32 @@ func TestSearch_RateLimitExceeded(t *testing.T) {
 	}
 	if !strings.Contains(body, "too many") {
 		t.Errorf("429 page does not explain itself: %s", body)
+	}
+}
+
+// TestSearch_LongQueryIsTruncatedNotRejected covers WP-P3: a 10 KiB q must
+// not 400 or hang the request — it's silently truncated to
+// MaxSearchQueryLen runes before tokenizing, so a person pasting a whole
+// filename (or a full paragraph by mistake) still gets an ordinary,
+// prompt 200.
+func TestSearch_LongQueryIsTruncatedNotRejected(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+
+	q := strings.Repeat("a", 10*1024)
+	start := time.Now()
+	resp, body := getPage(t, ts.URL+"/search?q="+q)
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("search took %v, want quickly (q should be capped before tokenizing)", elapsed)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /search with a 10 KiB q = %d, want 200", resp.StatusCode)
+	}
+	// The echoed query box (value="...") reflects what was actually
+	// searched on — capped, not the full 10 KiB submitted, so no run of
+	// more than MaxSearchQueryLen consecutive a's should appear anywhere on
+	// the page.
+	if strings.Contains(body, strings.Repeat("a", MaxSearchQueryLen+1)) {
+		t.Errorf("search page shows an uncapped query longer than %d runes", MaxSearchQueryLen)
 	}
 }
 

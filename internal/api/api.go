@@ -40,6 +40,44 @@ const RegisterRateLimitPerHour = 5
 // rather than an indexed lookup by prefix or id.
 const SearchRateLimitPerMinute = 30
 
+// MaxTitleLen, MaxStemLen and MaxStudioLen cap an upload's optional scene
+// name metadata (WP-P3, API.md "POST /api/v1/subtitles"), measured in runes
+// after strings.TrimSpace. These are bare `text` columns (migration 0003)
+// with no limit of their own besides the upload's overall body-size cap —
+// this metadata is tokenized into name_tokens, rendered on /browse and
+// /release/{id}, and injected into every Stash panel that matches the
+// release, so an unbounded value was both a storage and a rendering-cost
+// footgun, not merely a cosmetic one.
+const (
+	MaxTitleLen  = 300
+	MaxStemLen   = 255
+	MaxStudioLen = 200
+)
+
+// MaxPerformers caps how many performer names one upload's performers list
+// may carry; MaxPerformerLen caps each individual name, same rune-after-trim
+// measure as MaxTitleLen above. An empty entry (after trimming) is dropped
+// rather than counted against either cap or rejected outright — Stash's own
+// performer list can itself carry blank entries the plugin doesn't filter.
+const (
+	MaxPerformers   = 50
+	MaxPerformerLen = 100
+)
+
+// MaxSearchQueryLen and MaxSearchQueryTokens cap GET /search's q (WP-P3):
+// truncated silently rather than rejected with 400 — a person pasting a
+// long filename should still get a search on what fits, not an error —
+// since /search otherwise has no bound but SearchRateLimitPerMinute and
+// store.CatalogueSearchCap's row cap. MaxSearchQueryLen is measured in
+// runes (never splitting a multi-byte character); MaxSearchQueryTokens
+// caps the word/code lists built from the (already capped) query, a second,
+// cheap guard against an unusually token-dense query widening the overlap
+// query more than necessary.
+const (
+	MaxSearchQueryLen    = 200
+	MaxSearchQueryTokens = 16
+)
+
 // VoteRateLimitPerHour is the per-account budget for PUT/DELETE
 // /api/v1/subtitles/{id}/vote (WP-C3 spec): generous enough for a real
 // person triaging their own downloads in one sitting, tight enough that a

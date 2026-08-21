@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Anastylosis/MoanSubs/internal/hash"
 	"github.com/Anastylosis/MoanSubs/internal/provenance"
@@ -115,6 +116,88 @@ func parseUploadStashIDs(ids []stashIDInput, allowedEndpoints []string) ([]store
 		})
 	}
 	return out, nil
+}
+
+// validateNameField trims raw, rejects a control character (hasControlChar,
+// votes.go), and caps its rune length at maxRunes — WP-P3's shared shape for
+// title/stem/studio: bare `text` columns (migration 0003) had no limit of
+// their own besides the upload's overall body-size cap, so an oversized or
+// NUL-bearing value reached Postgres — and name_tokens, and every rendered
+// catalogue page — unchecked. Returns nil for an empty (post-trim) field,
+// same "not sent" convention as optString.
+func validateNameField(field, raw string, maxRunes int) (*string, *apiError) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	if hasControlChar(trimmed) {
+		return nil, &apiError{http.StatusBadRequest, field + ": control characters are not allowed"}
+	}
+	if utf8.RuneCountInString(trimmed) > maxRunes {
+		return nil, &apiError{http.StatusBadRequest, fmt.Sprintf("%s: at most %d characters", field, maxRunes)}
+	}
+	return &trimmed, nil
+}
+
+// validatePerformers trims each entry, drops an empty one silently (WP-P3
+// spec: "an empty performer entry is dropped, not an error" — Stash's own
+// performer list can itself carry blank entries the plugin doesn't filter),
+// and rejects a control character or an over-length name in any surviving
+// entry, then caps the count at MaxPerformers.
+func validatePerformers(performers []string) ([]string, *apiError) {
+	out := make([]string, 0, len(performers))
+	for _, p := range performers {
+		trimmed := strings.TrimSpace(p)
+		if trimmed == "" {
+			continue
+		}
+		if hasControlChar(trimmed) {
+			return nil, &apiError{http.StatusBadRequest, "performers: control characters are not allowed"}
+		}
+		if utf8.RuneCountInString(trimmed) > MaxPerformerLen {
+			return nil, &apiError{http.StatusBadRequest,
+				fmt.Sprintf("performers: each name at most %d characters", MaxPerformerLen)}
+		}
+		out = append(out, trimmed)
+	}
+	if len(out) > MaxPerformers {
+		return nil, &apiError{http.StatusBadRequest, fmt.Sprintf("performers: at most %d entries", MaxPerformers)}
+	}
+	return out, nil
+}
+
+// releaseNameMetadata is ingest's validated form of an upload's optional
+// scene name fields (WP-P3) — factored out, like parseUploadStashIDs, so
+// ingest's own branching stays flat rather than growing a check per field.
+type releaseNameMetadata struct {
+	Title      *string
+	Stem       *string
+	Studio     *string
+	Performers []string
+}
+
+// validateReleaseNameMetadata runs title/stem/studio/performers through
+// their respective caps (WP-P3 spec constants above). req.Date is validated
+// separately by ingest's own datePattern check, not here — a value that
+// matches `YYYY-MM-DD` can never carry a control character or run long.
+func validateReleaseNameMetadata(req uploadRequest) (releaseNameMetadata, *apiError) {
+	title, aerr := validateNameField("title", req.Title, MaxTitleLen)
+	if aerr != nil {
+		return releaseNameMetadata{}, aerr
+	}
+	stem, aerr := validateNameField("stem", req.Stem, MaxStemLen)
+	if aerr != nil {
+		return releaseNameMetadata{}, aerr
+	}
+	studio, aerr := validateNameField("studio", req.Studio, MaxStudioLen)
+	if aerr != nil {
+		return releaseNameMetadata{}, aerr
+	}
+	performers, aerr := validatePerformers(req.Performers)
+	if aerr != nil {
+		return releaseNameMetadata{}, aerr
+	}
+	return releaseNameMetadata{Title: title, Stem: stem, Studio: studio, Performers: performers}, nil
 }
 
 // authenticateStateChange is the shared auth step for every state-changing
@@ -276,6 +359,13 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	if req.Date != "" && !datePattern.MatchString(req.Date) {
 		return nil, &apiError{http.StatusBadRequest, "date: want YYYY-MM-DD"}
 	}
+	// WP-P3: title/stem/studio/performers are validated and capped before
+	// GetOrCreateRelease ever sees them — see validateReleaseNameMetadata's
+	// doc comment for why these bare `text` columns needed a limit at all.
+	nameMeta, aerr := validateReleaseNameMetadata(req)
+	if aerr != nil {
+		return nil, aerr
+	}
 	stashIDs, aerr := parseUploadStashIDs(req.StashIDs, s.StashEndpoints)
 	if aerr != nil {
 		return nil, aerr
@@ -286,13 +376,13 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 		PHash:      phash,
 		MD5:        md5,
 		DurationMs: req.DurationMs,
-		Title:      optString(req.Title),
-		Stem:       optString(req.Stem),
+		Title:      nameMeta.Title,
+		Stem:       nameMeta.Stem,
 		// The scorer compares dates as strings (subDate's YYYY-MM-DD shape),
 		// so that's the stored form too.
 		ReleaseDate: optString(req.Date),
-		Studio:      optString(req.Studio),
-		Performers:  req.Performers,
+		Studio:      nameMeta.Studio,
+		Performers:  nameMeta.Performers,
 	})
 	if err != nil {
 		log.Printf("api: GetOrCreateRelease: %v", err)

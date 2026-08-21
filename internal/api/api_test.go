@@ -419,6 +419,139 @@ func TestUpload_RejectsOversizedBody(t *testing.T) {
 	}
 }
 
+// -- name metadata caps (WP-P3) --------------------------------------------
+
+// TestUpload_NameFieldCaps_Boundary covers title/stem/studio: exactly the
+// cap is accepted, one rune over is a 400 naming the field. strings.Repeat
+// on a plain ASCII letter keeps rune count and byte count equal, so len()
+// doubles as the rune count here.
+func TestUpload_NameFieldCaps_Boundary(t *testing.T) {
+	for _, tc := range []struct {
+		field string
+		max   int
+	}{
+		{"title", MaxTitleLen},
+		{"stem", MaxStemLen},
+		{"studio", MaxStudioLen},
+	} {
+		t.Run(tc.field, func(t *testing.T) {
+			ts, _, token := newTestServer(t)
+
+			ok := doUpload(t, ts, token, map[string]any{
+				"oshash": "aa00000000000001", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+				tc.field: strings.Repeat("a", tc.max),
+			})
+			if ok.StatusCode != http.StatusCreated {
+				t.Errorf("%s at exactly %d chars: status = %d, want 201", tc.field, tc.max, ok.StatusCode)
+			}
+
+			over := doUpload(t, ts, token, map[string]any{
+				"oshash": "aa00000000000002", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+				tc.field: strings.Repeat("a", tc.max+1),
+			})
+			if over.StatusCode != http.StatusBadRequest {
+				t.Errorf("%s at %d chars (one over): status = %d, want 400", tc.field, tc.max+1, over.StatusCode)
+			}
+		})
+	}
+}
+
+// TestUpload_Performers_CountCap covers MaxPerformers: exactly the cap of
+// non-empty names is accepted, one more is a 400 — after empty entries are
+// already dropped, per the WP-P3 spec's "an empty performer entry is
+// dropped, not an error".
+func TestUpload_Performers_CountCap(t *testing.T) {
+	ts, st, token := newTestServer(t)
+
+	atCap := make([]string, MaxPerformers)
+	for i := range atCap {
+		atCap[i] = fmt.Sprintf("Performer %d", i)
+	}
+	ok := doUpload(t, ts, token, map[string]any{
+		"oshash": "aa00000000000003", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"performers": atCap,
+	})
+	if ok.StatusCode != http.StatusCreated {
+		t.Fatalf("performers at exactly %d entries: status = %d, want 201", MaxPerformers, ok.StatusCode)
+	}
+	created := decodeJSON[uploadResponse](t, ok)
+	release, err := st.GetReleaseByID(context.Background(), created.ReleaseID)
+	if err != nil {
+		t.Fatalf("GetReleaseByID: %v", err)
+	}
+	if len(release.Performers) != MaxPerformers {
+		t.Errorf("stored performers = %d, want %d", len(release.Performers), MaxPerformers)
+	}
+
+	overCap := append(append([]string(nil), atCap...), "One Too Many")
+	over := doUpload(t, ts, token, map[string]any{
+		"oshash": "aa00000000000004", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"performers": overCap,
+	})
+	if over.StatusCode != http.StatusBadRequest {
+		t.Errorf("performers at %d entries (one over): status = %d, want 400", MaxPerformers+1, over.StatusCode)
+	}
+}
+
+// TestUpload_Performers_EmptyEntryDropped covers the spec's explicit
+// exception: an empty (post-trim) performer entry is dropped silently, not
+// an error, and not counted toward MaxPerformers.
+func TestUpload_Performers_EmptyEntryDropped(t *testing.T) {
+	ts, st, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "aa00000000000005", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"performers": []string{"Real Performer", "  ", ""},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201 (empty entries dropped, not rejected)", resp.StatusCode)
+	}
+	created := decodeJSON[uploadResponse](t, resp)
+	release, err := st.GetReleaseByID(context.Background(), created.ReleaseID)
+	if err != nil {
+		t.Fatalf("GetReleaseByID: %v", err)
+	}
+	if len(release.Performers) != 1 || release.Performers[0] != "Real Performer" {
+		t.Errorf("stored performers = %v, want [\"Real Performer\"]", release.Performers)
+	}
+}
+
+// TestUpload_Performers_NameLenCap covers MaxPerformerLen: exactly the cap
+// is accepted, one rune over is a 400.
+func TestUpload_Performers_NameLenCap(t *testing.T) {
+	ts, _, token := newTestServer(t)
+
+	ok := doUpload(t, ts, token, map[string]any{
+		"oshash": "aa00000000000006", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"performers": []string{strings.Repeat("a", MaxPerformerLen)},
+	})
+	if ok.StatusCode != http.StatusCreated {
+		t.Errorf("performer name at exactly %d chars: status = %d, want 201", MaxPerformerLen, ok.StatusCode)
+	}
+
+	over := doUpload(t, ts, token, map[string]any{
+		"oshash": "aa00000000000007", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"performers": []string{strings.Repeat("a", MaxPerformerLen+1)},
+	})
+	if over.StatusCode != http.StatusBadRequest {
+		t.Errorf("performer name at %d chars (one over): status = %d, want 400", MaxPerformerLen+1, over.StatusCode)
+	}
+}
+
+// TestUpload_NameField_NULByte covers the finding this WP fixes: a NUL byte
+// in title (or stem/studio/a performer) must 400, not reach Postgres and
+// 500 — hasControlChar (shared with validateVoteNote) rejects any rune <
+// 0x20, NUL included.
+func TestUpload_NameField_NULByte(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "aa00000000000008", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"title": "bad\x00title",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 (NUL byte in title)", resp.StatusCode)
+	}
+}
+
 // -- rate limiting ----------------------------------------------------
 
 func TestUpload_RateLimitExceeded(t *testing.T) {

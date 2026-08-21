@@ -91,7 +91,10 @@ exactly like the API does, and says it stays visible on `/me` after that;
 on an invite-only node the invite field comes first, prefilled from
 `?invite=CODE` when the link came from another member's `/me`), `/browse`
 and `/search` (the subtitle catalogue,
-keyset-paginated and optionally filtered by `lang`), `/release/{id}` (one
+keyset-paginated and optionally filtered by `lang`; `/search`'s `q` is
+capped at `MaxSearchQueryLen` (200 runes) and at most `MaxSearchQueryTokens`
+(16) tokens/codes — silently truncated, not rejected, so a person pasting a
+whole filename still gets a search on what fits rather than a 400), `/release/{id}` (one
 release's tracks, each linking to its `format=srt` download — a logged-in
 visitor also gets up/down-vote forms per track, `POST /release/{id}/vote`,
 the same validation and rules as the API's `PUT`/`DELETE

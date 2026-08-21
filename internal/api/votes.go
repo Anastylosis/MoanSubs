@@ -53,6 +53,22 @@ type voteResponse struct {
 	Mine *myVoteView `json:"mine"`
 }
 
+// hasControlChar reports whether s contains any control character (rune <
+// 0x20) — factored out of validateVoteNote so upload metadata caps
+// (subtitles.go, WP-P3: title/stem/studio/performers) reject the same class
+// of input rather than duplicating the loop. A NUL byte is the case that
+// matters most in practice: unlike a bare `text` column, which stores it
+// happily, Postgres's client protocol rejects it outright, so letting one
+// through here would surface as a 500, not a 400.
+func hasControlChar(s string) bool {
+	for _, r := range s {
+		if r < 0x20 {
+			return true
+		}
+	}
+	return false
+}
+
 // validateVoteNote trims raw and rejects any control character (rune <
 // 0x20) — WP-C3 spec: "note plain text ... reject any rune < 0x20 except
 // none (no newlines — the note is one line)" — and enforces the same
@@ -64,10 +80,8 @@ func validateVoteNote(raw string) (*string, error) {
 	if trimmed == "" {
 		return nil, nil
 	}
-	for _, r := range trimmed {
-		if r < 0x20 {
-			return nil, errors.New("note: control characters are not allowed")
-		}
+	if hasControlChar(trimmed) {
+		return nil, errors.New("note: control characters are not allowed")
 	}
 	if utf8.RuneCountInString(trimmed) > maxVoteNoteRunes {
 		return nil, fmt.Errorf("note: at most %d characters", maxVoteNoteRunes)
