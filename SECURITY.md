@@ -178,7 +178,10 @@ cookie happens to expire on its own. `moansubs account enable` does not
 recreate anything — a re-enabled account logs in fresh.
 
 **Anonymous surface.** Lookups and downloads need no auth and are
-rate-limited per IP. Bucketed lookups are designed so clients don't send
+rate-limited per IP — an IPv6 caller is keyed by its `/64` rather than its
+full address, since a residential ISP hands out a whole `/64` per
+customer and a full-address key would let one customer rotate through
+unlimited buckets. Bucketed lookups are designed so clients don't send
 full fingerprints by default — but see API.md for an honest statement of
 what a malicious *server operator* can still learn; pick nodes you trust.
 

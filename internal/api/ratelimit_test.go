@@ -37,9 +37,10 @@ func TestClientIP_UnsetIgnoresXFF(t *testing.T) {
 }
 
 // RemoteAddr inside a configured trusted proxy CIDR: the request actually
-// transited that proxy, so its X-Forwarded-For is believed — the LAST
-// entry, which is what the proxy appended; the earlier one here is a
-// client-supplied forgery and must lose.
+// transited that proxy, so its X-Forwarded-For is believed. With a single
+// trusted hop the rightmost entry is the client — the walk finds it
+// untrusted immediately; the earlier entry is a client-supplied forgery
+// and must lose.
 func TestClientIP_TrustedProxyUsesLastXForwardedFor(t *testing.T) {
 	s := &Server{TrustedProxyCIDRs: []*net.IPNet{mustCIDR(t, "10.0.0.0/24")}}
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -47,6 +48,43 @@ func TestClientIP_TrustedProxyUsesLastXForwardedFor(t *testing.T) {
 	r.Header.Set("X-Forwarded-For", "198.51.100.7, 203.0.113.5")
 	if got := s.clientIP(r); got != "203.0.113.5" {
 		t.Errorf("clientIP = %q, want 203.0.113.5 (last XFF entry from a trusted proxy)", got)
+	}
+}
+
+// A CDN in front of the reference proxy is a second trusted hop: the CDN's
+// own published range is listed alongside the proxy's. The walk skips the
+// CDN's entry (trusted) and returns the client entry behind it, rather
+// than mistaking the CDN edge for the client the way a last-entry-only
+// read would.
+func TestClientIP_TwoTrustedHopsSkipsCDNEntry(t *testing.T) {
+	s := &Server{TrustedProxyCIDRs: []*net.IPNet{
+		mustCIDR(t, "10.0.0.0/24"),     // the reference Caddy
+		mustCIDR(t, "198.51.100.0/24"), // the CDN's published range
+	}}
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "10.0.0.1:1234"
+	r.Header.Set("X-Forwarded-For", "203.0.113.5, 198.51.100.9")
+	if got := s.clientIP(r); got != "203.0.113.5" {
+		t.Errorf("clientIP = %q, want 203.0.113.5 (CDN entry skipped, real client behind it)", got)
+	}
+}
+
+// Every entry in the chain resolves to a trusted proxy (no client entry
+// survives, e.g. a health-checker probing through the whole chain): the
+// walk exhausts the header without finding an untrusted entry, so it
+// falls back to the last (rightmost) entry that parsed, rather than
+// dropping to RemoteAddr when there was still a usable address on the
+// header.
+func TestClientIP_AllTrustedChainFallsBackToLastParseable(t *testing.T) {
+	s := &Server{TrustedProxyCIDRs: []*net.IPNet{
+		mustCIDR(t, "10.0.0.0/24"),
+		mustCIDR(t, "198.51.100.0/24"),
+	}}
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "10.0.0.1:1234"
+	r.Header.Set("X-Forwarded-For", "198.51.100.7, 198.51.100.8")
+	if got := s.clientIP(r); got != "198.51.100.8" {
+		t.Errorf("clientIP = %q, want 198.51.100.8 (every entry trusted, fall back to the last parseable one)", got)
 	}
 }
 
@@ -80,14 +118,98 @@ func TestClientIP_RemoteAddrWithoutPort(t *testing.T) {
 	}
 }
 
-// A blank last X-Forwarded-For entry (e.g. a stray trailing comma) must not
-// produce an empty rate-limit key; clientIP falls back to RemoteAddr.
-func TestClientIP_BlankLastXFFEntryFallsBack(t *testing.T) {
+// A blank last X-Forwarded-For entry (a stray trailing comma) sits where
+// the client's address should be; the walk must not step past it into
+// entries the client wrote, so it falls back to the trusted peer.
+func TestClientIP_BlankLastXFFEntryFallsBackToRemoteAddr(t *testing.T) {
 	s := &Server{TrustedProxyCIDRs: []*net.IPNet{mustCIDR(t, "10.0.0.0/24")}}
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "10.0.0.1:1234"
-	r.Header.Set("X-Forwarded-For", "10.0.0.2,  ")
+	r.Header.Set("X-Forwarded-For", "203.0.113.2,  ")
 	if got := s.clientIP(r); got != "10.0.0.1" {
-		t.Errorf("clientIP = %q, want fallback to RemoteAddr when last XFF entry is blank", got)
+		t.Errorf("clientIP = %q, want 10.0.0.1 (blank entry ends the walk)", got)
+	}
+}
+
+// A garbage (non-IP) entry at the untrusted position likewise ends the
+// walk: the address to its left is client-supplied and must not be used.
+func TestClientIP_GarbageEntryFallsBackToRemoteAddr(t *testing.T) {
+	s := &Server{TrustedProxyCIDRs: []*net.IPNet{mustCIDR(t, "10.0.0.0/24")}}
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "10.0.0.1:1234"
+	r.Header.Set("X-Forwarded-For", "203.0.113.5, not-an-ip")
+	if got := s.clientIP(r); got != "10.0.0.1" {
+		t.Errorf("clientIP = %q, want 10.0.0.1 (garbage entry ends the walk)", got)
+	}
+}
+
+// Nothing on the header parses as an IP at all: the walk must never return
+// an unparseable string as a rate-limit key, so it falls all the way back
+// to RemoteAddr.
+func TestClientIP_AllUnparseableFallsBackToRemoteAddr(t *testing.T) {
+	s := &Server{TrustedProxyCIDRs: []*net.IPNet{mustCIDR(t, "10.0.0.0/24")}}
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "10.0.0.1:1234"
+	r.Header.Set("X-Forwarded-For", "foo, bar")
+	if got := s.clientIP(r); got != "10.0.0.1" {
+		t.Errorf("clientIP = %q, want 10.0.0.1 (no XFF entry parses, fall back to RemoteAddr)", got)
+	}
+}
+
+// limiterKey passes an IPv4 address through unchanged — there's no
+// per-customer subnet convention on IPv4 here to collapse it into.
+func TestLimiterKey_IPv4Unchanged(t *testing.T) {
+	if got := limiterKey("203.0.113.5"); got != "203.0.113.5" {
+		t.Errorf("limiterKey = %q, want 203.0.113.5 unchanged", got)
+	}
+}
+
+// limiterKey passes a value that never parsed as an IP (clientIP's
+// last-resort RemoteAddr fallback for a malformed peer address) through
+// unchanged: there's no subnet to collapse a non-IP string into.
+func TestLimiterKey_UnparseableUnchanged(t *testing.T) {
+	if got := limiterKey("not-a-host-port"); got != "not-a-host-port" {
+		t.Errorf("limiterKey = %q, want unchanged when the input isn't an IP", got)
+	}
+}
+
+// Two addresses in the same IPv6 /64 collapse to the same limiter key —
+// and so, end to end, share the same rate-limit bucket: a residential ISP
+// hands one customer a whole /64 and rotates the low bits, so keying on
+// the full address would let that one customer cycle through unlimited
+// buckets.
+func TestLimiterKey_SameSlash64SharesBucket(t *testing.T) {
+	const ip1 = "2001:db8:1234:5678::1"
+	const ip2 = "2001:db8:1234:5678:ffff:ffff:ffff:ffff"
+	if limiterKey(ip1) != limiterKey(ip2) {
+		t.Fatalf("limiterKey(%q) = %q, limiterKey(%q) = %q, want equal (same /64)",
+			ip1, limiterKey(ip1), ip2, limiterKey(ip2))
+	}
+
+	l := NewRateLimiter(1)
+	if !l.Allow(limiterKey(ip1)) {
+		t.Fatal("first Allow in a fresh bucket should succeed")
+	}
+	if l.Allow(limiterKey(ip2)) {
+		t.Error("second address in the same /64 should share the exhausted bucket")
+	}
+}
+
+// Two addresses in different /64s get distinct limiter keys and separate
+// buckets.
+func TestLimiterKey_DifferentSlash64SeparateBuckets(t *testing.T) {
+	const ip1 = "2001:db8:1234:5678::1"
+	const ip2 = "2001:db8:1234:9999::1"
+	if limiterKey(ip1) == limiterKey(ip2) {
+		t.Fatalf("limiterKey(%q) and limiterKey(%q) both = %q, want distinct (different /64s)",
+			ip1, ip2, limiterKey(ip1))
+	}
+
+	l := NewRateLimiter(1)
+	if !l.Allow(limiterKey(ip1)) {
+		t.Fatal("first Allow in a fresh bucket should succeed")
+	}
+	if !l.Allow(limiterKey(ip2)) {
+		t.Error("address in a different /64 should get its own, unexhausted bucket")
 	}
 }

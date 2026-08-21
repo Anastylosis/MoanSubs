@@ -23,7 +23,7 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_REGISTER_RATE_PER_HOUR` | `5` | Registration budget per IP. A person needs one account; anything much above this from a single address is name-minting, not signing up. On an invite-only node this budget also covers invite-code guessing — every attempt, right code or wrong, spends one of it. |
 | `MOANSUBS_LOGIN_RATE_PER_HOUR` | `20` | Login budget per IP, same shape as `MOANSUBS_REGISTER_RATE_PER_HOUR` — the abuse case is a stranger guessing passwords against `POST /login`. |
 | `MOANSUBS_SESSION_TTL` | `720h` | How long a browser session (the `moansubs_session` cookie from `POST /login`) stays valid, parsed with Go's `time.ParseDuration`. |
-| `MOANSUBS_TRUSTED_PROXY_CIDRS` | *(unset)* | Comma-separated CIDRs (e.g. `172.28.0.0/24,10.0.0.0/8`). The rate limiters' `X-Forwarded-For` handling only trusts the header when the request's direct peer address falls inside one of these — see "Reverse proxies" below. It also gates whether `X-Forwarded-Proto: https` is believed for the session cookie's `Secure` flag. Unset means none are trusted. |
+| `MOANSUBS_TRUSTED_PROXY_CIDRS` | *(unset)* | Comma-separated CIDRs (e.g. `172.28.0.0/24,10.0.0.0/8`) — list **every** hop's range, not just the one directly in front of this node: if a CDN sits in front of the reference Caddy, its published ranges belong here too, alongside Caddy's own address or subnet. The rate limiters' `X-Forwarded-For` handling only trusts the header when the request's direct peer address falls inside one of these — see "Reverse proxies" below. It also gates whether `X-Forwarded-Proto: https` is believed for the session cookie's `Secure` flag. Unset means none are trusted. |
 
 | `MOANSUBS_SEARCH_RATE_PER_MINUTE` | `30` | Per-IP budget for `GET /search`. The only catalogue page where an anonymous visitor makes the database do real work (a GIN array-overlap query), rather than an indexed lookup by prefix or id. |
 | `MOANSUBS_DUMP_URL` | *(unset)* | Link the front page shows under "download the latest dump". Publishing a dump (WP-B2, `moansubs dump`) is an out-of-band operator choice; unset hides the link entirely. |
@@ -494,20 +494,31 @@ That is the only non-additive operation on stash ids.
 automatically and are safe to re-run. Migrations are append-only; nothing
 ever rewrites an applied migration file.
 
-**Reverse proxies.** The lookup and registration rate limiters key on the
-last `X-Forwarded-For` entry (the one the proxy appended — earlier entries
-are whatever the client sent), but only when the request's direct peer
-address is inside `MOANSUBS_TRUSTED_PROXY_CIDRS`; otherwise they key on the
-socket address. **The default when the env var is unset is to trust no
-CIDR at all**, so `X-Forwarded-For` is ignored and every caller is
-rate-limited by its raw socket address — a behaviour change from earlier
-versions, which trusted the header unconditionally regardless of where the
-request came from. Set `MOANSUBS_TRUSTED_PROXY_CIDRS` to your reverse
-proxy's address (or its Docker network subnet — see `deploy/`) to restore
-per-real-client limiting behind a proxy you control; leaving it unset on a
-node reachable directly is the safer default, since an unset value can
-only under-count distinct callers, never let a spoofed header impersonate
-someone else's.
+**Reverse proxies.** The lookup and registration rate limiters walk
+`X-Forwarded-For` from right to left, skipping any entry that is itself a
+trusted proxy (a hop's own signature), and key on the first entry that
+isn't — but only when the request's direct peer address is inside
+`MOANSUBS_TRUSTED_PROXY_CIDRS` in the first place; otherwise they key on
+the socket address. This is what makes a second hop safe: with a CDN in
+front of the reference Caddy, list **both** Caddy's own address and the
+CDN's published ranges in `MOANSUBS_TRUSTED_PROXY_CIDRS` — every hop that
+can legitimately append to the header — or the CDN's edge address gets
+mistaken for the client and every visitor behind it shares one rate-limit
+bucket. **The default when the env var is unset is to trust no CIDR at
+all**, so `X-Forwarded-For` is ignored and every caller is rate-limited by
+its raw socket address — a behaviour change from earlier versions, which
+trusted the header unconditionally regardless of where the request came
+from. Set `MOANSUBS_TRUSTED_PROXY_CIDRS` to your reverse proxy's address
+(or its Docker network subnet — see `deploy/`), plus any further trusted
+hop in front of it, to restore per-real-client limiting; leaving it unset
+on a node reachable directly is the safer default, since an unset value
+can only under-count distinct callers, never let a spoofed header
+impersonate someone else's.
+
+An IPv6 client is rate-limited by its `/64` rather than its full address:
+a residential ISP hands out a whole `/64` per customer and rotates the
+low bits, so keying on the full address would let one customer cycle
+through unlimited buckets.
 
 **Multiple instances.** Not supported against one database yet — the
 migration runner takes no cross-instance lock, so start one instance at a

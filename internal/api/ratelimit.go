@@ -66,16 +66,28 @@ func NewRateLimiterPerMinute(perMinute int) *RateLimiter {
 	}
 }
 
-// clientIP returns the key to rate-limit r by: the last entry of
-// X-Forwarded-For when RemoteAddr is inside a trusted proxy CIDR, else the
-// host portion of RemoteAddr. The last entry, not the first: a proxy
-// appends the address it saw, so the last entry is the one the trusted hop
-// wrote and every earlier one is whatever the client chose to send.
+// clientIP returns the address to rate-limit r by: the rightmost
+// X-Forwarded-For entry NOT inside a trusted proxy CIDR, when RemoteAddr
+// itself is inside one — the host portion of RemoteAddr otherwise.
+//
+// A chain can have more than one trusted hop (e.g. a CDN in front of the
+// reference Caddy), so this walks the header right-to-left rather than
+// trusting only the last entry: each proxy appends the peer address it
+// saw, so a trusted entry is a hop's own signature and gets skipped, while
+// the first entry that isn't inside any TrustedProxyCIDRs is whatever the
+// client (or the first untrusted hop) sent — the real caller. An entry
+// that doesn't parse as an IP (a garbage or blank token) ends the walk
+// with RemoteAddr: it sits where the client's address should be, and
+// everything left of it is whatever the client chose to send, so nothing
+// beyond it can be believed. If every entry was trusted, the rightmost
+// is the best available answer. It never returns a string
+// that failed net.ParseIP.
 //
 // Trust caveat: X-Forwarded-For is caller-supplied and trivially spoofable
 // unless something upstream strips or overwrites it before forwarding.
-// TrustedProxyCIDRs (MOANSUBS_TRUSTED_PROXY_CIDRS) names the reverse proxies
-// allowed to set it; a direct caller pretending to be that proxy can't
+// TrustedProxyCIDRs (MOANSUBS_TRUSTED_PROXY_CIDRS) names the reverse
+// proxies (and, if one sits in front of them, a CDN's published ranges)
+// allowed to set it; a direct caller pretending to be one of them can't
 // forge RemoteAddr, so only requests that actually transited a trusted hop
 // get the header believed. Unset — the default — trusts no CIDR, so the
 // header is always ignored and RemoteAddr wins even behind a real proxy;
@@ -88,17 +100,57 @@ func (s *Server) clientIP(r *http.Request) string {
 		host = r.RemoteAddr
 	}
 
-	if len(s.TrustedProxyCIDRs) > 0 {
-		if ip := net.ParseIP(host); ip != nil && s.trustsProxy(ip) {
-			if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-				last := xff[strings.LastIndex(xff, ",")+1:]
-				if trimmed := strings.TrimSpace(last); trimmed != "" {
-					return trimmed
-				}
-			}
+	if len(s.TrustedProxyCIDRs) == 0 {
+		return host
+	}
+	peer := net.ParseIP(host)
+	if peer == nil || !s.trustsProxy(peer) {
+		return host
+	}
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff == "" {
+		return host
+	}
+
+	var last string
+	entries := strings.Split(xff, ",")
+	for i := len(entries) - 1; i >= 0; i-- {
+		entry := strings.TrimSpace(entries[i])
+		ip := net.ParseIP(entry)
+		if ip == nil {
+			// Everything from here leftward is untrusted data; the only
+			// address still known to be real is the trusted peer's own.
+			return host
+		}
+		if !s.trustsProxy(ip) {
+			return entry
+		}
+		if last == "" {
+			last = entry
 		}
 	}
-	return host
+	return last
+}
+
+// limiterKey derives the rate-limit bucket key from a clientIP result: an
+// IPv4 address as-is, an IPv6 address collapsed to its /64. A residential
+// ISP hands each customer a /64 (or larger) and rotates the low bits per
+// device or renewal, so keying on the full /128 lets one customer cycle
+// through effectively unbounded buckets, defeating the per-address limit
+// and inflating the bucket map for free. IPv4 has no equivalent
+// per-customer subnet convention here, so it stays keyed per address.
+//
+// Only the limiter key is masked — ip itself (used for logging or
+// display, where any is added later) must stay the exact address seen.
+// A value that doesn't parse as an IP (RemoteAddr's last-resort fallback
+// for a malformed peer address) is returned unchanged: there's no subnet
+// to collapse it into.
+func limiterKey(ip string) string {
+	parsed := net.ParseIP(ip)
+	if parsed == nil || parsed.To4() != nil {
+		return ip
+	}
+	return parsed.Mask(net.CIDRMask(64, 128)).String()
 }
 
 // trustsProxy reports whether ip falls inside any configured trusted proxy

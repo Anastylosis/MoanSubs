@@ -333,7 +333,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.SearchLimiter.Allow(s.clientIP(r)) {
+	if !s.SearchLimiter.Allow(limiterKey(s.clientIP(r))) {
 		s.renderPage(w, r, http.StatusTooManyRequests, "search.html", searchPageData{
 			Title: "Search", Q: q, Lang: lang, Error: "too many searches — try again in a minute",
 		}, false)

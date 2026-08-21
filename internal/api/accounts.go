@@ -116,7 +116,7 @@ func (s *Server) register(ctx context.Context, ip, rawName, rawInvite, rawPasswo
 	if !s.OpenForStrangers() {
 		return nil, &apiError{http.StatusForbidden, "registration is closed on this node; ask the operator for an account"}
 	}
-	if !s.RegisterLimiter.Allow(ip) {
+	if !s.RegisterLimiter.Allow(limiterKey(ip)) {
 		return nil, &apiError{http.StatusTooManyRequests, "registration rate limit exceeded"}
 	}
 
