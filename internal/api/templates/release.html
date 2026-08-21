@@ -7,6 +7,22 @@
   {{if .Release.StashLinks}}<div class="line sm" style="margin-top:.35rem">{{range $i, $l := .Release.StashLinks}}{{if $i}} · {{end}}<a href="{{$l.URL}}" target="_blank" rel="noopener">On {{$l.Label}} ↗</a>{{end}}</div>{{end}}
 </section>
 
+{{if .LoggedIn}}
+<details class="cue" style="margin-bottom:1.25rem">
+  <summary>Know what this is? Correct the details</summary>
+  <p class="hint">What you send is recorded as your own account of this
+  scene, alongside everyone else's — it does not overwrite anyone. Leave a
+  field blank to say nothing about it.</p>
+  <form method="post" action="/release/{{.Release.ID}}/metadata">
+    <label>Title<input type="text" name="title" value="{{.Release.Title}}" maxlength="255"></label>
+    <label>Studio<input type="text" name="studio" value="{{.Release.Studio}}" maxlength="255"></label>
+    <label>Performers<input type="text" name="performers" value="{{range $i, $p := .Release.Performers}}{{if $i}}, {{end}}{{$p}}{{end}}" placeholder="comma separated"></label>
+    <label>Date<input type="text" name="date" value="{{.Release.ReleaseDate}}" placeholder="YYYY-MM-DD"></label>
+    <button type="submit">Send</button>
+  </form>
+</details>
+{{end}}
+
 <h2 style="margin-top:0">Subtitles</h2>
 {{if not .Release.Tracks}}
 <p class="empty">No subtitles are visible for this release right now.</p>

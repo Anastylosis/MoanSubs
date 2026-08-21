@@ -429,6 +429,13 @@ type modReleaseData struct {
 	// as a starting point. It is right only when the extra footage is at
 	// the head, so the form labels it a suggestion.
 	SuggestedOffsets map[int64]int64
+	// MetadataConfirmed is whether this release's metadata is pinned —
+	// which is also what lets its page be indexed (releaseIsIndexable
+	// governs the name, this governs whether a mod has vouched for it).
+	MetadataConfirmed bool
+	// Proposals is the evidence behind the derived metadata, so a mod can
+	// see who claimed what before confirming any of it.
+	Proposals []store.MetadataProposal
 }
 
 // handleModRelease implements GET /mod/release/{id} (WP-C7b, "minimal").
@@ -476,6 +483,23 @@ func (s *Server) renderModRelease(w http.ResponseWriter, r *http.Request, ares *
 	} else if !errors.Is(werr, store.ErrNotFound) {
 		log.Printf("api: WorkOf (mod): %v", werr)
 	}
+	if _, cerr := s.Store.Confirmed(r.Context(), id); cerr == nil {
+		data.MetadataConfirmed = true
+	} else if !errors.Is(cerr, store.ErrNotFound) {
+		log.Printf("api: Confirmed (mod): %v", cerr)
+	}
+	// The evidence, not just the verdict: confirming pins whatever is
+	// derived, so a mod should see what it was derived from.
+	pool := []int64{id}
+	if len(data.WorkReleaseIDs) > 0 {
+		pool = data.WorkReleaseIDs
+	}
+	if props, perr := s.Store.ProposalsFor(r.Context(), pool); perr != nil {
+		log.Printf("api: ProposalsFor (mod): %v", perr)
+	} else {
+		data.Proposals = props
+	}
+
 	data.Siblings = s.siblingViews(r.Context(), id)
 	// Pre-fill each form with the runtime delta so a mod has a starting
 	// number rather than a blank box — labelled a suggestion, because it

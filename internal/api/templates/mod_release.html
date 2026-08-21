@@ -21,6 +21,44 @@
   <button type="submit">Withdraw</button>
 </form>
 {{end}}
+<h2>Metadata</h2>
+<p class="hint">
+  {{if .MetadataConfirmed}}
+  Pinned. Derivation cannot move this release until it is unpinned, so a
+  proposal filed after confirmation will not rewrite an indexed page.
+  {{else}}
+  Not confirmed. The page stays out of search-engine indexes until it has a
+  title someone has vouched for — a filename is never enough, because a
+  crawled name outlives any correction made here.
+  {{end}}
+</p>
+<form method="post" action="/mod/release/{{.Release.ID}}/metadata/{{if .MetadataConfirmed}}unconfirm{{else}}confirm{{end}}" style="display:inline">
+  <button type="submit">{{if .MetadataConfirmed}}Unpin{{else}}Confirm current metadata{{end}}</button>
+</form>
+<form method="post" action="/mod/release/{{.Release.ID}}/metadata/purge" style="display:inline"
+      onsubmit="return confirm('Delete every metadata proposal for this release? Use this for a name that must leave the database, not for a wrong title.')">
+  <button type="submit" class="danger">Purge all metadata</button>
+</form>
+
+{{if .Proposals}}
+<p class="hint" style="margin-top:1rem">What this was derived from:</p>
+<table>
+  <thead><tr><th>Release</th><th>Title</th><th>Studio</th><th>Performers</th><th>Date</th><th>Stash-box</th></tr></thead>
+  <tbody>
+  {{range $p := .Proposals}}
+  <tr>
+    <td>{{$p.ReleaseID}}</td>
+    <td>{{if $p.Title}}{{$p.Title}}{{else}}&mdash;{{end}}</td>
+    <td>{{if $p.Studio}}{{$p.Studio}}{{else}}&mdash;{{end}}</td>
+    <td>{{range $i, $n := $p.Performers}}{{if $i}}, {{end}}{{$n}}{{end}}</td>
+    <td>{{if $p.ReleaseDate}}{{$p.ReleaseDate}}{{else}}&mdash;{{end}}</td>
+    <td>{{if $p.StashID}}yes{{else}}no{{end}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+
 <h2>Stash-box ids</h2>
 {{if not .StashIDs}}
 <p class="hint">None attached.</p>
