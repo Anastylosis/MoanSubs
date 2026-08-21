@@ -175,8 +175,8 @@ restore drill, plus the reverse-proxy trust note that
 
    | Stash's arch | Source URL |
    |---|---|
-   | linux/amd64 | `https://anastylosis.github.io/MoanSubs/plugin/amd64/index.yml` |
-   | linux/arm64 | `https://anastylosis.github.io/MoanSubs/plugin/arm64/index.yml` |
+   | linux/amd64 | `https://plugins.moansubs.org/plugin/amd64/index.yml` |
+   | linux/arm64 | `https://plugins.moansubs.org/plugin/arm64/index.yml` |
 
    The exec half is a native binary and Stash's package source has no
    notion of architecture, hence one index per arch — match the machine

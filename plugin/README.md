@@ -20,8 +20,8 @@ Stash → **Settings → Plugins → Available Plugins → Add Source**, with:
 
 | Stash's arch | Source URL |
 |---|---|
-| linux/amd64 | `https://anastylosis.github.io/MoanSubs/plugin/amd64/index.yml` |
-| linux/arm64 | `https://anastylosis.github.io/MoanSubs/plugin/arm64/index.yml` |
+| linux/amd64 | `https://plugins.moansubs.org/plugin/amd64/index.yml` |
+| linux/arm64 | `https://plugins.moansubs.org/plugin/arm64/index.yml` |
 
 Then install **moansubs** from that source. Later releases show up as
 upgrades in the same place. Adding the index for the wrong architecture
