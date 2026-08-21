@@ -154,8 +154,26 @@ func (a *app) pushScene(ctx context.Context, scene *stash.Scene, dryRun bool, st
 	}
 }
 
+// requireUploadToken refuses a push that has no credentials to push with.
+// Every anonymous upload is answered 401, so without this a tokenless run
+// over a large library sends one request per sidecar and reports thousands
+// of identical failures instead of the single thing that is actually wrong.
+//
+// A dry run is exempt: it uploads nothing, and being able to see what a
+// push *would* send is exactly what someone deciding whether to register
+// wants. Pulling needs no account either -- only writes are authenticated.
+func (a *app) requireUploadToken(dryRun bool) error {
+	if dryRun || a.ms.Token != "" {
+		return nil
+	}
+	return fmt.Errorf("set an upload token in the plugin settings to push (pulling, and push with dry run, need no account)")
+}
+
 // push handles mode "push": one scene's sidecars.
 func (a *app) push(ctx context.Context, sceneID string, dryRun bool) (any, error) {
+	if err := a.requireUploadToken(dryRun); err != nil {
+		return nil, err
+	}
 	if sceneID == "" {
 		return nil, fmt.Errorf("push: missing scene_id")
 	}
@@ -173,6 +191,10 @@ func (a *app) push(ctx context.Context, sceneID string, dryRun bool) (any, error
 // byte-identical tracks. Honors ctx cancellation (the RPC Stop call), so a
 // long run dies gracefully mid-page rather than mid-write.
 func (a *app) pushAll(ctx context.Context, dryRun bool) (any, error) {
+	if err := a.requireUploadToken(dryRun); err != nil {
+		return nil, err
+	}
+
 	const perPage = 100
 	st := &pushStats{DryRun: dryRun}
 

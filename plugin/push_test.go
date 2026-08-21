@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"github.com/Anastylosis/MoanSubs/plugin/msclient"
 	"os"
 	"path/filepath"
 	"testing"
@@ -65,5 +67,49 @@ func TestEscapeGlob(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Lang != "en" {
 		t.Fatalf("metachar-laden stem not matched literally: %+v", got)
+	}
+}
+
+// A tokenless push must fail once, up front, rather than sending one
+// doomed request per sidecar and reporting a 401 for each. Dry runs stay
+// allowed: they upload nothing.
+func TestRequireUploadToken(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		token   string
+		dryRun  bool
+		wantErr bool
+	}{
+		{"no token, real push", "", false, true},
+		{"no token, dry run", "", true, false},
+		{"token, real push", "t", false, false},
+		{"token, dry run", "t", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &app{ms: &msclient.Client{Token: tc.token}}
+			err := a.requireUploadToken(tc.dryRun)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("requireUploadToken(%v) with token %q: got %v, wantErr %v",
+					tc.dryRun, tc.token, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// The gate has to sit ahead of every network call, or a tokenless run
+// still walks the library before failing.
+func TestPushAll_NoToken_FailsWithoutTouchingStash(t *testing.T) {
+	// A nil stash client panics the moment anything calls it, so reaching
+	// FindScenesPage is a test failure rather than a silent pass.
+	a := &app{ms: &msclient.Client{}, stash: nil}
+	if _, err := a.pushAll(context.Background(), false); err == nil {
+		t.Fatal("pushAll with no token: got nil error, want a refusal")
+	}
+}
+
+func TestPush_NoToken_FailsBeforeSceneLookup(t *testing.T) {
+	a := &app{ms: &msclient.Client{}, stash: nil}
+	if _, err := a.push(context.Background(), "42", false); err == nil {
+		t.Fatal("push with no token: got nil error, want a refusal")
 	}
 }

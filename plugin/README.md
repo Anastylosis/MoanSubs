@@ -142,8 +142,11 @@ releases, not because the hashes matched.
   empty log after running it is the success case, not a missing message —
   do not go hunting in Settings → Logs for it.
 - **Push subtitles (dry run)** — walks the library and reports which
-  sidecar files *would* be uploaded.
+  sidecar files *would* be uploaded. Needs no upload token: nothing is
+  sent, so this works before you have an account.
 - **Push subtitles** — uploads every sidecar subtitle in the library.
+  Needs an upload token (Settings above) and stops immediately without
+  one, rather than failing per file.
   Safe to re-run: the server returns duplicates instead of storing copies.
   Suffix-less captions and non-language suffixes are skipped; the server
   additionally rejects subtitles whose timing contradicts the video. Each
