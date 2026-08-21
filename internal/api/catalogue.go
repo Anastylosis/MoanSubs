@@ -412,6 +412,26 @@ type releasePageData struct {
 	// the top of this same page (WP-C5 spec) rather than a separate error
 	// page — empty on a plain GET.
 	Error string
+	// Siblings are visible tracks belonging to other releases of the same
+	// work — a different encode of the same video. Empty for an ungrouped
+	// release, which is the common case.
+	Siblings []siblingTrackView
+}
+
+// siblingTrackView is one sibling track as the release page shows it. The
+// sync fields are deliberately three-valued: a known offset, a known
+// absence ("sync unknown"), and zero are different claims, and presenting
+// an unknown as zero would imply a fit nobody has checked.
+type siblingTrackView struct {
+	TrackID    int64
+	ReleaseID  int64
+	Lang       string
+	Generated  bool
+	Downloads  int64
+	SyncKnown  bool
+	OffsetText string // e.g. "+3.08s", only meaningful when SyncKnown
+	SourceText string // manual / duration-delta / measured
+	DeltaText  string // this encode's runtime difference, e.g. "+3.08s longer"
 }
 
 // handleReleasePage implements GET /release/{id} (WP-C2): title/stem/
@@ -467,6 +487,7 @@ func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id in
 	}
 
 	data := releasePageData{Title: rendered.Title, Release: rendered, Error: formError}
+	data.Siblings = s.siblingViews(ctx, release.ID, release.DurationMs)
 
 	// Check for authResult in context first (WP-R7) — a handler that
 	// authenticated may have stored it there to avoid a redundant session
@@ -688,4 +709,42 @@ func (s *Server) handleUploaderPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.renderPage(w, r, http.StatusOK, "u.html", data, false)
+}
+
+// siblingViews assembles the "also fits this video" list. Best-effort like
+// every other panel on this page: a failure here omits the section rather
+// than failing a release page that is otherwise fine.
+func (s *Server) siblingViews(ctx context.Context, releaseID, ownDurationMs int64) []siblingTrackView {
+	sib, err := s.Store.SiblingTracks(ctx, releaseID)
+	if err != nil {
+		log.Printf("api: SiblingTracks(%d): %v", releaseID, err)
+		return nil
+	}
+	out := make([]siblingTrackView, 0, len(sib))
+	for _, t := range sib {
+		v := siblingTrackView{
+			TrackID: t.TrackID, ReleaseID: t.ReleaseID, Lang: t.Lang,
+			Generated: t.Generated, Downloads: t.Downloads,
+		}
+		if t.OffsetMs != nil {
+			v.SyncKnown = true
+			v.OffsetText = signedSeconds(*t.OffsetMs)
+			if t.Source != nil {
+				v.SourceText = *t.Source
+			}
+		}
+		if t.DurationMs != nil && ownDurationMs > 0 {
+			if d := *t.DurationMs - ownDurationMs; d != 0 {
+				v.DeltaText = signedSeconds(d)
+			}
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// signedSeconds renders a millisecond delta the way a person reads it:
+// always signed, two decimals, e.g. "+3.08s".
+func signedSeconds(ms int64) string {
+	return fmt.Sprintf("%+.2fs", float64(ms)/1000)
 }

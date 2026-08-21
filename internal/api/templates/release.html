@@ -59,4 +59,23 @@
 </table>
 <p class="hint">Downloads count every fetch, from the plugin or here. Votes need an account; a down-vote always says why.</p>
 {{end}}
+
+{{if .Siblings}}
+<h2>Also fits this video</h2>
+<p class="hint">Subtitles uploaded against another encode of the same video — a different rip, or one with a trimmed intro. A shift is applied on download when the sync is known; where it isn't, the file is offered as-is and may not line up.</p>
+<table>
+  <thead><tr><th>Language</th><th>From</th><th>Sync</th><th>File</th><th class="n">Downloads</th></tr></thead>
+  <tbody>
+  {{range $t := .Siblings}}
+  <tr>
+    <td><span class="tag{{if $t.Generated}} auto{{end}}">{{$t.Lang}}</span>{{if $t.Generated}} <span class="hint" style="display:inline">machine-generated</span>{{end}}</td>
+    <td><a href="/release/{{$t.ReleaseID}}">release {{$t.ReleaseID}}</a>{{if $t.DeltaText}} <span class="meta" style="display:inline">{{$t.DeltaText}}</span>{{end}}</td>
+    <td>{{if $t.SyncKnown}}<span class="tag">{{$t.OffsetText}}</span>{{if $t.SourceText}} <span class="hint" style="display:inline">{{$t.SourceText}}</span>{{end}}{{else}}<span class="hint" style="display:inline">sync unknown</span>{{end}}</td>
+    <td><a href="/api/v1/subtitles/{{$t.TrackID}}?format=srt&amp;for_release={{$.Release.ID}}">Download .srt</a></td>
+    <td class="n">{{$t.Downloads}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
 {{end}}

@@ -475,6 +475,12 @@ type getSubtitleResponse struct {
 	// Up/Down are migration 0008's vote counts (WP-C3), also additive.
 	Up   int `json:"up"`
 	Down int `json:"down"`
+	// OffsetMs is the shift applied to this body because the caller asked
+	// for it timed against another release (for_release). Zero means none
+	// was applied — either the caller did not ask, or no sync is recorded
+	// for that pairing, which the empty OffsetFrom distinguishes.
+	OffsetMs   int64  `json:"offset_ms,omitempty"`
+	OffsetFrom string `json:"offset_source,omitempty"`
 }
 
 // handleGetSubtitle implements GET /api/v1/subtitles/{id} — public, no
@@ -533,12 +539,52 @@ func (s *Server) handleGetSubtitle(w http.ResponseWriter, r *http.Request) {
 		downloads++
 	}
 
+	// for_release=N asks for this track timed against a different release
+	// of the same work — the sibling case, where one encode carries extra
+	// footage at the head and the subtitle would otherwise run early. The
+	// stored body is never modified; the shift is applied here, at render.
+	body := track.Body
+	var appliedOffset int64
+	var offsetSource string
+	if v := r.URL.Query().Get("for_release"); v != "" {
+		forID, perr := strconv.ParseInt(v, 10, 64)
+		if perr != nil || forID <= 0 {
+			writeError(w, http.StatusBadRequest, "for_release must be a positive release id")
+			return
+		}
+		// Its own release needs no offset and never has a row: that is zero
+		// by definition, not an unknown.
+		if forID != track.ReleaseID {
+			off, oerr := s.Store.Offset(ctx, track.ID, forID)
+			switch {
+			case errors.Is(oerr, store.ErrNotFound):
+				// No recorded sync. Serve the track unshifted rather than
+				// guessing — the caller is told so it can say "sync
+				// unknown" instead of implying a fit.
+			case oerr != nil:
+				log.Printf("api: Offset: %v", oerr)
+				writeError(w, http.StatusInternalServerError, "internal error")
+				return
+			default:
+				shifted, serr := shiftSRT(track.Body, time.Duration(off.OffsetMs)*time.Millisecond)
+				if serr != nil {
+					log.Printf("api: shiftSRT(track %d): %v", track.ID, serr)
+					writeError(w, http.StatusInternalServerError, "internal error")
+					return
+				}
+				body, appliedOffset, offsetSource = shifted, off.OffsetMs, off.Source
+			}
+		}
+	}
+
 	// format=srt (WP-C2, the catalogue's release-page download link): the
 	// same track, as a plain-text attachment instead of the JSON envelope.
 	// Counts as a download exactly like the JSON path above — the increment
 	// already happened, unconditionally, before this branch.
 	if r.URL.Query().Get("format") == "srt" {
-		s.writeSRTAttachment(w, *release, *track)
+		retimed := *track
+		retimed.Body = body
+		s.writeSRTAttachment(w, *release, retimed)
 		return
 	}
 
@@ -547,7 +593,7 @@ func (s *Server) handleGetSubtitle(w http.ResponseWriter, r *http.Request) {
 		ReleaseID:  track.ReleaseID,
 		Lang:       track.Lang,
 		Downloads:  downloads,
-		Body:       track.Body,
+		Body:       body,
 		Generated:  track.Generated,
 		Provenance: json.RawMessage(track.Provenance),
 		License:    track.License,
@@ -555,6 +601,8 @@ func (s *Server) handleGetSubtitle(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:  track.CreatedAt,
 		Up:         track.Up,
 		Down:       track.Down,
+		OffsetMs:   appliedOffset,
+		OffsetFrom: offsetSource,
 	})
 }
 
