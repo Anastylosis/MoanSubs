@@ -179,3 +179,20 @@ func TestNameCandidates_CarriesDate(t *testing.T) {
 		t.Errorf("candidate 1 date = %q, want empty (no stored date)", got[1].Date)
 	}
 }
+
+// Each stash-box the default allow-list accepts needs a label, or the
+// panel renders a bare hostname where a name belongs.
+func TestStashLabel_CoversEveryDefaultEndpoint(t *testing.T) {
+	for endpoint, want := range map[string]string{
+		"https://stashdb.org/graphql":    "StashDB",
+		"https://fansdb.cc/graphql":      "FansDB",
+		"https://theporndb.net/graphql":  "ThePornDB",
+		"https://javstash.org/graphql":   "JAVStash",
+		"https://pmvstash.org/graphql":   "PMV Stash",
+		"https://someone-elses.example/": "someone-elses.example",
+	} {
+		if got := stashLabel(endpoint); got != want {
+			t.Errorf("stashLabel(%q) = %q, want %q", endpoint, got, want)
+		}
+	}
+}

@@ -108,10 +108,24 @@ const DefaultInvitesPerUploads = 5
 const DefaultInvitesCap = 5
 
 // DefaultStashEndpoints is MOANSUBS_STASH_ENDPOINTS's default (WP-R6): the
-// two stash-boxes API.md already documents as the well-known examples.
-// Anything else needs an operator to opt in explicitly, either by naming it
-// or by setting the value `*` (any http(s) endpoint).
-var DefaultStashEndpoints = []string{"https://stashdb.org/graphql", "https://fansdb.cc/graphql"}
+// public stash-box instances Stash itself documents, verbatim from
+// https://docs.stashapp.cc/metadata-sources/stash-box-instances/ -- that
+// page is the source of truth for these URLs, not this list. Anything
+// else needs an operator to opt in explicitly, either by naming it or by
+// setting the value `*` (any http(s) endpoint).
+//
+// Breadth and accuracy differ across them -- ThePornDB covers far more
+// than StashDB but with looser metadata -- and this list does not rank
+// them: it says only which ids a node will store. What an id is worth is
+// derivation's question, not this one.
+//
+// A PRIVATE stash-box (one on a LAN, or your own instance) is deliberately
+// absent and should stay that way in this file: naming it here would carry
+// an internal hostname into every node that runs this build. Operators who
+// want one name it in MOANSUBS_STASH_ENDPOINTS on their own node.
+var DefaultStashEndpoints = []string{"https://stashdb.org/graphql", "https://fansdb.cc/graphql",
+	"https://theporndb.net/graphql", "https://javstash.org/graphql",
+	"https://pmvstash.org/graphql"}
 
 // stashEndpointWildcard is MOANSUBS_STASH_ENDPOINTS' escape hatch: a
 // Server.StashEndpoints slice of exactly this one entry means "accept any

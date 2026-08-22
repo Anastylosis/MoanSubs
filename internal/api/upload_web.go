@@ -43,12 +43,14 @@ type uploadFormValues struct {
 	StashEndpointOther string
 }
 
-// stashEndpointDefaults is the same two well-known stash-boxes API.md
+// stashEndpointDefaults is the same well-known stash-boxes API.md
 // documents — /upload's endpoint <select> falls back to these as a
 // starting point when the node's allow-list is the wildcard (WP-R6,
 // MOANSUBS_STASH_ENDPOINTS=*), since there's no fixed list to offer
 // instead.
-var stashEndpointDefaults = []string{"https://stashdb.org/graphql", "https://fansdb.cc/graphql"}
+var stashEndpointDefaults = []string{"https://stashdb.org/graphql", "https://fansdb.cc/graphql",
+	"https://theporndb.net/graphql", "https://javstash.org/graphql",
+	"https://pmvstash.org/graphql"}
 
 // stashEndpointFormOptions returns /upload's stash_endpoint <select>
 // options and whether its "other" free-text fallback (backed by

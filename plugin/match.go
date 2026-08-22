@@ -24,6 +24,12 @@ func stashLabel(endpoint string) string {
 		return "StashDB"
 	case "fansdb.cc":
 		return "FansDB"
+	case "theporndb.net":
+		return "ThePornDB"
+	case "javstash.org":
+		return "JAVStash"
+	case "pmvstash.org":
+		return "PMV Stash"
 	default:
 		return u.Host
 	}

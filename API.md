@@ -51,7 +51,9 @@ leaks the same, explicitly.
 ### `GET /api/v1/version`
 
 `{"version": "<semver or dev>", "features": ["lookup", "match", "withdraw", "stats", "srt", "votes", "stash_ids", "metadata"],
-"stash_endpoints": ["https://stashdb.org/graphql", "https://fansdb.cc/graphql"]}`. Anonymous
+"stash_endpoints": ["https://stashdb.org/graphql", "https://fansdb.cc/graphql",
+"https://theporndb.net/graphql", "https://javstash.org/graphql",
+"https://pmvstash.org/graphql"]}`. Anonymous
 and unthrottled — it never touches the database. Lets a client discover the
 node's version and API surface up front and degrade a missing feature
 gracefully (skip with one log line) instead of tripping over a 404 mid-task.
