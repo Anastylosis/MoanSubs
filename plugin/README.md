@@ -14,6 +14,13 @@ The exec half is a native binary, so every install path is
 architecture-specific: pick the one matching the machine **Stash itself**
 runs on, which is not necessarily the one running the moansubs server.
 
+The index site (https://plugins.moansubs.org) is this repository's
+`gh-pages` branch: the release workflow writes the two `index.yml` files,
+and the page around them is hand-maintained. It carries no analytics
+deliberately — the tag would have to be hardcoded into a public branch,
+and the tracker's hostname is not something to publish permanently in
+git history.
+
 ### From the package source (once a release is published)
 
 Stash → **Settings → Plugins → Available Plugins → Add Source**, with:

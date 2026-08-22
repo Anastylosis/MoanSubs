@@ -882,6 +882,35 @@ by whatever service rendered it exactly as durably as a crawled heading,
 so a release nobody has named previews as plain "moansubs" while the page
 itself still shows the reader the cleaned filename.
 
+#### Getting listed
+
+Four steps, in order, and the last is the one that actually gates it:
+
+1. `MOANSUBS_INDEXABLE=true`, which opens `/robots.txt`, drops the
+   per-page `noindex`, serves `/sitemap.xml`, and lets the major crawlers
+   past the age gate.
+2. `MOANSUBS_PUBLIC_URL=https://your.node`, so the sitemap and every
+   `og:url` name one canonical origin rather than whatever `Host` the
+   request arrived with.
+3. Verify the site in Google Search Console and submit
+   `https://your.node/sitemap.xml`.
+4. **Confirm some releases.** Nothing is listed until a moderator pins it
+   — see "Moderating metadata" above. A node with `MOANSUBS_INDEXABLE=true`
+   and no pins serves a sitemap containing two URLs.
+
+On Search Console properties: a **Domain** property (verified by a DNS TXT
+record) covers every subdomain and both protocols, so verifying
+`example.org` also covers `plugins.example.org` and anything else you
+serve — one property, filterable by page. A **URL prefix** property covers
+exactly one origin, so that route needs one per host. Prefer the domain
+property; you control DNS already if you are running the node.
+
+Worth knowing which of your hosts is likely to rank: the plugin index page
+is ordinary technical content on its own subdomain, while the catalogue is
+an adult site that most engines deprioritize or exclude regardless of how
+clean its markup is. If search traffic ever finds this project, that page
+is the likelier door.
+
 `noindex` restrains well-behaved crawlers and nothing else — scrapers and
 archives ignore it. It sequences indexing; the structural rule above is
 the actual control. De-indexing is also not retroactive: a page that was
