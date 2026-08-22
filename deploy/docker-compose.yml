@@ -127,10 +127,19 @@ services:
       # optional (MANUAL.md, SECURITY.md) -- leaving it unset is a safe
       # default, tokens just aren't redisplayable and /me says so.
       MOANSUBS_TOKEN_KEY: ${MOANSUBS_TOKEN_KEY:-}
+      # This node's origin as visitors reach it. Unset derives it per
+      # request from Host, which is right for a single-name node; set it
+      # once a node answers to more than one, so the sitemap and every
+      # og:url name one canonical form. Behind this stack's proxy the
+      # scheme is read from X-Forwarded-Proto, trusted because
+      # MOANSUBS_TRUSTED_PROXY_CIDRS names Traefik above.
+      MOANSUBS_PUBLIC_URL: ${MOANSUBS_PUBLIC_URL:-}
       # Search-engine indexing, off by default. Read "Indexing and the age
       # gate" in MANUAL.md before turning it on: on a node with the age
       # gate up it also lets crawlers past the click-through, which is a
-      # deliberate trade rather than a free win.
+      # deliberate trade rather than a free win. It is also what makes
+      # /sitemap.xml exist -- and nothing is listed in it until a
+      # moderator pins releases ("Getting listed", MANUAL.md).
       # MOANSUBS_INDEXABLE: "true"
       # Visitor analytics, off by default. The path form below pairs with
       # the /s/* router in this file, which keeps the tag same-origin — see
