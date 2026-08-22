@@ -77,14 +77,51 @@ func (s *Store) RecordProposal(ctx context.Context, p MetadataProposal) (bool, e
 		ON CONFLICT (release_id, proposed_by) WHERE proposed_by IS NOT NULL
 		DO UPDATE SET title = EXCLUDED.title, release_date = EXCLUDED.release_date,
 		              studio = EXCLUDED.studio, performers = EXCLUDED.performers,
-		              stash_id = EXCLUDED.stash_id, endpoint = EXCLUDED.endpoint,
-		              created_at = now()`,
+		              -- Provenance is only ever added, never cleared by a
+		              -- revision that simply had none to send: the web
+		              -- correction form has no stash-box field at all, so
+		              -- overwriting here would make fixing a typo cost the
+		              -- account the evidence that outranks everything else.
+		              -- Removing a wrong id is a purge, not an edit.
+		              stash_id = COALESCE(EXCLUDED.stash_id, release_metadata_proposals.stash_id),
+		              endpoint = COALESCE(EXCLUDED.endpoint, release_metadata_proposals.endpoint),
+		              -- Recency is a tie-break, so it may only move when the
+		              -- claim actually moves. Re-submitting an unchanged form
+		              -- must not walk the proposal up the ordering.
+		              created_at = CASE
+		                WHEN (release_metadata_proposals.title, release_metadata_proposals.release_date,
+		                      release_metadata_proposals.studio, release_metadata_proposals.performers)
+		                     IS DISTINCT FROM
+		                     (EXCLUDED.title, EXCLUDED.release_date, EXCLUDED.studio, EXCLUDED.performers)
+		                THEN now() ELSE release_metadata_proposals.created_at END`,
 		p.ReleaseID, p.ProposedBy, p.Title, p.ReleaseDate, p.Studio, p.Performers,
 		p.StashID, p.Endpoint)
 	if err != nil {
 		return false, fmt.Errorf("store: RecordProposal: %w", err)
 	}
 	return true, nil
+}
+
+// ProposalBy returns the proposal accountID has on record for releaseID,
+// or ErrNotFound. This is what the correction form pre-fills from: the
+// form is one account's own account of a scene, so it must show that
+// account what it already said -- never what the release currently
+// displays, which is derived from everyone's evidence and would turn a
+// Send into silent co-signing.
+func (s *Store) ProposalBy(ctx context.Context, releaseID, accountID int64) (*MetadataProposal, error) {
+	p := MetadataProposal{ReleaseID: releaseID, ProposedBy: &accountID}
+	err := s.pool.QueryRow(ctx, `
+		SELECT title, release_date, studio, performers, stash_id, endpoint
+		FROM release_metadata_proposals
+		WHERE release_id = $1 AND proposed_by = $2`, releaseID, accountID).
+		Scan(&p.Title, &p.ReleaseDate, &p.Studio, &p.Performers, &p.StashID, &p.Endpoint)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: ProposalBy: %w", err)
+	}
+	return &p, nil
 }
 
 // ProposalsFor returns every proposal recorded against releaseIDs, newest
@@ -199,10 +236,10 @@ func (s *Store) UnconfirmMetadata(ctx context.Context, releaseID int64) error {
 	return nil
 }
 
-// PurgeProposals deletes every proposal for a release and clears any pin.
-// The takedown path for metadata that must not merely be outvoted --
-// someone's legal name attached to a scene has to leave the database, not
-// sit in the evidence pool waiting to win a future derivation.
+// PurgeProposals deletes every proposal for a release and clears any pin. The takedown path for metadata that must not merely be
+// outvoted -- someone's legal name attached to a scene has to leave the
+// database, not sit in the evidence pool waiting to win a future
+// derivation.
 //
 // The caller must re-derive afterwards to clear the cached columns; this
 // deliberately does not, so a purge and its re-derive can share one
@@ -281,6 +318,32 @@ func (s *Store) DeriveMetadata(ctx context.Context, releaseID int64) error {
 		return err
 	}
 	return s.writeDerived(ctx, releaseID, deriveFrom(proposals))
+}
+
+// DeriveAfterProposal re-derives everything one new proposal can move.
+//
+// A proposal is evidence for every release in the work, not just the one
+// it was filed against (derivationPool), so deriving only that release
+// leaves its siblings' cached columns and retrieval tokens stale --
+// showing the old name on their pages and answering the old name in
+// search. That contradicts the point of deriving across a work: the people
+// who pulled your subtitles are looking at THEIR release row, not yours.
+//
+// Ungrouped releases, the common case, cost exactly what DeriveMetadata
+// cost before.
+func (s *Store) DeriveAfterProposal(ctx context.Context, releaseID int64) error {
+	var workID *int64
+	if err := s.pool.QueryRow(ctx,
+		`SELECT work_id FROM releases WHERE id = $1`, releaseID).Scan(&workID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("store: DeriveAfterProposal: %w", err)
+	}
+	if workID == nil {
+		return s.DeriveMetadata(ctx, releaseID)
+	}
+	return s.DeriveWork(ctx, *workID)
 }
 
 // DeriveWork re-derives every member of a work. Called after a link or an

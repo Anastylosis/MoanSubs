@@ -267,3 +267,97 @@ func formInput(t *testing.T, body string) string {
 	}
 	return "(no title input rendered)"
 }
+
+// The form is one account's own account of a scene. Pre-filling it from
+// the release's derived values would mean a user correcting one field
+// files the other three as their own claim too -- fabricating exactly the
+// agreement between accounts that derivation uses as its anti-vandal
+// tie-break.
+func TestReleasePage_CorrectionFormPreFillsOnlyYourOwnClaim(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	ctx := context.Background()
+
+	rel, err := st.GetOrCreateRelease(ctx, store.Release{
+		OSHash: mustOSHash(t, "e3e3e3e3e3e3e3e3"), DurationMs: 600000,
+		Stem: strPtrAPI("some.file.name"),
+	})
+	if err != nil {
+		t.Fatalf("GetOrCreateRelease: %v", err)
+	}
+	if _, err := st.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+		ReleaseID: rel.ID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+	}); err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	// Somebody else's claim, derived onto the release.
+	other := strPtrAPI("Someone Else's Studio")
+	if _, err := st.RecordProposal(ctx, store.MetadataProposal{
+		ReleaseID: rel.ID, Title: strPtrAPI("Their Title"), Studio: other,
+		Performers: []string{"Their Performer"},
+	}); err != nil {
+		t.Fatalf("RecordProposal: %v", err)
+	}
+	if err := st.DeriveAfterProposal(ctx, rel.ID); err != nil {
+		t.Fatalf("DeriveAfterProposal: %v", err)
+	}
+
+	page := func() string {
+		t.Helper()
+		resp, err := client.Get(ts.URL + "/release/" + strconv.FormatInt(rel.ID, 10))
+		if err != nil {
+			t.Fatalf("GET release page: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("reading release page: %v", err)
+		}
+		return string(b)
+	}
+
+	body := page()
+	// The page shows their claim...
+	if !strings.Contains(body, "Their Title") {
+		t.Error("the derived title should still be displayed")
+	}
+	// ...and the form offers none of it.
+	for _, leaked := range []string{
+		`name="title" value="Their Title"`,
+		`name="studio" value="Someone Else&#39;s Studio"`,
+		`name="performers" value="Their Performer"`,
+	} {
+		if strings.Contains(body, leaked) {
+			t.Errorf("form pre-filled another account's claim: %s", leaked)
+		}
+	}
+	for _, blank := range []string{`name="title" value=""`, `name="studio" value=""`, `name="performers" value=""`} {
+		if !strings.Contains(body, blank) {
+			t.Errorf("form field is not blank for a viewer who has claimed nothing: want %s", blank)
+		}
+	}
+
+	// Your own claim, though, comes back so you can revise it.
+	if resp := postSessionForm(t, client, ts, "/release/"+strconv.FormatInt(rel.ID, 10)+"/metadata", url.Values{
+		"studio": {"My Studio"},
+	}); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST metadata = %d, want 303", resp.StatusCode)
+	}
+	body = page()
+	if !strings.Contains(body, `name="studio" value="My Studio"`) {
+		t.Error("your own claim should be pre-filled for revision")
+	}
+	if !strings.Contains(body, `name="title" value=""`) {
+		t.Error("a field you never filled in must stay blank, not adopt the derived title")
+	}
+}
+
+// A proposal against a release id that does not exist is a typo, not a
+// server fault: it must not reach RecordProposal's foreign key.
+func TestProposeMetadata_UnknownReleaseIs404(t *testing.T) {
+	ts, _, client, _ := sessionServer(t)
+	resp := postSessionForm(t, client, ts, "/release/999999/metadata", url.Values{"title": {"x"}})
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("POST to an unknown release = %d, want 404", resp.StatusCode)
+	}
+}

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // mkAccount returns a fresh account id for attributing proposals.
@@ -326,5 +327,130 @@ func TestPurgeProposals_RemovesTextAndTokens(t *testing.T) {
 		if tok == "legal" || tok == "someones" {
 			t.Errorf("name_tokens still carry the purged name: %v", nameTokensOf(t, s, rel))
 		}
+	}
+}
+
+// Revising a proposal must not cost the account its stash-box provenance:
+// the web correction form has no field for it, so an edit that simply had
+// none to send would otherwise drop the evidence that outranks everything
+// else in derivation.
+func TestRecordProposal_RevisionKeepsStashProvenance(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+	relID := mkRelease(t, st, "aa11aa11aa11aa11", "some.file")
+	acctID := mkAccount(t, st, "provenance-keeper")
+
+	endpoint, stashID := "https://stashdb.org/graphql", "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"
+	if _, err := st.RecordProposal(ctx, MetadataProposal{
+		ReleaseID: relID, ProposedBy: &acctID, Title: strPtr("From The Plugin"),
+		StashID: &stashID, Endpoint: &endpoint,
+	}); err != nil {
+		t.Fatalf("RecordProposal: %v", err)
+	}
+
+	first, err := st.ProposalBy(ctx, relID, acctID)
+	if err != nil {
+		t.Fatalf("ProposalBy: %v", err)
+	}
+	if first.StashID == nil || *first.StashID != stashID {
+		t.Fatalf("stash id not recorded: %+v", first)
+	}
+
+	// The same account fixes a typo through the web form, which sends no
+	// stash-box fields at all.
+	if _, err := st.RecordProposal(ctx, MetadataProposal{
+		ReleaseID: relID, ProposedBy: &acctID, Title: strPtr("From The Plugin, Fixed"),
+	}); err != nil {
+		t.Fatalf("RecordProposal (revision): %v", err)
+	}
+
+	got, err := st.ProposalBy(ctx, relID, acctID)
+	if err != nil {
+		t.Fatalf("ProposalBy after revision: %v", err)
+	}
+	if got.Title == nil || *got.Title != "From The Plugin, Fixed" {
+		t.Errorf("title = %v, want the revision to have landed", got.Title)
+	}
+	if got.StashID == nil || *got.StashID != stashID {
+		t.Errorf("stash id = %v, want it preserved across a revision", got.StashID)
+	}
+	if got.Endpoint == nil || *got.Endpoint != endpoint {
+		t.Errorf("endpoint = %v, want it preserved across a revision", got.Endpoint)
+	}
+}
+
+// Recency is a tie-break in derivation, so it may only move when the claim
+// moves. A re-submitted identical form -- a bulk re-push, say -- must not
+// walk the proposal up the ordering.
+func TestRecordProposal_UnchangedResubmitDoesNotMoveRecency(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+	relID := mkRelease(t, st, "bb22bb22bb22bb22", "other.file")
+	acctID := mkAccount(t, st, "recency-holder")
+	p := MetadataProposal{ReleaseID: relID, ProposedBy: &acctID, Title: strPtr("Steady")}
+	if _, err := st.RecordProposal(ctx, p); err != nil {
+		t.Fatalf("RecordProposal: %v", err)
+	}
+	before := proposalCreatedAt(t, st, relID, acctID)
+
+	if _, err := st.RecordProposal(ctx, p); err != nil {
+		t.Fatalf("RecordProposal (identical): %v", err)
+	}
+	if got := proposalCreatedAt(t, st, relID, acctID); !got.Equal(before) {
+		t.Errorf("created_at moved on an unchanged re-submit: %v -> %v", before, got)
+	}
+
+	p.Title = strPtr("Actually Different")
+	if _, err := st.RecordProposal(ctx, p); err != nil {
+		t.Fatalf("RecordProposal (changed): %v", err)
+	}
+	if got := proposalCreatedAt(t, st, relID, acctID); !got.After(before) {
+		t.Errorf("created_at did not move on a real revision: %v -> %v", before, got)
+	}
+}
+
+// proposalCreatedAt reads the recency stamp derivation tie-breaks on.
+func proposalCreatedAt(t *testing.T, s *Store, releaseID, accountID int64) time.Time {
+	t.Helper()
+	var at time.Time
+	if err := s.pool.QueryRow(context.Background(),
+		`SELECT created_at FROM release_metadata_proposals WHERE release_id = $1 AND proposed_by = $2`,
+		releaseID, accountID).Scan(&at); err != nil {
+		t.Fatalf("reading created_at: %v", err)
+	}
+	return at
+}
+
+// "Naming one encode names its siblings" is the point of deriving across a
+// work, and it has to hold when the proposal arrives AFTER the grouping --
+// which is the ordinary case, since a work is usually discovered later.
+// Deriving only the release the proposal was filed against leaves every
+// sibling's cached columns and retrieval tokens showing the old answer.
+func TestDeriveAfterProposal_ReachesWorkSiblings(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+
+	mine := mkRelease(t, st, "cc33cc33cc33cc33", "encode.one")
+	theirs := mkRelease(t, st, "dd44dd44dd44dd44", "encode.two")
+	if _, err := st.LinkReleases(ctx, mine, theirs); err != nil {
+		t.Fatalf("LinkReleases: %v", err)
+	}
+
+	acctID := mkAccount(t, st, "sibling-namer")
+	if _, err := st.RecordProposal(ctx, MetadataProposal{
+		ReleaseID: mine, ProposedBy: &acctID, Title: strPtr("The Shared Film"),
+	}); err != nil {
+		t.Fatalf("RecordProposal: %v", err)
+	}
+	if err := st.DeriveAfterProposal(ctx, mine); err != nil {
+		t.Fatalf("DeriveAfterProposal: %v", err)
+	}
+
+	sibling, err := st.GetReleaseByID(ctx, theirs)
+	if err != nil {
+		t.Fatalf("GetReleaseByID: %v", err)
+	}
+	if sibling.Title == nil || *sibling.Title != "The Shared Film" {
+		t.Errorf("sibling title = %v, want the name derived across the work", sibling.Title)
 	}
 }

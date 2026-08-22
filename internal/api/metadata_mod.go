@@ -80,8 +80,8 @@ func (s *Server) handleModReleaseUnconfirm(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if err := s.Store.DeriveMetadata(ctx, id); err != nil {
-		log.Printf("api: DeriveMetadata after unconfirm: %v", err)
+	if err := s.Store.DeriveAfterProposal(ctx, id); err != nil {
+		log.Printf("api: DeriveAfterProposal after unconfirm: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -116,8 +116,8 @@ func (s *Server) handleModReleasePurgeMetadata(w http.ResponseWriter, r *http.Re
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if err := s.Store.DeriveMetadata(ctx, id); err != nil {
-		log.Printf("api: DeriveMetadata after purge: %v", err)
+	if err := s.Store.DeriveAfterProposal(ctx, id); err != nil {
+		log.Printf("api: DeriveAfterProposal after purge: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -175,6 +175,18 @@ func (s *Server) handleReleaseProposeMetadata(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// A bad id would otherwise surface as the foreign key violation
+	// RecordProposal returns, logged as an internal error -- which is what
+	// a typo'd URL should not look like to either of us.
+	if _, rerr := s.Store.GetReleaseByID(ctx, id); errors.Is(rerr, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	} else if rerr != nil {
+		log.Printf("api: GetReleaseByID (propose): %v", rerr)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
 	recorded, err := s.Store.RecordProposal(ctx, store.MetadataProposal{
 		ReleaseID:   id,
 		ProposedBy:  &ares.Account.ID,
@@ -192,8 +204,8 @@ func (s *Server) handleReleaseProposeMetadata(w http.ResponseWriter, r *http.Req
 		s.renderReleasePage(w, r, id, http.StatusBadRequest, "nothing to record — fill in at least one field")
 		return
 	}
-	if err := s.Store.DeriveMetadata(ctx, id); err != nil {
-		log.Printf("api: DeriveMetadata(release %d): %v", id, err)
+	if err := s.Store.DeriveAfterProposal(ctx, id); err != nil {
+		log.Printf("api: DeriveAfterProposal(release %d): %v", id, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

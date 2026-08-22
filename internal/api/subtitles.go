@@ -233,8 +233,8 @@ func (s *Server) recordUploadMetadata(ctx context.Context, releaseID, accountID 
 	if !recorded {
 		return
 	}
-	if err := s.Store.DeriveMetadata(ctx, releaseID); err != nil {
-		log.Printf("api: DeriveMetadata(release %d): %v", releaseID, err)
+	if err := s.Store.DeriveAfterProposal(ctx, releaseID); err != nil {
+		log.Printf("api: DeriveAfterProposal(release %d): %v", releaseID, err)
 	}
 }
 

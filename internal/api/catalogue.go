@@ -52,21 +52,14 @@ type ownVote struct {
 // rather than in the template, since html/template's default formatting of
 // a pointer to a scalar prints its address, not its value.
 type catalogueRelease struct {
-	ID    int64
-	Title string // never empty — see displayTitle
-	// CuratedTitle is the title a human actually asserted, empty when
-	// nobody has. Separate from Title because Title falls back to a
-	// cleaned filename or "(untitled)": pre-filling a correction form
-	// from that would let a Send launder the server's own rendering into
-	// an asserted name, which is exactly what releaseIsIndexable exists
-	// to prevent.
-	CuratedTitle string
-	Studio       string // "" when unknown
-	ReleaseDate  string // "" when unknown, else the stored YYYY-MM-DD
-	Duration     string // "" when unknown, else "M:SS" or "H:MM:SS"
-	Resolution   string // "" when unknown, else "WIDTHxHEIGHT"
-	Performers   []string
-	Tracks       []catalogueTrack
+	ID          int64
+	Title       string // never empty — see displayTitle
+	Studio      string // "" when unknown
+	ReleaseDate string // "" when unknown, else the stored YYYY-MM-DD
+	Duration    string // "" when unknown, else "M:SS" or "H:MM:SS"
+	Resolution  string // "" when unknown, else "WIDTHxHEIGHT"
+	Performers  []string
+	Tracks      []catalogueTrack
 	// StashLinks is migration 0011's stash-box scene identities (WP-C9a),
 	// rendered as "On StashDB ↗" links — populated only by
 	// renderReleasePage (browse/search never show it, so their callers
@@ -274,12 +267,11 @@ func buildCatalogueRelease(r store.Release, tracks []store.SubtitleTrackSummary,
 		title = "(untitled)"
 	}
 	out := catalogueRelease{
-		ID:           r.ID,
-		Title:        title,
-		CuratedTitle: curatedTitle(r),
-		Duration:     formatDuration(r.DurationMs),
-		Resolution:   formatResolution(r.Width, r.Height),
-		Performers:   r.Performers,
+		ID:         r.ID,
+		Title:      title,
+		Duration:   formatDuration(r.DurationMs),
+		Resolution: formatResolution(r.Width, r.Height),
+		Performers: r.Performers,
 	}
 	if r.Studio != nil {
 		out.Studio = *r.Studio
@@ -565,6 +557,24 @@ type releasePageData struct {
 	// work — a different encode of the same video. Empty for an ungrouped
 	// release, which is the common case.
 	Siblings []siblingTrackView
+	// Mine is what the viewer has already claimed about this release, and
+	// the only thing the correction form pre-fills. Deliberately not the
+	// release's derived values: those are everyone's evidence resolved,
+	// and pre-filling them would mean a user correcting one field silently
+	// files the other three as their own claim too — manufacturing the
+	// agreement that derivation uses as its anti-vandal tie-break. Nil
+	// until the viewer has said something, so the form opens blank and
+	// "leave a field blank to say nothing about it" is literally true.
+	Mine *proposalForm
+}
+
+// proposalForm is one account's own proposal in the shape the form needs:
+// flat strings, performers already joined, empty where nothing was said.
+type proposalForm struct {
+	Title       string
+	Studio      string
+	Performers  string
+	ReleaseDate string
 }
 
 // siblingTrackView is one sibling track as the release page shows it. The
@@ -666,6 +676,7 @@ func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id in
 	}
 	if ares != nil {
 		data.LoggedIn = true
+		data.Mine = s.viewerProposal(ctx, release.ID, ares.Account.ID)
 		if err := s.applyViewerVoteState(ctx, &data.Release, ares.Account.ID); err != nil {
 			// The page still renders without "your vote" state — an
 			// aggregate query hiccup here shouldn't take down the whole
@@ -676,6 +687,31 @@ func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id in
 	}
 
 	s.renderPage(w, r, status, "release.html", data, false)
+}
+
+// viewerProposal reads what accountID has already claimed about a release,
+// for the correction form to pre-fill. A viewer who has claimed nothing
+// gets nil — and so does a lookup that fails, since an empty form is a
+// correct thing to show and a half-rendered one is not.
+func (s *Server) viewerProposal(ctx context.Context, releaseID, accountID int64) *proposalForm {
+	p, err := s.Store.ProposalBy(ctx, releaseID, accountID)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			log.Printf("api: ProposalBy(release %d): %v", releaseID, err)
+		}
+		return nil
+	}
+	f := &proposalForm{Performers: strings.Join(p.Performers, ", ")}
+	if p.Title != nil {
+		f.Title = *p.Title
+	}
+	if p.Studio != nil {
+		f.Studio = *p.Studio
+	}
+	if p.ReleaseDate != nil {
+		f.ReleaseDate = *p.ReleaseDate
+	}
+	return f
 }
 
 // applyViewerVoteState fills in rel's tracks' IsOwn/MyVote for a logged-in

@@ -12,12 +12,14 @@
   <summary>Know what this is? Correct the details</summary>
   <p class="hint">What you send is recorded as your own account of this
   scene, alongside everyone else's — it does not overwrite anyone. Leave a
-  field blank to say nothing about it.</p>
+  field blank to say nothing about it. These boxes hold what
+  <em>you</em> have said before, not what the page currently shows, so
+  sending does not sign your name to anyone else's claims.</p>
   <form method="post" action="/release/{{.Release.ID}}/metadata">
-    <label>Title<input type="text" name="title" value="{{.Release.CuratedTitle}}" maxlength="255"></label>
-    <label>Studio<input type="text" name="studio" value="{{.Release.Studio}}" maxlength="255"></label>
-    <label>Performers<input type="text" name="performers" value="{{range $i, $p := .Release.Performers}}{{if $i}}, {{end}}{{$p}}{{end}}" placeholder="comma separated"></label>
-    <label>Date<input type="text" name="date" value="{{.Release.ReleaseDate}}" placeholder="YYYY-MM-DD"></label>
+    <label>Title<input type="text" name="title" value="{{with .Mine}}{{.Title}}{{end}}" maxlength="300"></label>
+    <label>Studio<input type="text" name="studio" value="{{with .Mine}}{{.Studio}}{{end}}" maxlength="200"></label>
+    <label>Performers<input type="text" name="performers" value="{{with .Mine}}{{.Performers}}{{end}}" placeholder="comma separated"></label>
+    <label>Date<input type="text" name="date" value="{{with .Mine}}{{.ReleaseDate}}{{end}}" placeholder="YYYY-MM-DD"></label>
     <button type="submit">Send</button>
   </form>
 </details>

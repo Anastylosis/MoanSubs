@@ -806,6 +806,30 @@ Any logged-in account can correct a release from its page. Contribution is
 cheap and revisable; what a moderator gates is **indexing**, which is where
 the irreversible harm lives.
 
+The correction form holds **your own** previous claim, not what the page
+currently displays. That distinction is load-bearing rather than cosmetic:
+the displayed values are everyone's evidence resolved, and offering them
+back would mean a person fixing one field silently files the other three
+under their own name — manufacturing the agreement between accounts that
+derivation uses as its anti-vandal tie-break. So a field you have never
+filled in opens blank, and leaving it blank really does say nothing about
+it. A revision keeps whatever stash-box provenance your earlier claim
+carried, since the form has no field for one and dropping it would make
+fixing a typo cost you the strongest evidence you had. Re-submitting an
+unchanged form is a no-op, recency included.
+
+Clearing every box and sending **withdraws** your claim: the account's own
+proposal is deleted and the record re-derived from whatever everyone else
+said. Nobody else's evidence is touched, which is the difference between
+this and a moderator's purge — withdrawing undoes one person's mistake,
+purging makes a name leave the database. A withdrawal will not visibly
+move a pinned release, and should not: the pin is a moderator's snapshot,
+held until someone unpins it.
+
+A proposal is evidence for every release in its work, so filing one
+re-derives all of them — the sibling encodes someone else pulled your
+subtitles for show the new name on their own pages, not just yours.
+
 On `/mod/release/{id}`:
 
 - **Confirm** pins the current derived values and lets the page be
