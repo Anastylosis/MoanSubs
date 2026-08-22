@@ -31,6 +31,10 @@ settings:
     displayName: Stash API key
     description: Used instead of the session cookie, which expires mid-run on long tasks
     type: STRING
+  hide_push_button:
+    displayName: Hide the per-scene push button
+    description: Stop offering "Push local subs" on scene pages. Worded as an opt-out because a Stash checkbox cannot default to checked - leave it unticked and the button appears whenever a scene has local subtitles and an upload token is set.
+    type: BOOLEAN
   exact_mode:
     displayName: Full-hash lookup
     description: Send full fingerprints to the server for wider fuzzy matching (reveals exact hashes to the server operator)

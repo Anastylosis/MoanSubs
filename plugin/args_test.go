@@ -72,3 +72,45 @@ func TestManifest_DryRunTaskDeclaresDryRun(t *testing.T) {
 		t.Errorf("the dry-run task does not declare mode: push_all:\n%s", block)
 	}
 }
+
+// The per-scene push button is offered unless this setting is ticked. A
+// Stash BOOLEAN cannot default to checked, so "default on" is spelled as
+// an opt-out — which only works while the manifest key and the key the UI
+// half reads are the same string. Renaming one and not the other leaves a
+// toggle that does nothing, silently.
+func TestManifest_PushButtonToggleIsAnOptOutTheUIReads(t *testing.T) {
+	const key = "hide_push_button"
+
+	manifest, err := os.ReadFile("moansubs.yml")
+	if err != nil {
+		t.Fatalf("reading manifest: %v", err)
+	}
+	// The setting's own block: its indented lines, up to the next key.
+	lines := strings.Split(string(manifest), "\n")
+	var block []string
+	for i, ln := range lines {
+		if ln != "  "+key+":" {
+			continue
+		}
+		for _, sub := range lines[i+1:] {
+			if !strings.HasPrefix(sub, "    ") {
+				break
+			}
+			block = append(block, sub)
+		}
+	}
+	if len(block) == 0 {
+		t.Fatalf("manifest declares no %s setting", key)
+	}
+	if !strings.Contains(strings.Join(block, "\n"), "type: BOOLEAN") {
+		t.Errorf("%s is not a BOOLEAN setting:\n%s", key, strings.Join(block, "\n"))
+	}
+
+	ui, err := os.ReadFile("moansubs.js")
+	if err != nil {
+		t.Fatalf("reading UI half: %v", err)
+	}
+	if !strings.Contains(string(ui), key) {
+		t.Errorf("the UI half never reads %s, so the toggle does nothing", key)
+	}
+}

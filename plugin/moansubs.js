@@ -34,6 +34,16 @@
     return body.data;
   }
 
+  // Plugin settings live in Stash's own configuration, so the UI half can
+  // read them without spending an exec round trip. Deliberately re-read per
+  // scene rather than cached: a toggle the user just flipped should take
+  // effect on the next scene page, not after a browser reload.
+  async function pluginSettings() {
+    const data = await gql("query { configuration { plugins } }");
+    return (data.configuration && data.configuration.plugins &&
+      data.configuration.plugins[PLUGIN_ID]) || {};
+  }
+
   async function runOp(args) {
     const data = await gql(
       `mutation($id: ID!, $args: Map!) { runPluginOperation(plugin_id: $id, args: $args) }`,
@@ -465,6 +475,14 @@
   const pushStatusCache = new Map(); // sceneId -> push_status result
 
   async function offerPush(panel, sceneId) {
+    // Opt-out, not opt-in: the setting is absent until someone ticks it,
+    // and absent has to mean "offer the button" (see moansubs.yml).
+    try {
+      if ((await pluginSettings()).hide_push_button) return;
+    } catch (err) {
+      console.debug("[moansubs] reading settings failed:", err.message);
+      return;
+    }
     let status = pushStatusCache.get(sceneId);
     if (!status) {
       try {

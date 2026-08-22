@@ -53,6 +53,7 @@ want to upload or vote.
 | **moansubs server URL** | Base URL of a moansubs server. Leave empty for the public node (https://moansubs.org), or set to e.g. `https://subs.example` or `http://moansubs:8080` when both run in Docker on one host (see MANUAL.md on hairpin NAT). |
 | **Upload token** | Your account's API token — register by opening the server's address in a browser (`/register`), or ask the operator on an invite-only node; your token is on the account page (`/me`) if you ever need it again. Only needed for pushing; downloads are anonymous. |
 | **Stash API key** | Recommended if your Stash has auth: the session cookie Stash hands plugins expires mid-run on long tasks. |
+| **Hide the per-scene push button** | Off. Ticking it stops the *Push local subs* button from appearing on scene pages. It reads as an opt-out because a Stash checkbox cannot default to checked — an unticked box means the button is offered. |
 | **Full-hash lookup** | Off by default. Sends complete fingerprints to the server for wider fuzzy matching (Hamming ≤8 instead of ≤4) — reveals your exact hashes to the node operator. |
 
 **Enable phash generation in Stash** (Settings → Tasks → Generate →
@@ -108,7 +109,9 @@ across different people's libraries is nearly never.
   there / skipped) in the panel. The disk check runs on the Stash machine,
   not in the browser, so it sees files a metadata scan hasn't picked up
   yet; suffix-less captions (`<stem>.srt`) are not counted, because the
-  push skips them.
+  push skips them. Turn the button off entirely with the *Hide the
+  per-scene push button* setting; the toggle applies to the next scene
+  page you open, with no reload needed.
 - **Scene cards** get a small **CC** badge when the server has subtitles
   for that scene. Badges for a whole wall resolve in one batched call; if
   the server is down they simply don't appear.
