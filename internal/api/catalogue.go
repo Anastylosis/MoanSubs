@@ -370,17 +370,36 @@ Disallow: /search
 Disallow: /upload
 `
 
+// robotsFrontOnly is /robots.txt for a node that wants to be findable
+// without publishing its catalogue: the front page is offered, everything
+// else is not.
+//
+// The posture a new node wants. A catalogue whose releases are mostly named
+// from filenames has nothing to gain from being crawled and something to
+// lose, but the project itself still has to be findable by name. `Allow`
+// with `$` anchors the exception to the front page exactly, rather than to
+// everything beginning with a slash; the static assets are allowed so a
+// preview card can fetch the icon it names.
+const robotsFrontOnly = `User-agent: *
+Allow: /$
+Allow: /static/
+Disallow: /
+`
+
 // handleRobotsTxt implements GET /robots.txt (WP-C2): every catalogue page
 // also sends its own X-Robots-Tag, but a well-behaved crawler checks
 // robots.txt before ever fetching a page at all.
 func (s *Server) handleRobotsTxt(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	body := robotsClosed
-	if s.Indexable {
+	switch {
+	case s.Indexable:
 		// The sitemap line carries an absolute URL by protocol, and is only
 		// meaningful on the node that serves one: /sitemap.xml 404s when
 		// this node does not index.
 		body = robotsOpen + "Sitemap: " + s.publicBase(r) + "/sitemap.xml\n"
+	case s.IndexFrontPage:
+		body = robotsFrontOnly
 	}
 	_, _ = w.Write([]byte(body))
 }

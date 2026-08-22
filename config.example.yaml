@@ -74,6 +74,15 @@ age_gate: true
 # are confirmed, whatever this says. (MOANSUBS_INDEXABLE)
 indexable: false
 
+# Offer the FRONT PAGE ONLY to search engines, while the catalogue stays
+# unlisted: robots.txt allows "/" and disallows everything else, and
+# crawlers are let past the age gate for "/" alone. The sensible launch
+# posture — a catalogue of filename-titled releases has nothing to gain
+# from being crawled, but the project still has to be findable by name.
+# Ignored when `indexable` is on, which already offers strictly more.
+# (MOANSUBS_INDEX_FRONT_PAGE)
+index_front_page: false
+
 # Accent colour, six hex digits. Only the hue and saturation survive: the
 # lightness is re-derived per theme until it clears WCAG AA on both the
 # page and surface backgrounds, so a colour that looked good in isolation

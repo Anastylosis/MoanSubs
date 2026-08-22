@@ -45,3 +45,12 @@ plugin/dist/
 # Operator-supplied TLS cert and key for the deploy kit (deploy/README.md).
 # A private key must never enter this repository.
 deploy/certs/
+
+# The filled-in copies of the deploy kit's *.example files. Each one holds
+# something private -- an analytics hostname, a certificate path, object
+# storage credentials -- and each is created by renaming a tracked example,
+# which is exactly the shape that gets committed by accident.
+deploy/dynamic/analytics.yml
+deploy/dynamic/tls.yml
+deploy/backup/rclone.conf
+deploy/.env

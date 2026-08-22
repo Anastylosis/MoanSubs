@@ -38,10 +38,11 @@ type File struct {
 	TokenKey          *string  `yaml:"token_key"`
 	TrustedProxyCIDRs []string `yaml:"trusted_proxy_cidrs"`
 
-	AgeGate   *bool   `yaml:"age_gate"`
-	Indexable *bool   `yaml:"indexable"`
-	Accent    *string `yaml:"accent"`
-	DumpURL   *string `yaml:"dump_url"`
+	AgeGate        *bool   `yaml:"age_gate"`
+	Indexable      *bool   `yaml:"indexable"`
+	IndexFrontPage *bool   `yaml:"index_front_page"`
+	Accent         *string `yaml:"accent"`
+	DumpURL        *string `yaml:"dump_url"`
 
 	Registration   *string `yaml:"registration"`
 	SessionTTL     *string `yaml:"session_ttl"`
@@ -121,6 +122,7 @@ func (f *File) env() map[string]string {
 
 	setBool("MOANSUBS_AGE_GATE", f.AgeGate)
 	setBool("MOANSUBS_INDEXABLE", f.Indexable)
+	setBool("MOANSUBS_INDEX_FRONT_PAGE", f.IndexFrontPage)
 	set("MOANSUBS_ACCENT", f.Accent)
 	set("MOANSUBS_DUMP_URL", f.DumpURL)
 

@@ -50,7 +50,14 @@ func (s *Server) page(h http.HandlerFunc) http.HandlerFunc {
 		// enter" and nothing else. This does serve a crawler what a
 		// first-time human doesn't get — MANUAL.md states the trade
 		// plainly, and MOANSUBS_INDEXABLE is the operator opting into it.
-		if s.Indexable && isCrawler(r.Header.Get("User-Agent")) {
+		//
+		// A front-page-only node makes the same trade for exactly one URL.
+		// Narrowed to "/" deliberately rather than following robots.txt:
+		// a crawler that ignores robots.txt would otherwise be handed the
+		// whole catalogue past the gate, which is the opposite of what
+		// choosing front-page-only means.
+		if isCrawler(r.Header.Get("User-Agent")) &&
+			(s.Indexable || (s.IndexFrontPage && r.URL.Path == "/")) {
 			h(w, r)
 			return
 		}

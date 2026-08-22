@@ -61,6 +61,7 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_TRUSTED_PROXY_CIDRS` | *(unset)* | Comma-separated CIDRs (e.g. `172.28.0.0/24,10.0.0.0/8`) — list **every** hop's range, not just the one directly in front of this node: if a CDN sits in front of the reference Traefik, its published ranges belong here too, alongside Traefik's own address or subnet. The rate limiters' `X-Forwarded-For` handling only trusts the header when the request's direct peer address falls inside one of these — see "Reverse proxies" below. It also gates whether `X-Forwarded-Proto: https` is believed for the session cookie's `Secure` flag. Unset means none are trusted. |
 | `MOANSUBS_SEARCH_RATE_PER_MINUTE` | `30` | Per-IP budget for `GET /search`. The only catalogue page where an anonymous visitor makes the database do real work (a GIN array-overlap query), rather than an indexed lookup by prefix or id. |
 | `MOANSUBS_DUMP_URL` | *(unset)* | Link the front page shows under "download the latest dump". Publishing a dump (WP-B2, `moansubs dump`) is an out-of-band operator choice; unset hides the link entirely. |
+| `MOANSUBS_INDEX_FRONT_PAGE` | `false` | Offer the **front page only** to search engines while the catalogue stays unlisted: `/robots.txt` allows `/` and disallows everything else, and crawlers are let past the age gate for `/` alone. The launch posture for a new node — the project should be findable by name long before a catalogue of filename-titled releases is worth publishing. `/sitemap.xml` still 404s, since there is no catalogue on offer. Ignored when `MOANSUBS_INDEXABLE` is on, which already offers strictly more. |
 | `MOANSUBS_AUTOCONFIRM` | `false` | Lets a trusted account's stash-box-backed metadata pin itself, with no moderator. Does nothing until at least one account is marked with `moansubs account trust <name>` — see "Auto-confirming" below for what qualifies and what it deliberately refuses. |
 | `MOANSUBS_AUTOCONFIRM_ENDPOINTS` | `https://stashdb.org/graphql,https://theporndb.net/graphql` | Which stash-boxes' ids may pin a name with no moderator, when `MOANSUBS_AUTOCONFIRM` is on. Deliberately narrower than `MOANSUBS_STASH_ENDPOINTS`: a node can accept ids from a broad, loosely-curated database for *matching* — which is where breadth pays — without letting them *publish* a name uncorrected on a page a crawler will cache. Same syntax, including `*`; an empty value means the default, and a list naming nothing valid is a startup error. |
 | `MOANSUBS_PUBLIC_URL` | *(derived)* | This node's origin as visitors reach it, e.g. `https://moansubs.org`. Used for the absolute URLs the sitemap protocol and Open Graph link previews both require. Unset — the default — derives it per request from the `Host` header, with the scheme following the same trusted-proxy rule as the session cookie's `Secure` attribute (`MOANSUBS_TRUSTED_PROXY_CIDRS`). Set it when the node answers to more than one name and you want one canonical form. |
@@ -996,6 +997,28 @@ pinned stay pinned, and a moderator unpins those.
 An auto-confirmed pin records no `confirmed_by`: nobody clicked, and
 putting a moderator's name on a decision they did not make would be a lie
 the evidence table then repeats.
+
+#### Findable without publishing the catalogue
+
+There are three states, not two:
+
+| | `/robots.txt` | crawler past the age gate | `/sitemap.xml` |
+|---|---|---|---|
+| neither set | blanket `Disallow: /` | no | 404 |
+| `MOANSUBS_INDEX_FRONT_PAGE` | `/` allowed, rest disallowed | for `/` only | 404 |
+| `MOANSUBS_INDEXABLE` | catalogue allowed | yes | served |
+
+The middle one exists because the other two are a bad choice for a new
+node. A catalogue whose releases are mostly named from filenames has
+nothing to gain from being crawled — those show as `(untitled)` in a
+crawlable listing anyway — while the project itself still has to be
+findable by name. Front-page-only gives you the second without the first,
+and turning on the full thing later is one variable.
+
+The age-gate exception is narrowed to `/` rather than following
+`robots.txt`, deliberately: a crawler that ignores `robots.txt` would
+otherwise be handed the whole catalogue past the gate, which is the
+opposite of what choosing this mode means.
 
 #### Getting listed
 

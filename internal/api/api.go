@@ -308,6 +308,14 @@ type Server struct {
 	// falls back to that default.
 	AutoConfirmEndpoints []string
 
+	// IndexFrontPage offers the front page to crawlers on a node whose
+	// catalogue stays unlisted (MOANSUBS_INDEX_FRONT_PAGE). The launch
+	// posture for a new node: the project should be findable by name long
+	// before a catalogue of filename-titled releases is worth publishing.
+	//
+	// Ignored when Indexable is set, which already offers strictly more.
+	IndexFrontPage bool
+
 	// PublicURL is this node's origin as visitors reach it
 	// (MOANSUBS_PUBLIC_URL), used for the absolute URLs the sitemap
 	// protocol and Open Graph both require. Empty — the default — derives

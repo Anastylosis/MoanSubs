@@ -200,6 +200,18 @@ var serveCmd = &cobra.Command{
 			metadataRate = n
 		}
 
+		// Offer the front page to crawlers while the catalogue stays
+		// unlisted -- the launch posture for a node whose releases are
+		// still mostly named from filenames.
+		indexFrontPage := false
+		if v := os.Getenv("MOANSUBS_INDEX_FRONT_PAGE"); v != "" {
+			b, perr := strconv.ParseBool(v)
+			if perr != nil {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_INDEX_FRONT_PAGE %q", v)
+			}
+			indexFrontPage = b
+		}
+
 		// Auto-confirm, off by default. Pinning is what opens a page to
 		// crawlers, so switching this on is an operator saying they stand
 		// behind the accounts they have marked trusted -- and it does
@@ -398,6 +410,7 @@ var serveCmd = &cobra.Command{
 		apiSrv.MetadataLimiter = api.NewRateLimiter(metadataRate)
 		apiSrv.PublicURL = publicURL
 		apiSrv.AutoConfirm = autoConfirm
+		apiSrv.IndexFrontPage = indexFrontPage
 		apiSrv.AutoConfirmEndpoints = autoConfirmEndpoints
 		// version is main.go's ldflags-stamped build var ("dev" when built
 		// without them); GET /api/v1/version reports whatever this process
