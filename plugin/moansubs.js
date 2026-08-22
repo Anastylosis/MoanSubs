@@ -449,6 +449,76 @@
       }
     }
     body.prepend(note);
+    // The download just changed what is on disk, so the push offer's
+    // cached answer for this scene is now stale.
+    pushStatusCache.delete(sceneId);
+    offerPush(panel, sceneId);
+  }
+
+  // -- Push local subs ------------------------------------------------------
+
+  // Whether a scene has sidecars is a question only the exec half can
+  // answer (they live on the Stash machine's disk, and Stash's caption
+  // records exist only after a metadata scan), so the offer costs one
+  // round trip per scene. Cached for the page session; invalidated by
+  // anything this panel does to the disk.
+  const pushStatusCache = new Map(); // sceneId -> push_status result
+
+  async function offerPush(panel, sceneId) {
+    let status = pushStatusCache.get(sceneId);
+    if (!status) {
+      try {
+        status = await runOp({ mode: "push_status", scene_id: sceneId });
+      } catch (err) {
+        // A scene we cannot inspect simply gets no offer — the panel must
+        // not open with an error nobody asked for.
+        console.debug("[moansubs] push status failed:", err.message);
+        return;
+      }
+      pushStatusCache.set(sceneId, status);
+    }
+    // The page may have moved on during the await.
+    if (!panel.isConnected || panel.dataset.scene !== sceneId) return;
+    if (panel.querySelector(".moansubs-push")) return;
+    if (!status.has_token || !status.sidecars || !status.sidecars.length) return;
+
+    const btn = document.createElement("button");
+    btn.className = "btn btn-sm btn-outline-secondary moansubs-push ml-2";
+    btn.textContent = "Push local subs";
+    btn.title =
+      "Upload this scene's sidecar subtitles (" +
+      status.sidecars.join(", ") +
+      ") to the moansubs server";
+    btn.onclick = () => push(panel, sceneId, btn);
+    panel.querySelector(".moansubs-search").after(btn);
+  }
+
+  async function push(panel, sceneId, btn) {
+    const body = panel.querySelector(".moansubs-body");
+    const note = document.createElement("div");
+    btn.disabled = true;
+    btn.textContent = "Pushing\u2026";
+    try {
+      const res = await runOp({ mode: "push", scene_id: sceneId });
+      const parts = [];
+      if (res.uploaded) parts.push(res.uploaded + " uploaded");
+      if (res.duplicates) parts.push(res.duplicates + " already there");
+      if (res.skipped) parts.push(res.skipped + " skipped");
+      if (res.errors) parts.push(res.errors + " failed");
+      note.className = res.errors
+        ? "alert alert-warning py-1 px-2"
+        : "alert alert-success py-1 px-2";
+      note.textContent =
+        (parts.length ? parts.join(", ") : "Nothing to push") +
+        (res.notes && res.notes.length ? " \u2014 " + res.notes.join("; ") : "");
+    } catch (err) {
+      note.className = "alert alert-danger py-1 px-2";
+      note.textContent = err.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Push local subs";
+    }
+    body.prepend(note);
   }
 
   function injectScenePanel() {
@@ -501,6 +571,7 @@
     });
 
     host.appendChild(panel);
+    offerPush(panel, sceneId);
   }
 
   // -- wiring ---------------------------------------------------------------

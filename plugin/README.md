@@ -99,6 +99,16 @@ across different people's libraries is nearly never.
   bare ISO 639 subtags — the panel tells you when this happens. An
   existing caption file is never overwritten without an explicit
   *Overwrite* click.
+- **Push local subs**: a second button next to *Find subtitles*, shown
+  only when this scene already has sidecar subtitles on disk **and** an
+  upload token is set — the two things a push needs, so a button that
+  appears is a button that will do something. It uploads that one scene's
+  sidecars, with the same rules and the same name metadata as the
+  library-wide task below, and reports what happened (uploaded / already
+  there / skipped) in the panel. The disk check runs on the Stash machine,
+  not in the browser, so it sees files a metadata scan hasn't picked up
+  yet; suffix-less captions (`<stem>.srt`) are not counted, because the
+  push skips them.
 - **Scene cards** get a small **CC** badge when the server has subtitles
   for that scene. Badges for a whole wall resolve in one batched call; if
   the server is down they simply don't appear.
@@ -169,7 +179,9 @@ releases, not because the hashes matched.
 - **Push subtitles (dry run)** — walks the library and reports which
   sidecar files *would* be uploaded. Needs no upload token: nothing is
   sent, so this works before you have an account.
-- **Push subtitles** — uploads every sidecar subtitle in the library.
+- **Push subtitles** — uploads every sidecar subtitle in the library. To
+  push a single scene instead, use the *Push local subs* button on its
+  page (see above).
   Needs an upload token (Settings above) and stops immediately without
   one, rather than failing per file.
   Safe to re-run: the server returns duplicates instead of storing copies.

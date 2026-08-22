@@ -225,3 +225,48 @@ func (a *app) pushAll(ctx context.Context, dryRun bool) (any, error) {
 	logProgress(1)
 	return st, nil
 }
+
+// pushStatusResult is the "push_status" mode's output: what a per-scene
+// push would find, so the UI half can decide whether to offer the button
+// at all. Both halves of that decision live here rather than in the UI —
+// the sidecars are on the Stash machine's disk, which the browser cannot
+// see, and Stash's own caption records are not a substitute (they exist
+// only after a metadata scan, and only for the suffixes Stash parses).
+type pushStatusResult struct {
+	SceneID  string   `json:"scene_id"`
+	Sidecars []string `json:"sidecars"` // language suffixes, in discovery order
+	HasToken bool     `json:"has_token"`
+}
+
+// pushStatus handles mode "push_status". It is deliberately read-only and
+// tokenless: an answer of "nothing to push" or "no token" is the useful
+// one, so it must not fail the way push does.
+func (a *app) pushStatus(ctx context.Context, sceneID string) (any, error) {
+	if sceneID == "" {
+		return nil, fmt.Errorf("push_status: missing scene_id")
+	}
+	scene, err := a.stash.FindScene(ctx, sceneID)
+	if err != nil {
+		return nil, err
+	}
+	return sceneSidecarStatus(scene, a.ms.Token != ""), nil
+}
+
+// sceneSidecarStatus reports the languages pushScene would upload for this
+// scene, applying exactly the same discovery rules so the button never
+// promises a file the push then skips.
+func sceneSidecarStatus(scene *stash.Scene, hasToken bool) pushStatusResult {
+	res := pushStatusResult{SceneID: scene.ID, Sidecars: []string{}, HasToken: hasToken}
+	if len(scene.Files) == 0 {
+		return res
+	}
+	sidecars, err := discoverSidecars(scene.Files[0].Path)
+	if err != nil {
+		logWarning("push_status: scene %s: %v", scene.ID, err)
+		return res
+	}
+	for _, sc := range sidecars {
+		res.Sidecars = append(res.Sidecars, sc.Lang)
+	}
+	return res
+}
