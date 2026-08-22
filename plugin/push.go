@@ -7,8 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	stash "github.com/Anastylosis/stash-go"
+
 	"github.com/Anastylosis/MoanSubs/plugin/msclient"
-	"github.com/Anastylosis/MoanSubs/plugin/stash"
 	"golang.org/x/text/language"
 )
 
@@ -89,7 +90,7 @@ func (a *app) pushScene(ctx context.Context, scene *stash.Scene, dryRun bool, st
 	}
 	f := scene.Files[0]
 
-	oshashStr := f.Fingerprint("oshash")
+	oshashStr, _ := f.Fingerprint("oshash")
 	if oshashStr == "" {
 		return
 	}
@@ -120,8 +121,8 @@ func (a *app) pushScene(ctx context.Context, scene *stash.Scene, dryRun bool, st
 		}
 		res, err := a.ms.Upload(ctx, msclient.UploadRequest{
 			OSHash:     oshashStr,
-			PHash:      f.Fingerprint("phash"),
-			MD5:        f.Fingerprint("md5"),
+			PHash:      fingerprint(f, "phash"),
+			MD5:        fingerprint(f, "md5"),
 			DurationMs: int64(f.Duration * 1000),
 			Lang:       sc.Lang,
 			Body:       string(body),
@@ -132,8 +133,8 @@ func (a *app) pushScene(ctx context.Context, scene *stash.Scene, dryRun bool, st
 			Title:      scene.Title,
 			Stem:       fileStem(f.Path),
 			Date:       scene.Date,
-			Studio:     scene.StudioName(),
-			Performers: scene.PerformerNames(),
+			Studio:     studioName(scene),
+			Performers: performerNames(scene),
 			// The scene's stash-box ids (WP-C9a) — sent with every upload so
 			// the server can attach them to the release, additive like the
 			// name metadata above.
@@ -177,7 +178,10 @@ func (a *app) push(ctx context.Context, sceneID string, dryRun bool) (any, error
 	if sceneID == "" {
 		return nil, fmt.Errorf("push: missing scene_id")
 	}
-	scene, err := a.stash.FindScene(ctx, sceneID)
+	scene, found, err := a.stash.FindScene(ctx, sceneID)
+	if err == nil && !found {
+		err = fmt.Errorf("scene %s not found", sceneID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +207,7 @@ func (a *app) pushAll(ctx context.Context, dryRun bool) (any, error) {
 			st.note("stopped early: %v", err)
 			break
 		}
-		scenes, total, err := a.stash.FindScenesPage(ctx, page, perPage)
+		scenes, total, err := a.stash.FindScenes(ctx, stash.SceneFilter{}, page, perPage)
 		if err != nil {
 			return nil, fmt.Errorf("push_all: page %d: %w", page, err)
 		}
@@ -250,7 +254,10 @@ func (a *app) pushStatus(ctx context.Context, sceneID string) (any, error) {
 	if sceneID == "" {
 		return nil, fmt.Errorf("push_status: missing scene_id")
 	}
-	scene, err := a.stash.FindScene(ctx, sceneID)
+	scene, found, err := a.stash.FindScene(ctx, sceneID)
+	if err == nil && !found {
+		err = fmt.Errorf("scene %s not found", sceneID)
+	}
 	if err != nil {
 		return nil, err
 	}

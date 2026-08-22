@@ -8,10 +8,12 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
+
+	stash "github.com/Anastylosis/stash-go"
 
 	"github.com/Anastylosis/MoanSubs/internal/hash"
 	"github.com/Anastylosis/MoanSubs/plugin/msclient"
-	"github.com/Anastylosis/MoanSubs/plugin/stash"
 )
 
 // pluginID must match the id Stash derives from the plugin config filename
@@ -26,7 +28,12 @@ const DefaultServerURL = "https://moansubs.org"
 // server, both configured from the plugin input + plugin settings.
 type app struct {
 	stash *stash.Client
-	ms    *msclient.Client
+	// supportsCaptions is what Probe reports: whether this Stash can
+	// attach caption files at all. Nothing else needs it — the panel's own
+	// caption handling is a disk check, not a GraphQL one — so it is a
+	// diagnostic, not a switch on the scene queries.
+	supportsCaptions bool
+	ms               *msclient.Client
 	// exactMode mirrors the opt-in "exact_mode" plugin setting (full-hash
 	// lookup; PLAN.md "Lookup" — never the default).
 	exactMode bool
@@ -49,16 +56,18 @@ func newApp(ctx context.Context, input PluginInput) (*app, error) {
 	}
 	baseURL := fmt.Sprintf("%s://%s:%d", sc.Scheme, sc.Host, sc.Port)
 
-	// Bootstrap with cookie auth to read settings; upgrade to the API key
+	// Bootstrap with cookie auth to read settings; rebuild with the API key
 	// from settings for everything after (cookies expire mid-run on long
-	// tasks, stashapp/stash#5332).
-	st := stash.NewClient(baseURL, "", cookie)
+	// tasks, stashapp/stash#5332). A rebuild rather than a setter because
+	// the client is immutable — swapping auth under in-flight requests is
+	// not a thing worth supporting.
+	st := stash.NewClient(baseURL, stash.WithCookie(cookie), stash.WithHTTPClient(stashHTTPClient()))
 	settings, err := st.PluginSettings(ctx, pluginID)
 	if err != nil {
 		return nil, fmt.Errorf("reading plugin settings: %w", err)
 	}
 	if key, _ := settings["stash_api_key"].(string); key != "" {
-		st.UseAPIKey(key)
+		st = stash.NewClient(baseURL, stash.WithAPIKey(key), stash.WithHTTPClient(stashHTTPClient()))
 	}
 
 	serverURL, _ := settings["server_url"].(string)
@@ -69,15 +78,53 @@ func newApp(ctx context.Context, input PluginInput) (*app, error) {
 	token, _ := settings["token"].(string)
 	exact, _ := settings["exact_mode"].(bool)
 
-	// The captions probe runs once per task process: an unknown GraphQL
-	// field fails an entire query, and the schema shifts between releases.
-	st.ProbeCaptions(ctx)
+	// Probed once per task process. An introspection failure reads as
+	// "no", which is the conservative answer: it only downgrades a
+	// diagnostic line, never a query.
+	captions, _ := st.Supports(ctx, "captions")
 
 	return &app{
-		stash:     st,
-		ms:        msclient.New(serverURL, token),
-		exactMode: exact,
+		stash:            st,
+		ms:               msclient.New(serverURL, token),
+		exactMode:        exact,
+		supportsCaptions: captions,
 	}, nil
+}
+
+// stashHTTPClient is the transport every Stash call uses. The two-minute
+// timeout is for the library-wide tasks: findScenes over tens of thousands
+// of scenes is a slow query, and the default client has no timeout at all.
+func stashHTTPClient() *http.Client {
+	return &http.Client{Timeout: 2 * time.Minute}
+}
+
+// fingerprint is a file's fingerprint of the given kind, or "" when it has
+// none — the shape the upload payload wants, where an absent hash is simply
+// a field that is not sent.
+func fingerprint(f stash.File, kind string) string {
+	v, _ := f.Fingerprint(kind)
+	return v
+}
+
+// studioName is the scene's studio, or "" when it has none. A free function
+// rather than a method: Scene belongs to the shared client now.
+func studioName(s *stash.Scene) string {
+	if s.Studio == nil {
+		return ""
+	}
+	return s.Studio.Name
+}
+
+// performerNames is the scene's performers, in the order Stash reports them.
+func performerNames(s *stash.Scene) []string {
+	if len(s.Performers) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(s.Performers))
+	for _, p := range s.Performers {
+		out = append(out, p.Name)
+	}
+	return out
 }
 
 // probeResult is diagnostic output for the "probe" mode — surfaced in the
@@ -103,7 +150,7 @@ func (a *app) probe(ctx context.Context) (any, error) {
 	}
 	return probeResult{
 		StashOK:          true, // newApp already round-tripped settings
-		SupportsCaptions: a.stash.SupportsCaptions,
+		SupportsCaptions: a.supportsCaptions,
 		ServerURL:        a.ms.BaseURL,
 		ExactMode:        a.exactMode,
 		ServerVersion:    v.Version,
@@ -145,8 +192,8 @@ func sceneKeys(s *stash.Scene) (hash.OSHash, *hash.PHash, int64, string, []stash
 	}
 	f := s.Files[0]
 
-	oshashStr := f.Fingerprint("oshash")
-	if oshashStr == "" {
+	oshashStr, ok := f.Fingerprint("oshash")
+	if !ok || oshashStr == "" {
 		return "", nil, 0, "", nil, fmt.Errorf("scene %s has no oshash fingerprint", s.ID)
 	}
 	oh, err := hash.ParseOSHash(oshashStr)
@@ -155,7 +202,7 @@ func sceneKeys(s *stash.Scene) (hash.OSHash, *hash.PHash, int64, string, []stash
 	}
 
 	var ph *hash.PHash
-	if phStr := f.Fingerprint("phash"); phStr != "" {
+	if phStr, ok := f.Fingerprint("phash"); ok && phStr != "" {
 		// Stash's wire form is unpadded (PLAN.md hash rule 1); ParsePHash
 		// accepts that.
 		p, err := hash.ParsePHash(phStr)
@@ -201,7 +248,7 @@ func (a *app) msclientStashIDs(ctx context.Context, ids []stash.StashID, sceneID
 
 	for _, id := range ids {
 		// Validate the stash ID format
-		validID, err := hash.ParseStashID(id.StashID)
+		validID, err := hash.ParseStashID(id.ID)
 		if err != nil {
 			dropped = true
 			continue
@@ -300,7 +347,10 @@ func (a *app) search(ctx context.Context, sceneID string) (any, error) {
 	if sceneID == "" {
 		return nil, fmt.Errorf("search: missing scene_id")
 	}
-	scene, err := a.stash.FindScene(ctx, sceneID)
+	scene, found, err := a.stash.FindScene(ctx, sceneID)
+	if err == nil && !found {
+		err = fmt.Errorf("scene %s not found", sceneID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -415,8 +465,8 @@ func (a *app) nameMatchFallback(ctx context.Context, scene *stash.Scene, path st
 		Stem:       stem,
 		Title:      title,
 		Date:       scene.Date,
-		Studio:     scene.StudioName(),
-		Performers: scene.PerformerNames(),
+		Studio:     studioName(scene),
+		Performers: performerNames(scene),
 		DurationMs: durationMs,
 	})
 	if err != nil {
@@ -461,7 +511,10 @@ func (a *app) download(ctx context.Context, args downloadArgs) (any, error) {
 		return nil, fmt.Errorf("download: bad track_id %q", args.TrackID)
 	}
 
-	scene, err := a.stash.FindScene(ctx, args.SceneID)
+	scene, found, err := a.stash.FindScene(ctx, args.SceneID)
+	if err == nil && !found {
+		err = fmt.Errorf("scene %s not found", args.SceneID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -504,7 +557,7 @@ func (a *app) download(ctx context.Context, args downloadArgs) (any, error) {
 	if needsScan {
 		// Scan the containing directory on the Stash-side path — captions
 		// are read-only in GraphQL, a scan is the only attach mechanism.
-		jobID, err := a.stash.MetadataScan(ctx, []string{filepath.Dir(scenePath)})
+		jobID, err := a.stash.MetadataScan(ctx, stash.ScanOptions{Paths: []string{filepath.Dir(scenePath)}})
 		if err != nil {
 			// The file is on disk and correct; a failed scan trigger is
 			// recoverable by hand, so degrade to a warning, not a failure.

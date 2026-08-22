@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/Anastylosis/MoanSubs/plugin/msclient"
-	"github.com/Anastylosis/MoanSubs/plugin/stash"
+	stash "github.com/Anastylosis/stash-go"
 )
 
 func TestDiscoverSidecars(t *testing.T) {
@@ -135,7 +135,7 @@ func TestSceneSidecarStatus(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	withFile := &stash.Scene{ID: "7", Files: []stash.SceneFile{{Path: video}}}
+	withFile := &stash.Scene{ID: "7", Files: []stash.File{{Path: video}}}
 
 	got := sceneSidecarStatus(withFile, true)
 	if got.SceneID != "7" || !got.HasToken {

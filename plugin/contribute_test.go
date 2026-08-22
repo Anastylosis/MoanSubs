@@ -10,16 +10,13 @@ import (
 	"testing"
 
 	"github.com/Anastylosis/MoanSubs/plugin/msclient"
-	"github.com/Anastylosis/MoanSubs/plugin/stash"
+	stash "github.com/Anastylosis/stash-go"
 )
 
 func sceneWithFingerprint(id, oshash string) *stash.Scene {
 	return &stash.Scene{
-		ID: id,
-		Files: []stash.SceneFile{{Path: "/videos/" + id + ".mp4", Duration: 600, Fingerprints: []struct {
-			Type  string `json:"type"`
-			Value string `json:"value"`
-		}{{Type: "oshash", Value: oshash}}}},
+		ID:    id,
+		Files: []stash.File{{Path: "/videos/" + id + ".mp4", Duration: 600, Fingerprints: []stash.Fingerprint{{Type: "oshash", Value: oshash}}}},
 	}
 }
 

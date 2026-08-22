@@ -5,8 +5,10 @@ downloads them as sidecar files, and pushes your own subtitles back.
 
 Two halves, one directory: **`moansubs-plugin`** is a static Go binary Stash
 runs over its RPC plugin interface, and does all the work — including every
-network call to the moansubs server. **`moansubs.js`** is the UI layer, and
-only ever talks to Stash's own GraphQL endpoint.
+network call to the moansubs server. It talks to its parent Stash through
+[stash-go](https://github.com/Anastylosis/stash-go), the shared client.
+**`moansubs.js`** is the UI layer, and only ever talks to Stash's own GraphQL
+endpoint.
 
 - [Install](#install) · [Settings](#settings) · [What you see](#what-you-see)
 - [Tasks](#tasks) · [Finding scenes by subtitle](#finding-scenes-by-subtitle)

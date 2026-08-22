@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/Anastylosis/MoanSubs/plugin/msclient"
-	"github.com/Anastylosis/MoanSubs/plugin/stash"
+	stash "github.com/Anastylosis/stash-go"
 )
 
 // versionHandler serves GET /api/v1/version with the given features,
@@ -245,27 +245,21 @@ func TestVote_ServerErrorPassedThroughVerbatim(t *testing.T) {
 // zero-length non-nil slice, though either would do) when it doesn't.
 func TestSceneKeys_WithAndWithoutStashIDs(t *testing.T) {
 	withIDs := &stash.Scene{
-		ID: "1",
-		Files: []stash.SceneFile{{Path: "/videos/x.mp4", Duration: 60, Fingerprints: []struct {
-			Type  string `json:"type"`
-			Value string `json:"value"`
-		}{{Type: "oshash", Value: "0123456789abcdef"}}}},
-		StashIDs: []stash.StashID{{Endpoint: "https://stashdb.org/graphql", StashID: "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"}},
+		ID:       "1",
+		Files:    []stash.File{{Path: "/videos/x.mp4", Duration: 60, Fingerprints: []stash.Fingerprint{{Type: "oshash", Value: "0123456789abcdef"}}}},
+		StashIDs: []stash.StashID{{Endpoint: "https://stashdb.org/graphql", ID: "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"}},
 	}
 	_, _, _, _, ids, err := sceneKeys(withIDs)
 	if err != nil {
 		t.Fatalf("sceneKeys: %v", err)
 	}
-	if len(ids) != 1 || ids[0].StashID != "c72cba4a-1e2b-4f0e-8f3a-1234567890ab" {
+	if len(ids) != 1 || ids[0].ID != "c72cba4a-1e2b-4f0e-8f3a-1234567890ab" {
 		t.Errorf("stash ids = %+v, want the one scene.StashIDs entry", ids)
 	}
 
 	withoutIDs := &stash.Scene{
-		ID: "2",
-		Files: []stash.SceneFile{{Path: "/videos/y.mp4", Duration: 60, Fingerprints: []struct {
-			Type  string `json:"type"`
-			Value string `json:"value"`
-		}{{Type: "oshash", Value: "fedcba9876543210"}}}},
+		ID:    "2",
+		Files: []stash.File{{Path: "/videos/y.mp4", Duration: 60, Fingerprints: []stash.Fingerprint{{Type: "oshash", Value: "fedcba9876543210"}}}},
 	}
 	_, _, _, _, ids2, err := sceneKeys(withoutIDs)
 	if err != nil {
@@ -322,12 +316,9 @@ func TestSearch_StashIdentityRanksFirst(t *testing.T) {
 	}
 
 	scene := &stash.Scene{
-		ID: "1",
-		Files: []stash.SceneFile{{Path: "/videos/x.mp4", Duration: 60, Fingerprints: []struct {
-			Type  string `json:"type"`
-			Value string `json:"value"`
-		}{{Type: "oshash", Value: sceneOshash}}}},
-		StashIDs: []stash.StashID{{Endpoint: "https://stashdb.org/graphql", StashID: stashID}},
+		ID:       "1",
+		Files:    []stash.File{{Path: "/videos/x.mp4", Duration: 60, Fingerprints: []stash.Fingerprint{{Type: "oshash", Value: sceneOshash}}}},
+		StashIDs: []stash.StashID{{Endpoint: "https://stashdb.org/graphql", ID: stashID}},
 	}
 
 	// Exercised at the same level search() itself operates at, once the
@@ -443,19 +434,19 @@ func TestMsclientStashIDs_FiltersAndCaps(t *testing.T) {
 	// Six valid stash IDs plus one invalid one in various positions.
 	ids := []stash.StashID{
 		// Valid: standard stashdb.org id
-		{Endpoint: "https://stashdb.org/graphql", StashID: "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+		{Endpoint: "https://stashdb.org/graphql", ID: "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
 		// Invalid UUID format
-		{Endpoint: "https://stashdb.org/graphql", StashID: "invalid-uuid"},
+		{Endpoint: "https://stashdb.org/graphql", ID: "invalid-uuid"},
 		// Valid: standard stashdb.org id
-		{Endpoint: "https://stashdb.org/graphql", StashID: "d72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+		{Endpoint: "https://stashdb.org/graphql", ID: "d72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
 		// Invalid scheme (javascript: instead of https://)
-		{Endpoint: "javascript:alert('xss')", StashID: "e72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+		{Endpoint: "javascript:alert('xss')", ID: "e72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
 		// Valid: fandb endpoint
-		{Endpoint: "https://fandb.org/graphql", StashID: "f72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+		{Endpoint: "https://fandb.org/graphql", ID: "f72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
 		// Valid: another endpoint
-		{Endpoint: "https://other.org/graphql", StashID: "a72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+		{Endpoint: "https://other.org/graphql", ID: "a72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
 		// Valid: one more to exceed cap of 5
-		{Endpoint: "https://more.org/graphql", StashID: "b72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+		{Endpoint: "https://more.org/graphql", ID: "b72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
 	}
 
 	got := a.msclientStashIDs(context.Background(), ids, "test-scene-id")
@@ -515,8 +506,8 @@ func TestMsclientStashIDs_DropsEndpointNotAdvertised(t *testing.T) {
 	a := &app{ms: msclient.New(ts.URL, "")}
 
 	ids := []stash.StashID{
-		{Endpoint: "https://stashdb.org/graphql", StashID: "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
-		{Endpoint: "https://evil.example/graphql", StashID: "d72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+		{Endpoint: "https://stashdb.org/graphql", ID: "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+		{Endpoint: "https://evil.example/graphql", ID: "d72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
 	}
 	got := a.msclientStashIDs(context.Background(), ids, "test-scene-id")
 	if len(got) != 1 {
@@ -542,7 +533,7 @@ func TestMsclientStashIDs_WildcardAllowsAnyEndpoint(t *testing.T) {
 	a := &app{ms: msclient.New(ts.URL, "")}
 
 	ids := []stash.StashID{
-		{Endpoint: "https://custom.example/graphql", StashID: "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
+		{Endpoint: "https://custom.example/graphql", ID: "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
 	}
 	got := a.msclientStashIDs(context.Background(), ids, "test-scene-id")
 	if len(got) != 1 {

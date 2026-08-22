@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	stash "github.com/Anastylosis/stash-go"
+
 	"github.com/Anastylosis/MoanSubs/plugin/msclient"
-	"github.com/Anastylosis/MoanSubs/plugin/stash"
 )
 
 // contributeStats is what the contribute modes report back.
@@ -38,7 +39,7 @@ func (a *app) sceneMetadataEntry(ctx context.Context, scene *stash.Scene) (mscli
 	if len(scene.Files) == 0 {
 		return msclient.MetadataEntry{}, false
 	}
-	oshash := scene.Files[0].Fingerprint("oshash")
+	oshash, _ := scene.Files[0].Fingerprint("oshash")
 	if oshash == "" {
 		return msclient.MetadataEntry{}, false
 	}
@@ -46,8 +47,8 @@ func (a *app) sceneMetadataEntry(ctx context.Context, scene *stash.Scene) (mscli
 		OSHash:     oshash,
 		Title:      scene.Title,
 		Date:       scene.Date,
-		Studio:     scene.StudioName(),
-		Performers: scene.PerformerNames(),
+		Studio:     studioName(scene),
+		Performers: performerNames(scene),
 		StashIDs:   a.msclientStashIDs(ctx, scene.StashIDs, scene.ID),
 	}
 	// Note the deliberate absence of the filename: this endpoint records
@@ -69,7 +70,10 @@ func (a *app) contribute(ctx context.Context, sceneID string, dryRun bool) (any,
 	if err := a.requireMetadataFeature(ctx); err != nil {
 		return nil, err
 	}
-	scene, err := a.stash.FindScene(ctx, sceneID)
+	scene, found, err := a.stash.FindScene(ctx, sceneID)
+	if err == nil && !found {
+		err = fmt.Errorf("scene %s not found", sceneID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +112,7 @@ func (a *app) contributeAll(ctx context.Context, dryRun bool) (any, error) {
 			st.note("stopped early: %v", err)
 			break
 		}
-		scenes, total, err := a.stash.FindScenesPage(ctx, page, perPage)
+		scenes, total, err := a.stash.FindScenes(ctx, stash.SceneFilter{}, page, perPage)
 		if err != nil {
 			return nil, fmt.Errorf("contribute_all: page %d: %w", page, err)
 		}

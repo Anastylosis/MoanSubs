@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/Anastylosis/MoanSubs/plugin/msclient"
-	"github.com/Anastylosis/MoanSubs/plugin/stash"
+	stash "github.com/Anastylosis/stash-go"
 )
 
 // badgeStash serves just enough GraphQL for badge's FindScene loop. scenes
@@ -78,7 +78,7 @@ func badgeServer(t *testing.T, hits map[string]string, calls *int) *httptest.Ser
 }
 
 func badgeApp(stashURL, msURL string) *app {
-	return &app{stash: stash.NewClient(stashURL, "", nil), ms: msclient.New(msURL, "")}
+	return &app{stash: stash.NewClient(stashURL), ms: msclient.New(msURL, "")}
 }
 
 func badgeResult(t *testing.T, v any) map[string]badgeStatus {

@@ -45,7 +45,10 @@ func (a *app) badge(ctx context.Context, sceneIDs []string) (any, error) {
 	var infos []sceneInfo
 	for _, id := range sceneIDs {
 		out[id] = badgeStatus{} // default: no matches
-		scene, err := a.stash.FindScene(ctx, id)
+		scene, found, err := a.stash.FindScene(ctx, id)
+		if err == nil && !found {
+			err = fmt.Errorf("scene %s not found", id)
+		}
 		if err != nil {
 			logWarning("badge: scene %s: %v", id, err)
 			continue
