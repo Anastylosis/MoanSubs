@@ -22,6 +22,34 @@
   <p class="hint"><a href="/browse">Browse everything</a>, newest first{{if .DumpURL}} · or <a href="{{.DumpURL}}">download the whole catalogue</a> as a dump{{end}}.</p>
 </form>
 
+{{if or .Newest .Trending .Popular}}
+<div class="home-lists">
+  {{/* Each section is omitted entirely when its list is empty rather than
+       rendered as a heading over nothing: a new node has no trending
+       anything, and an empty "Trending this week" reads as broken rather
+       than as quiet. */}}
+  {{if .Trending}}
+  <section aria-labelledby="h-trending">
+    <h2 id="h-trending">Trending this week</h2>
+    {{template "release-list" .Trending}}
+  </section>
+  {{end}}
+  {{if .Newest}}
+  <section aria-labelledby="h-newest">
+    <h2 id="h-newest">Recently added</h2>
+    {{template "release-list" .Newest}}
+    <p class="hint"><a href="/browse">Browse everything</a></p>
+  </section>
+  {{end}}
+  {{if .Popular}}
+  <section aria-labelledby="h-popular">
+    <h2 id="h-popular">Most downloaded</h2>
+    {{template "release-list" .Popular}}
+  </section>
+  {{end}}
+</div>
+{{end}}
+
 <h2>How it works</h2>
 <div class="cue-grid">
   <div class="cue">

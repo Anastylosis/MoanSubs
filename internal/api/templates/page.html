@@ -58,6 +58,13 @@
      edge instead of the text's baseline, dropping the nav out of line. The
      artwork carries its own rounded corners, so no border-radius here. */
   .wordmark img { height: 1.75em; width: auto; vertical-align: -.5em; margin-right: .5em; }
+  /* Front-page lists: three columns on a wide screen, stacked below.
+     auto-fit rather than a fixed count so one or two lists (a new node has
+     no trending anything) fill the row instead of leaving a gap. */
+  .home-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1.5rem 2rem; margin: 2rem 0; }
+  .home-lists h2 { margin-top: 0; font-size: 1.15rem; }
+  .home-lists .releases { margin: 0; }
+  .home-lists .hint { margin-top: .75rem; }
   nav { display: flex; gap: 1.25rem; margin-left: auto; font-family: var(--sans); font-size: .9rem; }
   nav a { color: var(--fg); text-decoration: none; opacity: .85; }
   nav a:hover { opacity: 1; text-decoration: underline; }

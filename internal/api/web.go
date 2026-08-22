@@ -307,6 +307,14 @@ type indexPageData struct {
 	Open    bool
 	Stats   *statsResponse
 	DumpURL string
+	// Newest, Trending and Popular are the three front-page lists
+	// (homepage.go). Each is nil when it could not be built or has nothing
+	// to show, and the template omits the whole section rather than
+	// rendering an empty heading — a new node has no trending anything,
+	// and a bare "Trending this week" over nothing reads as broken.
+	Newest   []catalogueRelease
+	Trending []catalogueRelease
+	Popular  []catalogueRelease
 }
 
 // handleIndex serves the front page. Registered as "GET /", which in
@@ -329,6 +337,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	} else {
 		data.Stats = &body
 	}
+	s.homepageLists(r.Context(), &data)
 
 	s.renderPage(w, r, http.StatusOK, "index.html", data, false)
 }
