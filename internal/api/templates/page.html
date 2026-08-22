@@ -53,6 +53,11 @@
   .bar-in { max-width: 64rem; margin: 0 auto; padding: .7rem 1.25rem; display: flex; align-items: baseline; gap: 1.5rem; flex-wrap: wrap; }
   .wordmark { font-family: var(--mono); font-size: 1rem; font-weight: 700; letter-spacing: .02em; color: var(--fg); text-decoration: none; }
   .wordmark b { color: var(--accent); font-weight: 700; }
+  /* Inline rather than a flex child on purpose: .bar-in aligns on the
+     baseline, and an inline-flex wordmark would hand it the image's bottom
+     edge instead of the text's baseline, dropping the nav out of line. The
+     artwork carries its own rounded corners, so no border-radius here. */
+  .wordmark img { height: 1.75em; width: auto; vertical-align: -.5em; margin-right: .5em; }
   nav { display: flex; gap: 1.25rem; margin-left: auto; font-family: var(--sans); font-size: .9rem; }
   nav a { color: var(--fg); text-decoration: none; opacity: .85; }
   nav a:hover { opacity: 1; text-decoration: underline; }
@@ -171,7 +176,7 @@
 {{with analytics}}<script defer src="{{.Script}}" data-website-id="{{.WebsiteID}}" data-exclude-search="true"></script>
 {{end}}<header class="bar">
   <div class="bar-in">
-    <a class="wordmark" href="/">moan<b>subs</b></a>
+    <a class="wordmark" href="/"><img src="/static/logo-96.png" width="28" height="28" alt="">moan<b>subs</b></a>
     <nav aria-label="Site">
       <a href="/browse">Browse</a>
       <a href="/search">Search</a>

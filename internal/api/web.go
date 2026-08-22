@@ -33,6 +33,9 @@ var faviconPNG []byte
 //go:embed static/icon-180.png
 var touchIconPNG []byte
 
+//go:embed static/logo-96.png
+var logoPNG []byte
+
 // defaultCSP is every page's Content-Security-Policy except /upload: the
 // page is entirely self-contained, so the strictest useful policy applies
 // — nothing loads from anywhere but this node, and the only form target is
@@ -276,6 +279,15 @@ func (s *Server) handleFavicon(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleTouchIcon(w http.ResponseWriter, _ *http.Request) {
 	servePNG(w, touchIconPNG)
+}
+
+// handleLogo serves the masthead logo beside the wordmark. 96px for a
+// ~28px slot, so it stays crisp up to a 3x display: the same artwork as
+// the tab icon, but the 32px favicon is too small for it and the 180px
+// touch icon is full-bleed, which would show as a black square against
+// the bar.
+func (s *Server) handleLogo(w http.ResponseWriter, _ *http.Request) {
+	servePNG(w, logoPNG)
 }
 
 func servePNG(w http.ResponseWriter, body []byte) {

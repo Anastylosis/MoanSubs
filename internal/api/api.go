@@ -438,6 +438,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("GET /static/copy.js", s.handleCopyJS)
 	mux.HandleFunc("GET /static/favicon.png", s.handleFavicon)
 	mux.HandleFunc("GET /static/icon-180.png", s.handleTouchIcon)
+	mux.HandleFunc("GET /static/logo-96.png", s.handleLogo)
 	// /favicon.ico is what a browser, crawler or bookmark service asks for
 	// when it has no <link rel="icon"> to go on. Served as the PNG it
 	// actually is — every browser has accepted a PNG at this path for
