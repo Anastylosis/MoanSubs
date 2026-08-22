@@ -1,8 +1,43 @@
 # moansubs server manual
 
-The server is one static binary (`moansubs`) configured entirely through
-environment variables. Migrations run automatically at startup; there is no
-separate schema setup.
+The server is one static binary (`moansubs`). Migrations run automatically
+at startup; there is no separate schema setup.
+
+## Configuration
+
+Settings come from two places, and the rule between them is one line:
+
+    built-in defaults  <  config file  <  environment variables
+
+**Environment variables** work on their own and always have — nothing below
+is required. **A YAML config file** is optional and fills in whatever the
+environment has not already said. `moansubs serve --config
+/path/to/config.yaml`, or `/etc/moansubs/config.yaml` when the flag is
+absent. A missing default path is fine; a path you *name* must exist, or
+your intent has silently not happened.
+
+The environment wins so that a compose file or a systemd unit can override
+an image's baked-in config without editing it. Both forms feed the same
+parser, so a value behaves identically whichever way it arrives, and the
+error message for a bad one is the same.
+
+`config.example.yaml` in the repository root is a complete reference: every
+key, its default, and what changing it does. Copied verbatim it changes
+nothing, because every value in it *is* the default — delete what you do
+not want to change.
+
+Two things the file does that the environment cannot:
+
+- **A typo fails startup.** An unknown key is refused by name. A misspelled
+  environment variable is simply ignored, which for a server is worse: the
+  operator believes their node is configured a way it is not.
+- **It refuses to hold a loose secret.** A file naming `database_url` or
+  `token_key` must be mode `0600`, or the server will not start and says
+  which credential and how to fix it. In a container, prefer leaving those
+  two in the environment.
+
+The table below names every setting by its environment variable; the YAML
+key for each is in `config.example.yaml`, grouped by subject.
 
 ## Commands
 

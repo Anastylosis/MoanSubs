@@ -159,9 +159,10 @@ real verification needs a dedicated third-party provider in front of this
 node; `MOANSUBS_AGE_GATE=false` (MANUAL.md) turns the interstitial off
 entirely for an operator handling that some other way.
 
-Server configuration is environment-only — see [MANUAL.md](MANUAL.md) for
-every variable, CLI command, and operational note (backups, rate limits,
-reverse proxies).
+Server configuration is environment variables, optionally backed by a YAML
+file (`config.example.yaml` is a full commented reference; the environment
+wins over it). See [MANUAL.md](MANUAL.md) for every setting, CLI command,
+and operational note (backups, rate limits, reverse proxies).
 
 ## Running a public node
 
@@ -230,7 +231,7 @@ run your own with [`deploy/`](deploy/).
 
 ## Documentation
 
-- [MANUAL.md](MANUAL.md) — server CLI, environment variables, operations
+- [MANUAL.md](MANUAL.md) — server CLI, configuration, operations
 - [API.md](API.md) — HTTP API and the fingerprint bucket contract
 - [plugin/README.md](plugin/README.md) — plugin install, settings, tasks
 - [SECURITY.md](SECURITY.md) — security model and reporting

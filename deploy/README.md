@@ -66,6 +66,45 @@ same `logging:` cap via one YAML anchor, so none of their container logs
 grows without bound on the host disk — see MANUAL.md's "Operations" →
 "Logs" for the per-request log line format and what it doesn't log.
 
+## Configuring with a file instead
+
+Everything here is set through `environment:` on the `server` service, and
+that keeps working. If you would rather keep settings in one commented
+file than in a compose block:
+
+1. Get the example — it ships inside the image, so you do not need the
+   repository:
+
+   ```sh
+   docker compose exec server cat /etc/moansubs/config.example.yaml > config.yaml
+   ```
+   It is a full reference — every key, its default, and what changing it
+   does — and copied verbatim it changes nothing.
+2. Uncomment the `volumes:` entry on the `server` service that mounts it
+   at `/etc/moansubs/config.yaml:ro`.
+3. Delete from `environment:` whatever the file now sets. Leaving both is
+   harmless but confusing: **the environment wins**, so a value you edit in
+   the file and do not remove from compose will appear to have no effect.
+
+**Keep `DATABASE_URL` and `MOANSUBS_TOKEN_KEY` in the environment**, and
+this is worth more than a style preference in a container. A config file
+naming either must be mode `0600`, and the server runs as an unprivileged
+user inside the image — so a `0600` file owned by your host account is
+unreadable *to the process that needs it*, and you get:
+
+```
+Error: moansubs serve: config: open /etc/moansubs/config.yaml: permission denied
+```
+
+You can chase that with `chown` to the container's uid, but there is no
+reason to: `.env` is gitignored and the compose file is not, so the
+environment is already the right home for credentials here. A config file
+holding no secrets needs no special mode, mounts read-only, and just works.
+
+An unknown key in the file fails startup by name, which is the main reason
+to prefer it: a misspelled environment variable is silently ignored, and
+the node runs configured a way you did not intend.
+
 ## Upgrades
 
 ```sh
