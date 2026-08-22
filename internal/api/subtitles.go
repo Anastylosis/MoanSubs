@@ -239,6 +239,39 @@ func (s *Server) recordUploadMetadata(ctx context.Context, releaseID, accountID 
 	s.maybeAutoConfirm(ctx, releaseID)
 }
 
+// checkRuntimeFit refuses an upload whose subtitle cannot belong to the
+// declared video (PLAN.md Order of work step 2: "runtime sanity check").
+//
+// Only ONE direction is a contradiction. A subtitle whose cues run past the
+// end of the video cannot be this file's: there would be nothing left to
+// caption. A subtitle that stops long BEFORE the end is ordinary --
+// dialogue ends and the scene carries on -- and a sparse file is the normal
+// case here rather than the exception: four cues of setup over an
+// eleven-minute video is a real subtitle, and refusing it leaves the
+// contributor nowhere to put it.
+//
+// RuntimeFit scores both ends at zero, correctly, because for RANKING a
+// candidate both are weak evidence. Refusing an upload is a different
+// question, so the sign decides it: zero-with-negative-delta is exactly
+// "overruns by more than the module's tolerance", which is why this reads
+// the sign rather than restating the threshold here.
+func checkRuntimeFit(rendered string, durationMs int64) *apiError {
+	subRuntime, ok := subs.Runtime(strings.NewReader(rendered))
+	if !ok {
+		return nil
+	}
+	score, delta := subs.RuntimeFit(subRuntime, time.Duration(durationMs)*time.Millisecond)
+	if score == 0 && delta < 0 {
+		return &apiError{http.StatusBadRequest,
+			"subtitle runs past the end of the video: its last cue ends after duration_ms"}
+	}
+	if score < 1 {
+		log.Printf("api: weak runtime fit for upload (score=%.2f delta=%v duration_ms=%d subtitle_runtime=%v), accepting anyway",
+			score, delta, durationMs, subRuntime)
+	}
+	return nil
+}
+
 // authenticateStateChange is the shared auth step for every state-changing
 // API route that accepts both Bearer and session-cookie auth (originally
 // handleUploadSubtitle's, WP-C1; reused as-is by WP-C3's vote endpoints
@@ -378,33 +411,9 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 		}
 	}
 
-	// Runtime sanity check (PLAN.md Order of work step 2: "runtime sanity
-	// check (port runtime.go + lang.go...)").
-	//
-	// Only ONE direction is a contradiction. A subtitle whose cues run past
-	// the end of the video cannot belong to it: there is nothing left to
-	// caption. A subtitle that stops long BEFORE the end is ordinary --
-	// dialogue ends and the scene carries on -- and a sparse file is the
-	// normal case here, not the exception: four cues of setup over an
-	// eleven-minute video is a real subtitle, and rejecting it means the
-	// contributor has nowhere to put it.
-	//
-	// RuntimeFit scores both ends at zero because for RANKING a candidate
-	// both are weak evidence. Refusing an upload is a different question,
-	// so the sign is what decides it. The zero-with-negative-delta case is
-	// exactly "overruns by more than the module's tolerance", which is why
-	// this reads the sign rather than restating the threshold.
-	if subRuntime, ok := subs.Runtime(strings.NewReader(rendered)); ok {
-		sceneDur := time.Duration(req.DurationMs) * time.Millisecond
-		score, delta := subs.RuntimeFit(subRuntime, sceneDur)
-		switch {
-		case score == 0 && delta < 0:
-			return nil, &apiError{http.StatusBadRequest,
-				"subtitle runs past the end of the video: its last cue ends after duration_ms"}
-		case score < 1:
-			log.Printf("api: weak runtime fit for upload (score=%.2f delta=%v duration_ms=%d subtitle_runtime=%v), accepting anyway",
-				score, delta, req.DurationMs, subRuntime)
-		}
+	// Runtime sanity check -- see checkRuntimeFit.
+	if aerr := checkRuntimeFit(rendered, req.DurationMs); aerr != nil {
+		return nil, aerr
 	}
 
 	if req.Date != "" && !datePattern.MatchString(req.Date) {
