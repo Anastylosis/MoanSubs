@@ -6,6 +6,10 @@ import (
 )
 
 // trustedProposer creates an account the operator vouches for.
+// pinAnywhere is the permissive list for tests about the OTHER conditions;
+// the endpoint filter has its own test below.
+var pinAnywhere = []string{"*"}
+
 func trustedProposer(t *testing.T, s *Store, name string) int64 {
 	t.Helper()
 	id := mkAccount(t, s, name)
@@ -40,7 +44,7 @@ func TestAutoConfirm_PinsATrustedStashBackedRelease(t *testing.T) {
 	acct := trustedProposer(t, st, "seeder")
 	proposeWithStashID(t, st, rel, acct, "A Named Scene", "c72cba4a-1e2b-4f0e-8f3a-1234567890ab")
 
-	got, err := st.AutoConfirmIfEligible(ctx, rel)
+	got, err := st.AutoConfirmIfEligible(ctx, rel, pinAnywhere)
 	if err != nil {
 		t.Fatalf("AutoConfirmIfEligible: %v", err)
 	}
@@ -65,7 +69,7 @@ func TestAutoConfirm_RefusesEveryWayItShould(t *testing.T) {
 		rel := mkRelease(t, st, "1111aaaa1111aaaa", "f")
 		acct := mkAccount(t, st, "stranger") // not trusted
 		proposeWithStashID(t, st, rel, acct, "Named", "c72cba4a-1e2b-4f0e-8f3a-1234567890ab")
-		assertRefused(t, st, rel, "no stash-box id from a trusted account")
+		assertRefused(t, st, rel, "no stash-box id from a trusted account at an endpoint trusted to pin")
 	})
 
 	t.Run("trusted but no stash-box id", func(t *testing.T) {
@@ -80,7 +84,7 @@ func TestAutoConfirm_RefusesEveryWayItShould(t *testing.T) {
 		if err := st.DeriveAfterProposal(ctx, rel); err != nil {
 			t.Fatalf("DeriveAfterProposal: %v", err)
 		}
-		assertRefused(t, st, rel, "no stash-box id from a trusted account")
+		assertRefused(t, st, rel, "no stash-box id from a trusted account at an endpoint trusted to pin")
 	})
 
 	t.Run("no derived title", func(t *testing.T) {
@@ -106,7 +110,7 @@ func TestAutoConfirm_RefusesEveryWayItShould(t *testing.T) {
 		acct := trustedProposer(t, st, "seeder4")
 		proposeWithStashID(t, st, rel, acct, "Named", "c72cba4a-1e2b-4f0e-8f3a-1234567890ab")
 
-		if got, err := st.AutoConfirmIfEligible(ctx, rel); err != nil || !got.Eligible {
+		if got, err := st.AutoConfirmIfEligible(ctx, rel, pinAnywhere); err != nil || !got.Eligible {
 			t.Fatalf("precondition: %+v %v", got, err)
 		}
 		// A human takes the pin off. It must stay off, or unpinning is
@@ -160,7 +164,7 @@ func TestAutoConfirm_RefusesAnIDThatContradictsAnotherRuntime(t *testing.T) {
 
 func assertRefused(t *testing.T, s *Store, releaseID int64, wantReason string) {
 	t.Helper()
-	got, err := s.AutoConfirmIfEligible(context.Background(), releaseID)
+	got, err := s.AutoConfirmIfEligible(context.Background(), releaseID, pinAnywhere)
 	if err != nil {
 		t.Fatalf("AutoConfirmIfEligible: %v", err)
 	}
@@ -185,4 +189,65 @@ func mkReleaseDuration(t *testing.T, s *Store, oshash, stem string, durationMs i
 		t.Fatalf("GetOrCreateRelease: %v", err)
 	}
 	return r.ID
+}
+
+// A node can accept ids from a broad, loosely-curated stash-box for
+// matching without letting them publish a name unreviewed. The two lists
+// are separate questions, and this is the one that keeps them apart.
+func TestAutoConfirm_OnlyPinsOnAnEndpointTrustedToPin(t *testing.T) {
+	st := openTestStore(t)
+	ctx := context.Background()
+
+	const (
+		strict = "https://stashdb.org/graphql"
+		loose  = "https://pmvstash.org/graphql"
+		sid    = "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"
+	)
+	acct := trustedProposer(t, st, "seeder-endpoints")
+
+	// A trusted account, a real id — but from a stash-box this node stores
+	// ids from and does not pin on.
+	rel := mkRelease(t, st, "eeee1111eeee1111", "f")
+	looseEndpoint := loose
+	if _, err := st.RecordProposal(ctx, MetadataProposal{
+		ReleaseID: rel, ProposedBy: &acct, Title: strPtr("Named By A Loose Source"),
+		StashID: strPtr(sid), Endpoint: &looseEndpoint,
+	}); err != nil {
+		t.Fatalf("RecordProposal: %v", err)
+	}
+	if err := st.DeriveAfterProposal(ctx, rel); err != nil {
+		t.Fatalf("DeriveAfterProposal: %v", err)
+	}
+
+	got, err := st.AutoConfirmIfEligible(ctx, rel, []string{strict})
+	if err != nil {
+		t.Fatalf("AutoConfirmIfEligible: %v", err)
+	}
+	if got.Eligible {
+		t.Fatal("pinned on an endpoint the operator did not trust to pin")
+	}
+	if _, cerr := st.Confirmed(ctx, rel); cerr == nil {
+		t.Fatal("a refused release ended up pinned")
+	}
+
+	// The same evidence, once that endpoint is trusted to pin.
+	if got, err := st.AutoConfirmIfEligible(ctx, rel, []string{strict, loose}); err != nil || !got.Eligible {
+		t.Fatalf("got %+v err %v, want it pinned once the endpoint is trusted", got, err)
+	}
+}
+
+// An empty list means "nothing may pin itself" rather than "everything".
+func TestAutoConfirm_EmptyPinListPinsNothing(t *testing.T) {
+	st := openTestStore(t)
+	rel := mkRelease(t, st, "eeee2222eeee2222", "f")
+	acct := trustedProposer(t, st, "seeder-empty")
+	proposeWithStashID(t, st, rel, acct, "Named", "c72cba4a-1e2b-4f0e-8f3a-1234567890ab")
+
+	got, err := st.AutoConfirmIfEligible(context.Background(), rel, nil)
+	if err != nil {
+		t.Fatalf("AutoConfirmIfEligible: %v", err)
+	}
+	if got.Eligible {
+		t.Error("an empty pin list pinned a release; it must mean 'nothing'")
+	}
 }

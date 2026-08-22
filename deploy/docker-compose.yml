@@ -140,6 +140,9 @@ services:
       # `moansubs account trust <name>` -- see "Auto-confirm" in
       # README.md, which is also where the failure mode is written down.
       # MOANSUBS_AUTOCONFIRM: "true"
+      # Which stash-boxes' ids may pin a name unreviewed. Narrower than
+      # MOANSUBS_STASH_ENDPOINTS on purpose -- see README.md.
+      # MOANSUBS_AUTOCONFIRM_ENDPOINTS: "https://stashdb.org/graphql,https://theporndb.net/graphql"
       # Search-engine indexing, off by default. Read "Indexing and the age
       # gate" in MANUAL.md before turning it on: on a node with the age
       # gate up it also lets crawlers past the click-through, which is a

@@ -127,6 +127,24 @@ var DefaultStashEndpoints = []string{"https://stashdb.org/graphql", "https://fan
 	"https://theporndb.net/graphql", "https://javstash.org/graphql",
 	"https://pmvstash.org/graphql"}
 
+// DefaultAutoConfirmEndpoints is MOANSUBS_AUTOCONFIRM_ENDPOINTS's default:
+// the stash-boxes whose ids are grounds to PUBLISH a name with no
+// moderator, which is a strictly narrower question than which ids a node
+// will store (DefaultStashEndpoints).
+//
+// The two lists exist separately because breadth and authority pull in
+// opposite directions. An id from a database that is broad but loosely
+// curated is excellent evidence that two files are the same scene -- which
+// is what matching wants -- and thin evidence that a particular name is
+// the right one to put on this node's domain, uncorrected, where a crawler
+// will cache it. Keeping one list would force a node to give up the first
+// to be careful about the second.
+//
+// Empty means "auto-confirm on nothing", which is what a node gets by
+// leaving MOANSUBS_AUTOCONFIRM off entirely; the wildcard `*` means any
+// endpoint the node accepts at all.
+var DefaultAutoConfirmEndpoints = []string{"https://stashdb.org/graphql", "https://theporndb.net/graphql"}
+
 // stashEndpointWildcard is MOANSUBS_STASH_ENDPOINTS' escape hatch: a
 // Server.StashEndpoints slice of exactly this one entry means "accept any
 // http(s) endpoint", the same sentinel GET /api/v1/version reports back so
@@ -142,9 +160,19 @@ const stashEndpointWildcard = "*"
 // returns DefaultStashEndpoints, so a Server built without reading the
 // env var at all still gets the documented default.
 func ParseStashEndpoints(csv string) ([]string, error) {
+	return parseEndpointList(csv, DefaultStashEndpoints)
+}
+
+// ParseAutoConfirmEndpoints reads MOANSUBS_AUTOCONFIRM_ENDPOINTS, same
+// syntax as MOANSUBS_STASH_ENDPOINTS: a comma-separated list, or `*`.
+func ParseAutoConfirmEndpoints(csv string) ([]string, error) {
+	return parseEndpointList(csv, DefaultAutoConfirmEndpoints)
+}
+
+func parseEndpointList(csv string, fallback []string) ([]string, error) {
 	csv = strings.TrimSpace(csv)
 	if csv == "" {
-		return append([]string(nil), DefaultStashEndpoints...), nil
+		return append([]string(nil), fallback...), nil
 	}
 	if csv == stashEndpointWildcard {
 		return []string{stashEndpointWildcard}, nil
@@ -273,6 +301,12 @@ type Server struct {
 	// by default: pinning is what opens a page to crawlers, so turning it
 	// on is an operator saying which accounts they stand behind.
 	AutoConfirm bool
+
+	// AutoConfirmEndpoints are the stash-boxes whose ids may pin a name
+	// unreviewed (MOANSUBS_AUTOCONFIRM_ENDPOINTS). Narrower than
+	// StashEndpoints on purpose — see DefaultAutoConfirmEndpoints. Nil
+	// falls back to that default.
+	AutoConfirmEndpoints []string
 
 	// PublicURL is this node's origin as visitors reach it
 	// (MOANSUBS_PUBLIC_URL), used for the absolute URLs the sitemap

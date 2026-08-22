@@ -44,12 +44,19 @@ type AutoConfirmCandidate struct {
 //  3. It has a derived title. A pin vouches for a name, and a release with
 //     no name has nothing to vouch for.
 //  4. Some proposal for it comes from a trusted account AND carries a
-//     stash-box id. Trust alone is not enough: the id is what ties the
-//     claim to a curated database rather than to one person's typing.
+//     stash-box id from one of pinEndpoints. Trust alone is not enough:
+//     the id is what ties the claim to a curated database rather than to
+//     one person's typing. And not every stash-box the node ACCEPTS ids
+//     from belongs here -- a broad, loosely-curated one is fine evidence
+//     that two files are the same scene and thin evidence that a name is
+//     right to publish (see api.DefaultAutoConfirmEndpoints).
 //  5. That id's other releases here agree on runtime. A stash-box id
 //     attached to the wrong video is the realistic mistake, and it is
 //     visible without asking any external service.
-func (s *Store) AutoConfirmIfEligible(ctx context.Context, releaseID int64) (AutoConfirmCandidate, error) {
+func (s *Store) AutoConfirmIfEligible(ctx context.Context, releaseID int64, pinEndpoints []string) (AutoConfirmCandidate, error) {
+	if len(pinEndpoints) == 0 {
+		return AutoConfirmCandidate{Reason: "no stash-box is trusted to pin a name"}, nil
+	}
 	rel, err := s.GetReleaseByID(ctx, releaseID)
 	if err != nil {
 		return AutoConfirmCandidate{}, err
@@ -66,6 +73,10 @@ func (s *Store) AutoConfirmIfEligible(ctx context.Context, releaseID int64) (Aut
 		return AutoConfirmCandidate{}, cerr
 	}
 
+	// The wildcard means "any endpoint this node accepts", so the filter
+	// drops out rather than being spelled as a list nobody maintains.
+	anyEndpoint := len(pinEndpoints) == 1 && pinEndpoints[0] == "*"
+
 	var stashID, endpoint string
 	err = s.pool.QueryRow(ctx, `
 		SELECT p.stash_id, p.endpoint
@@ -73,11 +84,12 @@ func (s *Store) AutoConfirmIfEligible(ctx context.Context, releaseID int64) (Aut
 		JOIN accounts a ON a.id = p.proposed_by
 		WHERE p.release_id = $1 AND a.trusted AND NOT a.disabled
 		  AND p.stash_id IS NOT NULL AND p.endpoint IS NOT NULL
+		  AND ($2 OR p.endpoint = ANY($3))
 		ORDER BY p.created_at DESC
-		LIMIT 1`, releaseID).Scan(&stashID, &endpoint)
+		LIMIT 1`, releaseID, anyEndpoint, pinEndpoints).Scan(&stashID, &endpoint)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return AutoConfirmCandidate{Reason: "no stash-box id from a trusted account"}, nil
+			return AutoConfirmCandidate{Reason: "no stash-box id from a trusted account at an endpoint trusted to pin"}, nil
 		}
 		return AutoConfirmCandidate{}, fmt.Errorf("store: AutoConfirmIfEligible: %w", err)
 	}

@@ -214,7 +214,11 @@ func (s *Server) maybeAutoConfirm(ctx context.Context, releaseID int64) {
 	if !s.AutoConfirm {
 		return
 	}
-	got, err := s.Store.AutoConfirmIfEligible(ctx, releaseID)
+	pinOn := s.AutoConfirmEndpoints
+	if pinOn == nil {
+		pinOn = DefaultAutoConfirmEndpoints
+	}
+	got, err := s.Store.AutoConfirmIfEligible(ctx, releaseID, pinOn)
 	if err != nil {
 		log.Printf("api: AutoConfirmIfEligible(release %d): %v", releaseID, err)
 		return

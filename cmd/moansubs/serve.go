@@ -198,6 +198,15 @@ var serveCmd = &cobra.Command{
 			autoConfirm = b
 		}
 
+		// Which stash-boxes may pin a name without a moderator. Narrower
+		// than MOANSUBS_STASH_ENDPOINTS deliberately: a node can accept ids
+		// from a broad, loosely-curated database for matching without
+		// letting them publish a name unreviewed.
+		autoConfirmEndpoints, err := api.ParseAutoConfirmEndpoints(os.Getenv("MOANSUBS_AUTOCONFIRM_ENDPOINTS"))
+		if err != nil {
+			return fmt.Errorf("moansubs serve: invalid MOANSUBS_AUTOCONFIRM_ENDPOINTS: %w", err)
+		}
+
 		// This node's origin as visitors reach it, for the absolute URLs
 		// the sitemap protocol and Open Graph both require. Unset derives
 		// it per request from Host, which is right until a node answers to
@@ -374,6 +383,7 @@ var serveCmd = &cobra.Command{
 		apiSrv.MetadataLimiter = api.NewRateLimiter(metadataRate)
 		apiSrv.PublicURL = publicURL
 		apiSrv.AutoConfirm = autoConfirm
+		apiSrv.AutoConfirmEndpoints = autoConfirmEndpoints
 		// version is main.go's ldflags-stamped build var ("dev" when built
 		// without them); GET /api/v1/version reports whatever this process
 		// actually is, the same source --version already uses.

@@ -236,6 +236,12 @@ then mark the account whose pushes you stand behind:
 docker compose exec server moansubs account trust <name>
 ```
 
+By default only StashDB and ThePornDB ids can pin a name. Widen or narrow
+that with `MOANSUBS_AUTOCONFIRM_ENDPOINTS`, which is separate from
+`MOANSUBS_STASH_ENDPOINTS` on purpose: accepting an id from a broad,
+scraper-driven database is good for matching, and is not the same as
+letting it publish a name nobody reviewed.
+
 **Both steps are required** — the variable alone does nothing, because
 nothing is trusted yet. That is the failure mode to expect: auto-confirm
 "not working" is almost always an untrusted account.

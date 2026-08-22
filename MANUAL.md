@@ -27,6 +27,7 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_SEARCH_RATE_PER_MINUTE` | `30` | Per-IP budget for `GET /search`. The only catalogue page where an anonymous visitor makes the database do real work (a GIN array-overlap query), rather than an indexed lookup by prefix or id. |
 | `MOANSUBS_DUMP_URL` | *(unset)* | Link the front page shows under "download the latest dump". Publishing a dump (WP-B2, `moansubs dump`) is an out-of-band operator choice; unset hides the link entirely. |
 | `MOANSUBS_AUTOCONFIRM` | `false` | Lets a trusted account's stash-box-backed metadata pin itself, with no moderator. Does nothing until at least one account is marked with `moansubs account trust <name>` — see "Auto-confirming" below for what qualifies and what it deliberately refuses. |
+| `MOANSUBS_AUTOCONFIRM_ENDPOINTS` | `https://stashdb.org/graphql,https://theporndb.net/graphql` | Which stash-boxes' ids may pin a name with no moderator, when `MOANSUBS_AUTOCONFIRM` is on. Deliberately narrower than `MOANSUBS_STASH_ENDPOINTS`: a node can accept ids from a broad, loosely-curated database for *matching* — which is where breadth pays — without letting them *publish* a name uncorrected on a page a crawler will cache. Same syntax, including `*`; an empty value means the default, and a list naming nothing valid is a startup error. |
 | `MOANSUBS_PUBLIC_URL` | *(derived)* | This node's origin as visitors reach it, e.g. `https://moansubs.org`. Used for the absolute URLs the sitemap protocol and Open Graph link previews both require. Unset — the default — derives it per request from the `Host` header, with the scheme following the same trusted-proxy rule as the session cookie's `Secure` attribute (`MOANSUBS_TRUSTED_PROXY_CIDRS`). Set it when the node answers to more than one name and you want one canonical form. |
 | `MOANSUBS_METADATA_RATE_PER_HOUR` | `60` | Per-account budget for `POST /api/v1/metadata` (API.md), the route that says what a scene *is* without uploading a subtitle for it. Each request carries up to 25 scenes, so this is a large library in an hour; the bound exists because every entry triggers a derivation, and a grouped release derives its whole work. |
 | `MOANSUBS_VOTE_RATE_PER_HOUR` | `60` | Per-account budget for `PUT`/`DELETE /api/v1/subtitles/{id}/vote` (API.md "Votes"). Generous enough for a person triaging their own downloads in one sitting, tight enough to stop a script grinding a track's score. |
@@ -931,9 +932,13 @@ automatically only when **all** of these hold:
    has nothing to vouch for.
 2. Some proposal for it comes from an account marked trusted
    (`moansubs account trust <name>`) that is not disabled.
-3. That proposal carries a **stash-box id**. Trust alone is not enough:
-   the id is what ties the claim to a curated database rather than to one
-   person's typing.
+3. That proposal carries a **stash-box id from an endpoint listed in
+   `MOANSUBS_AUTOCONFIRM_ENDPOINTS`** (StashDB and ThePornDB by default).
+   Trust alone is not enough: the id is what ties the claim to a curated
+   database rather than to one person's typing. And not every stash-box a
+   node accepts ids from belongs here — an id from a broad, automated
+   source is excellent evidence that two files are the same scene, and
+   thin evidence that a particular name is the right one to publish.
 4. The id does not contradict this node's own data — every other release
    carrying it agrees on runtime within 5%. A stash-box id attached to the
    wrong video is the realistic mistake, and it is visible here without
