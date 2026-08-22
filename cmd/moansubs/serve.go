@@ -170,6 +170,20 @@ var serveCmd = &cobra.Command{
 			voteRate = n
 		}
 
+		// Per-account metadata-contribution budget: each entry costs a
+		// derivation, and a grouped release derives its whole work, so this
+		// is bounded separately from the upload budget rather than sharing
+		// it -- someone with no subtitle to give should still be able to
+		// name a library's worth of scenes.
+		metadataRate := api.MetadataRateLimitPerHour
+		if v := os.Getenv("MOANSUBS_METADATA_RATE_PER_HOUR"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_METADATA_RATE_PER_HOUR %q", v)
+			}
+			metadataRate = n
+		}
+
 		// Unset (the default) hides the front page's dump link entirely —
 		// publishing a dump is an out-of-band operator choice (WP-C2,
 		// deploy/README.md), not something this server does on its own.
@@ -330,6 +344,7 @@ var serveCmd = &cobra.Command{
 		apiSrv.InvitesCap = invitesCap
 		apiSrv.DumpURL = dumpURL
 		apiSrv.VoteLimiter = api.NewRateLimiter(voteRate)
+		apiSrv.MetadataLimiter = api.NewRateLimiter(metadataRate)
 		// version is main.go's ldflags-stamped build var ("dev" when built
 		// without them); GET /api/v1/version reports whatever this process
 		// actually is, the same source --version already uses.

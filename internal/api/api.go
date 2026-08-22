@@ -78,6 +78,13 @@ const (
 	MaxSearchQueryTokens = 16
 )
 
+// MetadataRateLimitPerHour is the per-account budget for POST
+// /api/v1/metadata. Each request carries up to maxMetadataEntries scenes,
+// so this is a large library's worth per hour while still costing a
+// vandal something: every entry triggers a derivation, and a grouped
+// release derives its whole work.
+const MetadataRateLimitPerHour = 60
+
 // VoteRateLimitPerHour is the per-account budget for PUT/DELETE
 // /api/v1/subtitles/{id}/vote (WP-C3 spec): generous enough for a real
 // person triaging their own downloads in one sitting, tight enough that a
@@ -246,6 +253,13 @@ type Server struct {
 	// /api/v1/subtitles/{id}/vote (WP-C3), also exported for the same
 	// reason as Limiter.
 	VoteLimiter *RateLimiter
+
+	// MetadataLimiter is the per-account limiter for POST
+	// /api/v1/metadata, separate from the upload budget: contributing what
+	// a scene is costs the server a derivation rather than a stored file,
+	// and someone with nothing to upload should still be able to name a
+	// library's worth of scenes.
+	MetadataLimiter *RateLimiter
 	// AgeGate governs whether s.page-wrapped human routes show the 18+
 	// click-through interstitial (WP-C10, MOANSUBS_AGE_GATE) before a
 	// visitor without the moansubs_age cookie reaches them. On by default
@@ -300,6 +314,7 @@ func NewServer(s *store.Store) *Server {
 		Version:           "dev",
 		Stats:             NewStats(s),
 		VoteLimiter:       NewRateLimiter(VoteRateLimitPerHour),
+		MetadataLimiter:   NewRateLimiter(MetadataRateLimitPerHour),
 		// Production default: an adult-focused node gates every human page
 		// behind the click-through until an operator opts out
 		// (MOANSUBS_AGE_GATE=false).
@@ -373,6 +388,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("GET /api/v1/stats", s.handleStats)
 	mux.HandleFunc("POST /api/v1/accounts", s.handleRegisterAccount)
 	mux.HandleFunc("POST /api/v1/subtitles", s.handleUploadSubtitle)
+	mux.HandleFunc("POST /api/v1/metadata", s.handleContributeMetadata)
 	mux.HandleFunc("GET /api/v1/subtitles/{id}", s.handleGetSubtitle)
 	mux.HandleFunc("PUT /api/v1/subtitles/{id}/vote", s.handleVotePut)
 	mux.HandleFunc("DELETE /api/v1/subtitles/{id}/vote", s.handleVoteDelete)

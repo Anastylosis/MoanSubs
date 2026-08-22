@@ -50,7 +50,7 @@ leaks the same, explicitly.
 
 ### `GET /api/v1/version`
 
-`{"version": "<semver or dev>", "features": ["lookup", "match", "withdraw", "stats", "srt", "votes", "stash_ids"],
+`{"version": "<semver or dev>", "features": ["lookup", "match", "withdraw", "stats", "srt", "votes", "stash_ids", "metadata"],
 "stash_endpoints": ["https://stashdb.org/graphql", "https://fansdb.cc/graphql"]}`. Anonymous
 and unthrottled — it never touches the database. Lets a client discover the
 node's version and API surface up front and degrade a missing feature
@@ -463,6 +463,50 @@ See MANUAL.md "Upload semantics" for the sanitization pipeline. Responses:
 The node's own `/upload` form (session-authenticated, MANUAL.md) runs the
 exact same validation, sanitization, and dedup logic — it is a multipart
 front end onto the same code, not a second implementation.
+
+### `POST /api/v1/metadata` *(auth required)*
+
+Says what a scene **is**, without uploading a subtitle for it. The gap it
+fills: a well-curated library whose owner has nothing to contribute for a
+release the node knows only as a filename — or who is pulling rather than
+pushing — still knows the title, studio, performers and stash-box ids.
+
+```json
+{"entries": [
+  {"oshash": "9fb6be9c13df176c", "title": "La Hermana De Mi Amigo",
+   "date": "2024-03-01", "studio": "Real Studio", "performers": ["Alice", "Bob"],
+   "stash_ids": [{"endpoint": "https://stashdb.org/graphql", "stash_id": "..."}]}
+]}
+```
+
+Each entry names a release by `oshash` or by `release_id`. At most 25 per
+request; `MOANSUBS_METADATA_RATE_PER_HOUR` requests per account per hour.
+Every field except the identifier is optional — an entry asserting nothing
+is accepted and recorded as nothing.
+
+`200` `{"results": [{"release_id": 2015, "known": true, "recorded": true}]}`,
+one result per entry in request order. Per entry rather than per request
+because a sweep across a library will legitimately name scenes this node
+has never held, and one of those must not fail the rest:
+
+- `"known": false` — no release matches. **The node never creates one.** A
+  metadata-only insert would populate the catalogue with subtitle-less rows
+  and turn this into a release factory.
+- `"recorded": false` with `"known": true` — the entry asserted nothing.
+- `"error"` — that entry was refused (`release withdrawn`, a malformed
+  field) while the others went through.
+
+What lands is an attributed **proposal**, exactly as an upload's metadata
+bundle does: one row per account per release, so re-contributing revises
+rather than stacks, and nobody outvotes the room by repeating themselves.
+Anonymous contribution is not offered — proposals with no account behind
+them would let one script manufacture both unlimited agreement and
+stash-box provenance, which are the two signals derivation ranks by.
+
+This endpoint is deliberately **not** part of the download path. Downloads
+are anonymous by design (above), and receiving a file and publishing your
+library's contents are two different consents; a client that wants to do
+both makes two requests.
 
 ## Votes
 
