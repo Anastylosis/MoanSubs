@@ -501,7 +501,10 @@
     if (!status.has_token || !status.sidecars || !status.sidecars.length) return;
 
     const btn = document.createElement("button");
-    btn.className = "btn btn-sm btn-outline-secondary moansubs-push ml-2";
+    // Same solid class as "Find subtitles": Stash's dark theme renders an
+    // outline button as a faint border on an already-grey panel, which
+    // reads as "no button here" until you happen to mouse over it.
+    btn.className = "btn btn-sm btn-secondary moansubs-push ml-2";
     btn.textContent = "Push local subs";
     btn.title =
       "Upload this scene's sidecar subtitles (" +
