@@ -224,7 +224,7 @@ notice-and-takedown obligations as the node it copies — see
 
 Working v1: server, lookup/upload API, both plugin halves, and public dumps
 for mirroring are built, tested, and running against a real Stash library.
-`v0.1.0` was the first tagged release; `v0.1.1` is current — binaries, the
+`v0.1.0` was the first tagged release; `v0.2.0` is current — binaries, the
 container image, the Stash plugin bundles and the plugin package source are
 published from each, so the source URLs above resolve. There is no public moansubs instance yet;
 run your own with [`deploy/`](deploy/).
