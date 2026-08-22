@@ -223,7 +223,7 @@ turns the interstitial off for an operator handling it another way.
 
 ## Status
 
-Working v1, tagged `v0.2.0`, running in production at
+Working v1, tagged `v0.2.1`, running in production at
 [moansubs.org](https://moansubs.org) against a real Stash library. Server,
 lookup/upload API, both plugin halves, the web catalogue, and public dumps
 for mirroring are built and tested. Each release publishes binaries, the

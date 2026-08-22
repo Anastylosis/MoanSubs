@@ -106,10 +106,10 @@ services:
     # Pinned to a released version rather than a moving tag, so a restart
     # can never change versions under you. Override MOANSUBS_TAG to upgrade.
     #
-    # No leading "v": the git tag is v0.2.0 but the image tags are
-    # 0.2.0 / 0.2 / 0 / latest, which is the usual convention for image
+    # No leading "v": the git tag is v0.2.1 but the image tags are
+    # 0.2.1 / 0.2 / 0 / latest, which is the usual convention for image
     # tags and an easy mismatch to write by accident.
-    image: ghcr.io/anastylosis/moansubs:${MOANSUBS_TAG:-0.2.0}
+    image: ghcr.io/anastylosis/moansubs:${MOANSUBS_TAG:-0.2.1}
     restart: unless-stopped
     logging: *default-logging
     # `serve` applies pending migrations on startup (MANUAL.md), so
