@@ -892,24 +892,11 @@ Four steps, in order, and the last is the one that actually gates it:
 2. `MOANSUBS_PUBLIC_URL=https://your.node`, so the sitemap and every
    `og:url` name one canonical origin rather than whatever `Host` the
    request arrived with.
-3. Verify the site in Google Search Console and submit
-   `https://your.node/sitemap.xml`.
+3. Submit `https://your.node/sitemap.xml` to whichever search engines you
+   care about, through their own webmaster tools.
 4. **Confirm some releases.** Nothing is listed until a moderator pins it
    — see "Moderating metadata" above. A node with `MOANSUBS_INDEXABLE=true`
    and no pins serves a sitemap containing two URLs.
-
-On Search Console properties: a **Domain** property (verified by a DNS TXT
-record) covers every subdomain and both protocols, so verifying
-`example.org` also covers `plugins.example.org` and anything else you
-serve — one property, filterable by page. A **URL prefix** property covers
-exactly one origin, so that route needs one per host. Prefer the domain
-property; you control DNS already if you are running the node.
-
-Worth knowing which of your hosts is likely to rank: the plugin index page
-is ordinary technical content on its own subdomain, while the catalogue is
-an adult site that most engines deprioritize or exclude regardless of how
-clean its markup is. If search traffic ever finds this project, that page
-is the likelier door.
 
 `noindex` restrains well-behaved crawlers and nothing else — scrapers and
 archives ignore it. It sequences indexing; the structural rule above is
