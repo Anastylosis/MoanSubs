@@ -600,6 +600,12 @@ func (s *Server) handleGetSubtitle(w http.ResponseWriter, r *http.Request) {
 	} else {
 		downloads++
 	}
+	// The same download, recorded against today's bucket for the trending
+	// list (migration 0019). In memory and flushed in batches, so this
+	// costs a map write rather than a second row write per request.
+	if s.Stats != nil {
+		s.Stats.AddDownload(track.ID, time.Now())
+	}
 
 	// for_release=N asks for this track timed against a different release
 	// of the same work — the sibling case, where one encode carries extra

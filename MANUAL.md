@@ -771,8 +771,7 @@ on the host disk otherwise.
 
 ## Counters (`GET /api/v1/stats`, API.md)
 
-Two independent counters, both pure telemetry — neither one is an access
-log:
+Independent counters, all pure telemetry — none of them is an access log:
 
 - **Downloads.** Every successful `GET /api/v1/subtitles/{id}` bumps that
   track's `downloads` column by exactly one, in the same request, before
@@ -781,6 +780,19 @@ log:
   request — no IP, no account, no timestamp — the number is a plain
   counter, not a log a takedown or an abuse investigation could mine for
   who downloaded what.
+- **Downloads this week.** The same download is also counted against
+  today's date in `track_download_days` (migration 0019), which is what
+  makes the front page's "Trending this week" mean something: the
+  `downloads` column above is a lifetime total, so a track that was
+  popular a year ago would otherwise outrank one climbing today. It is an
+  aggregate, not an event log — one row per (track, day) holding a count,
+  with no IP, no account and no time finer than the date. A per-download
+  event table would answer more questions, several of which a node has no
+  business being able to answer about its visitors: a download log is a
+  viewing history. Counts batch in memory and flush on the same 30-second
+  tick as the lookup counters, so a download costs a map write rather than
+  a second row write. Rows older than 90 days are swept hourly; the
+  lifetime counter is unaffected by that and is what survives.
 - **Lookup hit rate.** The bucketed/exact/name-match/stash-id lookup
   endpoints (`/lookup/oshash`, `/lookup/phash`, `/lookup/stash`,
   `/lookup/batch`, `/lookup/exact`, `/match`) each increment an in-memory

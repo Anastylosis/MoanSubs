@@ -95,10 +95,28 @@ type Stats struct {
 	// atomics for the same reason the fields above are.
 	views map[string]*atomic.Int64
 
+	// downloadsMu guards downloads, the per-(track, day) counts migration
+	// 0019 stores. A mutex-guarded map rather than atomics because this
+	// keyspace is not known at compile time the way the lookup and page-view
+	// sets are: it grows with whichever tracks are downloaded, and the day
+	// rolls over. Held only for the map operation itself, never across a
+	// database call.
+	downloadsMu sync.Mutex
+	downloads   map[store.DownloadDay]int64
+
+	// lastPrune is when the retention sweep last ran. Pruning is a DELETE
+	// over a whole retention window and there is nothing to collect more
+	// than once an hour, so it is rate-limited independently of the flush
+	// ticker rather than running on every flush.
+	lastPrune time.Time
+
 	cacheMu     sync.Mutex
 	cached      statsResponse
 	cachedUntil time.Time
 }
+
+// downloadPruneInterval is the minimum gap between retention sweeps.
+const downloadPruneInterval = time.Hour
 
 // NewStats returns a Stats bound to s, ready for Add* calls and Run.
 func NewStats(s *store.Store) *Stats {
@@ -106,7 +124,7 @@ func NewStats(s *store.Store) *Stats {
 	for _, name := range pageViewNames {
 		views[name] = new(atomic.Int64)
 	}
-	return &Stats{store: s, views: views}
+	return &Stats{store: s, views: views, downloads: make(map[store.DownloadDay]int64)}
 }
 
 // counters maps each persisted stats.key to the atomic field that
@@ -225,6 +243,63 @@ func (st *Stats) Flush(ctx context.Context) error {
 	return nil
 }
 
+// AddDownload records one download of trackID against today's bucket
+// (migration 0019). Counted in memory and flushed in batches, so a
+// download costs a map write rather than a row insert on the request path.
+//
+// Deliberately separate from store.IncrementDownloads, which stays a
+// durable per-request UPDATE: the lifetime counter is what orders tracks
+// and is shown per track, while this is telemetry and may lose up to one
+// flush interval on a crash, the same trade the lookup counters make.
+func (st *Stats) AddDownload(trackID int64, now time.Time) {
+	key := store.DownloadDay{TrackID: trackID, Day: now.UTC().Truncate(24 * time.Hour)}
+	st.downloadsMu.Lock()
+	st.downloads[key]++
+	st.downloadsMu.Unlock()
+}
+
+// flushDownloads drains the per-day counts and merges them. Same
+// swap-then-restore-on-failure shape as Flush: a transient database error
+// costs a retry, not the counts.
+func (st *Stats) flushDownloads(ctx context.Context) error {
+	st.downloadsMu.Lock()
+	deltas := st.downloads
+	st.downloads = make(map[store.DownloadDay]int64, len(deltas))
+	st.downloadsMu.Unlock()
+
+	if len(deltas) == 0 {
+		return nil
+	}
+	if err := st.store.MergeDownloadDays(ctx, deltas); err != nil {
+		st.downloadsMu.Lock()
+		for key, v := range deltas {
+			st.downloads[key] += v
+		}
+		st.downloadsMu.Unlock()
+		return err
+	}
+	return nil
+}
+
+// pruneDownloads runs the retention sweep at most once per
+// downloadPruneInterval. A no-op sweep is silent; one that actually
+// deleted something is logged, so the retention window is visible in the
+// log without a line every hour saying nothing happened.
+func (st *Stats) pruneDownloads(ctx context.Context, now time.Time) {
+	if now.Sub(st.lastPrune) < downloadPruneInterval {
+		return
+	}
+	st.lastPrune = now
+	n, err := st.store.PruneDownloadDays(ctx, now.Add(-store.DownloadDaysRetention))
+	if err != nil {
+		log.Printf("api: PruneDownloadDays: %v", err)
+		return
+	}
+	if n > 0 {
+		log.Printf("api: pruned %d download-day rows past retention", n)
+	}
+}
+
 // Run flushes st every interval, and once more when ctx is cancelled so a
 // graceful shutdown doesn't drop the last partial period (WP-A2:
 // cmd/moansubs/serve.go starts this next to the existing graceful
@@ -237,10 +312,14 @@ func (st *Stats) Run(ctx context.Context, interval time.Duration) {
 	defer ticker.Stop()
 	for {
 		select {
-		case <-ticker.C:
+		case now := <-ticker.C:
 			if err := st.Flush(ctx); err != nil {
 				log.Printf("api: Stats.Flush: %v", err)
 			}
+			if err := st.flushDownloads(ctx); err != nil {
+				log.Printf("api: Stats.flushDownloads: %v", err)
+			}
+			st.pruneDownloads(ctx, now)
 		case <-ctx.Done():
 			// A fresh, un-cancelled context: ctx is already Done, and the
 			// final flush on shutdown must not be aborted by the same
@@ -248,6 +327,12 @@ func (st *Stats) Run(ctx context.Context, interval time.Duration) {
 			flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			if err := st.Flush(flushCtx); err != nil {
 				log.Printf("api: Stats.Flush (shutdown): %v", err)
+			}
+			// The download buckets get the same last flush: a restart
+			// during a busy hour would otherwise drop the counts that
+			// make the trending list move.
+			if err := st.flushDownloads(flushCtx); err != nil {
+				log.Printf("api: Stats.flushDownloads (shutdown): %v", err)
 			}
 			cancel()
 			return
