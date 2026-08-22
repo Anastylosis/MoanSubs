@@ -2,11 +2,32 @@
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
 <h1>Release #{{.Release.ID}}</h1>
 <div class="meta">
-  <span>oshash: <code class="mono">{{.Release.OSHash}}</code></span>
   {{if .Release.Duration}}<span>{{.Release.Duration}}</span>{{end}}
   {{if .Release.Resolution}}<span>{{.Release.Resolution}}</span>{{end}}
   <span>Created: {{.Release.CreatedAt.Format "2006-01-02"}}</span>
 </div>
+
+<h2 style="margin-top:1.25rem">Fingerprints</h2>
+<table>
+  <tbody>
+  <tr><th style="text-align:left">oshash</th><td><code class="mono">{{.Release.OSHash}}</code></td></tr>
+  <tr>
+    <th style="text-align:left">phash</th>
+    <td>
+      {{if .Release.PHash}}<code class="mono">{{.Release.PHash}}</code>
+      <div class="hint" style="margin:.35rem 0 0">blocks
+        {{range $i, $b := .Release.PHashBlocks}}{{if $i}} · {{end}}b{{$i}}=<code class="mono">{{$b}}</code>{{end}}
+      </div>
+      {{else}}<span class="hint" style="display:inline">none — Stash never generated one for this file, so only a byte-identical copy can match it</span>{{end}}
+    </td>
+  </tr>
+  <tr><th style="text-align:left">md5</th><td>{{if .Release.MD5}}<code class="mono">{{.Release.MD5}}</code>{{else}}<span class="hint" style="display:inline">not sent</span>{{end}}</td></tr>
+  </tbody>
+</table>
+<p class="hint">The five blocks are what a bucketed lookup compares: two
+phashes within Hamming distance 4 must agree on at least one of them. When
+two encodes of the same scene fail to find each other, the blocks are
+usually where you can see why.</p>
 {{if or .Release.Title .Release.Stem}}<p>{{if .Release.Title}}{{.Release.Title}}{{else}}{{.Release.Stem}}{{end}}{{if .Release.Studio}} — {{.Release.Studio}}{{end}}</p>{{end}}
 
 {{if .Release.Withdrawn}}

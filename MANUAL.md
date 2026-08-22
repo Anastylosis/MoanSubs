@@ -38,7 +38,7 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_INDEXABLE` | `false` | Opens this node to search engines. The default is the historical posture: `/robots.txt` is a blanket `Disallow: /` and `/browse`, `/search`, `/release/*`, `/u/*` all send `X-Robots-Tag: noindex, nofollow`. `true` narrows both to the public catalogue — `/`, `/browse`, `/release/*`, `/u/*` become indexable **once a release carries a title someone asserted and a moderator has confirmed it** (see "Moderating metadata" below): a release known only by an uploader's filename, or one whose name nobody has yet pinned, keeps its `noindex` and shows `(untitled)` in listings, however readable that filename is (see "Filenames are not titles" below), while `/admin`, `/api/`, `/login`, `/me`, `/mod`, `/register`, `/search` and `/upload` stay disallowed (`/search` keeps its `noindex` on every node: it is `/browse`'s rows behind a query string, and the one catalogue page that does real database work per hit). It also lets the major search crawlers past the age gate, which is a real trade and is described under "Indexing and the age gate" below. Whether an adult catalogue belongs in a search index depends on your jurisdiction and appetite, so this server will not decide it for you. |
 | `MOANSUBS_ANALYTICS_SCRIPT` | *(unset)* | URL of a visitor-analytics tracker script, written into every public page as `<script defer src=… data-website-id=… data-exclude-search="true">`. Built against [Umami](https://umami.is) — self-hosted and cookieless — but anything served as a `<script>` that reads `data-website-id` works. Two forms are accepted: a **same-origin path** (`/s/script.js`, for a reverse proxy in front of this node — see `deploy/README.md`), which keeps the page's CSP on `script-src 'self'; connect-src 'self'` with no third-party origin in it at all; or an **absolute http(s) URL**, whose origin is added to `script-src` and `connect-src` instead. A scheme-relative `//host/path` is rejected rather than guessed at. Must be set together with `MOANSUBS_ANALYTICS_WEBSITE_ID`; setting one alone fails startup, because the resulting tag would load and then silently record nothing. |
 | `MOANSUBS_ANALYTICS_WEBSITE_ID` | *(unset)* | The tracker's site identifier, emitted verbatim as `data-website-id`. See `MOANSUBS_ANALYTICS_SCRIPT`. |
-| `MOANSUBS_STASH_ENDPOINTS` | `https://stashdb.org/graphql,https://fansdb.cc/graphql` | Comma-separated allow-list of stash-box GraphQL endpoints an upload's `stash_ids` may name (WP-R6, defense in depth against a rogue uploader attaching an arbitrary URL the UI would render as a link — API.md "`POST /api/v1/subtitles`"). An endpoint outside it is rejected with `400 stash_ids: endpoint not accepted by this node`. The single value `*` accepts any http(s) endpoint. `GET /api/v1/version` advertises the resolved list as `stash_endpoints`, so the plugin filters what it pushes against it rather than racing the 400 one id at a time; the `/upload` form's endpoint `<select>` lists exactly this set too (plus "other" only when it's `*`). |
+| `MOANSUBS_STASH_ENDPOINTS` | `https://stashdb.org/graphql,https://fansdb.cc/graphql,https://theporndb.net/graphql,https://javstash.org/graphql,https://pmvstash.org/graphql` | Comma-separated allow-list of stash-box GraphQL endpoints an upload's `stash_ids` may name (WP-R6, defense in depth against a rogue uploader attaching an arbitrary URL the UI would render as a link — API.md "`POST /api/v1/subtitles`"). An endpoint outside it is rejected with `400 stash_ids: endpoint not accepted by this node`. The single value `*` accepts any http(s) endpoint. `GET /api/v1/version` advertises the resolved list as `stash_endpoints`, so the plugin filters what it pushes against it rather than racing the 400 one id at a time; the `/upload` form's endpoint `<select>` lists exactly this set too (plus "other" only when it's `*`). |
 | `MOANSUBS_STATEMENT_TIMEOUT` | `30s` | Caps how long any single query may run before Postgres kills it (SQLSTATE `57014`), parsed with `time.ParseDuration`. Without it an anonymous fuzzy phash lookup (a full `bit_count` scan) or `CreatorNames`' DISTINCT+unnest over every release could pin every pooled connection with nothing able to kill the slow statements. `0` removes the limit entirely. Applies to every command that opens the store (`serve` and the CLI subcommands alike), not only the server. **The DSN's own `statement_timeout` connection parameter, if present, always wins over this setting** — this variable only fills the gap when the DSN leaves it unset. Migrations themselves are exempt regardless (schema changes on a large existing table may legitimately need longer than a query budget meant for application traffic). |
 
 **Invite economy (WP-C7c).** An account's invite budget is `earned =
@@ -159,7 +159,9 @@ type — same as with JavaScript disabled, which leaves every field plain.
 per submission (the JSON API accepts up to 5; the form is for a person
 filling this in by hand, so one is what fits the UI), stored the same
 additive way an ordinary upload's `stash_ids` is. The select's options are
-exactly `MOANSUBS_STASH_ENDPOINTS` (below) — stashdb.org and fansdb.cc by
+exactly `MOANSUBS_STASH_ENDPOINTS` (below) — the public stash-box
+instances [Stash itself
+documents](https://docs.stashapp.cc/metadata-sources/stash-box-instances/) by
 default — with an "other" free-text `stash_endpoint_other` offered only
 when that's set to `*`, since anything else would just be rejected
 server-side.
@@ -817,6 +819,22 @@ heuristic. Filenames still feed the matcher's retrieval tokens, so
 level-5 filename matching is unaffected; on a node that indexes nothing
 (`MOANSUBS_INDEXABLE` unset, the default) they are shown, tidied up, since
 nothing is crawled.
+
+### Fingerprints on a release page
+
+A logged-in viewer can expand "How this file is identified" on
+`/release/{id}` to see the release's oshash, its phash and the five MIH
+blocks a lookup compares. Logged out, the panel is not rendered at all.
+
+The values are not secret — every lookup response carries them — but a
+lookup is keyed by an oshash *prefix* or a phash *block*, so a caller must
+already know part of a fingerprint to ask about one. Rendering them on a
+page open to anyone would make the whole catalogue enumerable in a single
+crawl, which is a difference in kind rather than degree. Behind the login
+they reach the people they are useful to: someone deciding whether a
+subtitle will fit their own copy, and a moderator working out why two
+encodes of one scene never found each other (`/mod/release/{id}` shows the
+same, plus the md5 when an uploader sent one).
 
 ### Moderating metadata
 

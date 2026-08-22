@@ -377,8 +377,20 @@ func (s *Server) handleModTrackRestore(w http.ResponseWriter, r *http.Request) {
 // the audience WP-C2's "publishing full fingerprints is a gift to nobody"
 // isn't talking about.
 type modReleaseView struct {
-	ID              int64
-	OSHash          string
+	ID     int64
+	OSHash string
+	// PHash is the padded 16-char form, empty when Stash never generated
+	// one for this file. Its absence is the single most common reason a
+	// release matches nothing across libraries, so the page says so
+	// rather than leaving a blank.
+	PHash string
+	// PHashBlocks are the 5 MIH buckets the lookup actually compares
+	// (API.md's frozen bit ranges). Shown because "why did these two
+	// encodes not group?" is answered by which blocks agree, and by
+	// nothing else visible on this page.
+	PHashBlocks []uint16
+	// MD5 is the file digest when the uploader sent one; most do not.
+	MD5             string
 	Duration        string
 	Resolution      string
 	Title           string
@@ -397,6 +409,14 @@ func newModReleaseView(r *store.Release) modReleaseView {
 		Resolution: formatResolution(r.Width, r.Height),
 		CreatedAt:  r.CreatedAt,
 		Withdrawn:  r.WithdrawnAt != nil,
+	}
+	if r.PHash != nil {
+		v.PHash = r.PHash.String()
+		blocks := r.PHash.Blocks()
+		v.PHashBlocks = blocks[:]
+	}
+	if r.MD5 != nil {
+		v.MD5 = *r.MD5
 	}
 	if r.Title != nil {
 		v.Title = *r.Title

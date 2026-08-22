@@ -65,6 +65,15 @@ type catalogueRelease struct {
 	Resolution   string // "" when unknown, else "WIDTHxHEIGHT"
 	Performers   []string
 	Tracks       []catalogueTrack
+	// Fingerprints, for the release page's collapsed "How this was
+	// matched" panel. Not a disclosure: the lookup API already serves
+	// oshash and phash to anonymous callers by design, and a person
+	// deciding whether a subtitle fits their own file is exactly who
+	// benefits from seeing them.
+	OSHash      string
+	PHash       string
+	PHashBlocks []uint16
+	MD5         string
 	// StashLinks is migration 0011's stash-box scene identities (WP-C9a),
 	// rendered as "On StashDB ↗" links — populated only by
 	// renderReleasePage (browse/search never show it, so their callers
@@ -93,6 +102,12 @@ func stashLabel(endpoint string) string {
 		return "StashDB"
 	case "fansdb.cc":
 		return "FansDB"
+	case "theporndb.net":
+		return "ThePornDB"
+	case "javstash.org":
+		return "JAVStash"
+	case "pmvstash.org":
+		return "PMV Stash"
 	default:
 		return u.Host
 	}
@@ -278,6 +293,15 @@ func buildCatalogueRelease(r store.Release, tracks []store.SubtitleTrackSummary,
 		Duration:     formatDuration(r.DurationMs),
 		Resolution:   formatResolution(r.Width, r.Height),
 		Performers:   r.Performers,
+		OSHash:       string(r.OSHash),
+	}
+	if r.PHash != nil {
+		out.PHash = r.PHash.String()
+		blocks := r.PHash.Blocks()
+		out.PHashBlocks = blocks[:]
+	}
+	if r.MD5 != nil {
+		out.MD5 = *r.MD5
 	}
 	if r.Studio != nil {
 		out.Studio = *r.Studio

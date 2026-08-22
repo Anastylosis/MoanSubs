@@ -32,6 +32,44 @@
 </details>
 {{end}}
 
+{{if .LoggedIn}}
+{{/* Logged-in only. The values are not secret -- every lookup response
+     carries them -- but a lookup is keyed by prefix or by MIH block, so a
+     caller must already know part of a fingerprint to ask. Rendering them
+     on a page would make the whole catalogue enumerable in one crawl,
+     which is a difference in kind rather than degree (PLAN.md WP-C2's
+     "publishing full fingerprints is a gift to nobody"). Behind the login
+     they reach the people deciding whether a subtitle fits their own copy,
+     and nobody else. */}}
+<details class="cue" style="margin-bottom:1.25rem">
+  <summary>How this file is identified</summary>
+  <p class="hint">Subtitles here are matched to video by fingerprint rather
+  than by filename, which is why a differently-named copy of the same scene
+  still finds them. These are this release's.</p>
+  <table>
+    <tbody>
+    <tr><th style="text-align:left">oshash</th><td><code class="mono">{{.Release.OSHash}}</code></td></tr>
+    <tr>
+      <th style="text-align:left">phash</th>
+      <td>
+        {{if .Release.PHash}}<code class="mono">{{.Release.PHash}}</code>
+        <div class="hint" style="margin:.35rem 0 0">lookup blocks
+          {{range $i, $b := .Release.PHashBlocks}}{{if $i}} · {{end}}b{{$i}}=<code class="mono">{{$b}}</code>{{end}}
+        </div>
+        {{else}}<span class="hint" style="display:inline">none on file — without one, only a byte-identical copy of the video can match this release</span>{{end}}
+      </td>
+    </tr>
+    {{if .Release.MD5}}<tr><th style="text-align:left">md5</th><td><code class="mono">{{.Release.MD5}}</code></td></tr>{{end}}
+    {{if .Release.Duration}}<tr><th style="text-align:left">runtime</th><td>{{.Release.Duration}}</td></tr>{{end}}
+    </tbody>
+  </table>
+  <p class="hint">A perceptual hash survives re-encoding, so two copies of a
+  scene at different bitrates usually land close together. The five blocks
+  are what a lookup compares: any two phashes within a small distance of
+  each other must agree on at least one of them.</p>
+</details>
+{{end}}
+
 <h2 style="margin-top:0">Subtitles</h2>
 {{if not .Release.Tracks}}
 <p class="empty">No subtitles are visible for this release right now.</p>
