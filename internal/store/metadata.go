@@ -142,6 +142,34 @@ func (s *Store) Confirmed(ctx context.Context, releaseID int64) (*ConfirmedMetad
 	return &c, nil
 }
 
+// ConfirmedReleaseIDs reports which of releaseIDs carry a moderator's pin.
+// The batch form of Confirmed, for the listing pages: indexability is a
+// per-release question and a page of releases must not become a query per
+// row.
+func (s *Store) ConfirmedReleaseIDs(ctx context.Context, releaseIDs []int64) (map[int64]bool, error) {
+	out := make(map[int64]bool, len(releaseIDs))
+	if len(releaseIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT release_id FROM release_metadata_confirmed WHERE release_id = ANY($1)`, releaseIDs)
+	if err != nil {
+		return nil, fmt.Errorf("store: ConfirmedReleaseIDs: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("store: ConfirmedReleaseIDs: scanning: %w", err)
+		}
+		out[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: ConfirmedReleaseIDs: %w", err)
+	}
+	return out, nil
+}
+
 // ConfirmMetadata pins a release's current derived metadata, attributed to
 // confirmedBy. Idempotent: confirming twice re-pins whatever is current.
 func (s *Store) ConfirmMetadata(ctx context.Context, releaseID int64, confirmedBy *int64, c ConfirmedMetadata) error {

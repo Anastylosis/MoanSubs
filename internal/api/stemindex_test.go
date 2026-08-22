@@ -7,11 +7,13 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/Anastylosis/MoanSubs/internal/store"
 )
 
 // indexableServerWithToken is indexableServer plus an upload token, for
 // tests that need to put real releases behind the catalogue pages.
-func indexableServerWithToken(t *testing.T) (*httptest.Server, string) {
+func indexableServerWithToken(t *testing.T) (*httptest.Server, *store.Store, string) {
 	t.Helper()
 	st := openTestStore(t)
 	srv := NewServer(st)
@@ -24,7 +26,24 @@ func indexableServerWithToken(t *testing.T) (*httptest.Server, string) {
 	if err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
-	return ts, token
+	return ts, st, token
+}
+
+// confirmRelease pins a release's derived metadata the way a moderator
+// would. Done through the store rather than the mod page: what these tests
+// are about is the robots decision, not the form that reaches it.
+func confirmRelease(t *testing.T, st *store.Store, releaseID int64) {
+	t.Helper()
+	ctx := context.Background()
+	rel, err := st.GetReleaseByID(ctx, releaseID)
+	if err != nil {
+		t.Fatalf("GetReleaseByID(%d): %v", releaseID, err)
+	}
+	if err := st.ConfirmMetadata(ctx, releaseID, nil, store.ConfirmedMetadata{
+		Title: rel.Title, ReleaseDate: rel.ReleaseDate, Studio: rel.Studio, Performers: rel.Performers,
+	}); err != nil {
+		t.Fatalf("ConfirmMetadata(%d): %v", releaseID, err)
+	}
 }
 
 func uploadWith(t *testing.T, ts *httptest.Server, token string, extra map[string]any) uploadResponse {
@@ -45,7 +64,7 @@ func uploadWith(t *testing.T, ts *httptest.Server, token string, extra map[strin
 // filename. This is the control that makes the privacy rule real: a
 // crawled heading outlives any later correction in this database.
 func TestReleasePage_StemOnlyStaysNoindexOnIndexableNode(t *testing.T) {
-	ts, token := indexableServerWithToken(t)
+	ts, st, token := indexableServerWithToken(t)
 
 	stemOnly := uploadWith(t, ts, token, map[string]any{
 		"oshash": "1111111111111111", "stem": "Jane Doe - SiteRip 2019",
@@ -60,9 +79,20 @@ func TestReleasePage_StemOnlyStaysNoindexOnIndexableNode(t *testing.T) {
 		t.Errorf("stem-only release X-Robots-Tag = %q, want noindex", got)
 	}
 
-	resp, _ = getPage(t, ts.URL+"/release/"+strconv.FormatInt(curated.ReleaseID, 10))
+	// A curated title is necessary but not sufficient: until a moderator
+	// pins it, the derived name is only whatever the evidence currently
+	// favours, and any account can move it.
+	curatedPath := "/release/" + strconv.FormatInt(curated.ReleaseID, 10)
+	resp, _ = getPage(t, ts.URL+curatedPath)
+	if got := resp.Header.Get("X-Robots-Tag"); !strings.Contains(got, "noindex") {
+		t.Errorf("curated but unpinned release X-Robots-Tag = %q, want noindex", got)
+	}
+
+	confirmRelease(t, st, curated.ReleaseID)
+
+	resp, _ = getPage(t, ts.URL+curatedPath)
 	if got := resp.Header.Get("X-Robots-Tag"); got != "" {
-		t.Errorf("curated release X-Robots-Tag = %q, want it left indexable", got)
+		t.Errorf("curated and pinned release X-Robots-Tag = %q, want it left indexable", got)
 	}
 }
 
@@ -70,7 +100,7 @@ func TestReleasePage_StemOnlyStaysNoindexOnIndexableNode(t *testing.T) {
 // indexable and renders each row's name as link text, so an uncurated
 // filename would be cached from the listing regardless.
 func TestBrowse_DoesNotRenderFilenamesOnIndexableNode(t *testing.T) {
-	ts, token := indexableServerWithToken(t)
+	ts, _, token := indexableServerWithToken(t)
 
 	uploadWith(t, ts, token, map[string]any{
 		"oshash": "3333333333333333", "stem": "Jane Doe - SiteRip 2019",

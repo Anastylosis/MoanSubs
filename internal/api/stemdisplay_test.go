@@ -39,7 +39,7 @@ func TestCuratedTitle_IgnoresStem(t *testing.T) {
 	if got := curatedTitle(r); got != "" {
 		t.Errorf("curatedTitle with only a stem = %q, want empty", got)
 	}
-	if releaseIsIndexable(r) {
+	if releaseIsIndexable(r, true) {
 		t.Error("a release named only by its filename must not be indexable")
 	}
 
@@ -47,8 +47,11 @@ func TestCuratedTitle_IgnoresStem(t *testing.T) {
 	if got := curatedTitle(r); got != "La Hermana De Mi Amigo" {
 		t.Errorf("curatedTitle = %q", got)
 	}
-	if !releaseIsIndexable(r) {
-		t.Error("a release with a curated title should be indexable")
+	if releaseIsIndexable(r, false) {
+		t.Error("a curated title nobody has pinned must not be indexable on its own")
+	}
+	if !releaseIsIndexable(r, true) {
+		t.Error("a curated title a moderator pinned should be indexable")
 	}
 }
 
@@ -60,7 +63,7 @@ func TestReleaseIsIndexable_ReadableFilenameStillNotIndexable(t *testing.T) {
 	if cleanStem(*r.Stem) == "" {
 		t.Fatal("precondition: this stem is meant to survive cleaning")
 	}
-	if releaseIsIndexable(r) {
+	if releaseIsIndexable(r, true) {
 		t.Error("a readable filename is still a filename; it must not open the page to crawlers")
 	}
 }
@@ -89,15 +92,18 @@ func TestDisplayTitle(t *testing.T) {
 func TestBuildCatalogueRelease_CrawlableSuppressesFilename(t *testing.T) {
 	r := store.Release{ID: 1, Stem: strp("Jane Doe - SiteRip 2019")}
 
-	if got := buildCatalogueRelease(r, nil, false).Title; got != "Jane Doe SiteRip 2019" {
+	if got := buildCatalogueRelease(r, nil, false, true).Title; got != "Jane Doe SiteRip 2019" {
 		t.Errorf("non-crawlable title = %q, want the cleaned filename", got)
 	}
-	if got := buildCatalogueRelease(r, nil, true).Title; got != "(untitled)" {
+	if got := buildCatalogueRelease(r, nil, true, true).Title; got != "(untitled)" {
 		t.Errorf("crawlable title = %q, want (untitled)", got)
 	}
 
 	r.Title = strp("A Curated Name")
-	if got := buildCatalogueRelease(r, nil, true).Title; got != "A Curated Name" {
-		t.Errorf("crawlable title with a curated name = %q, want it kept", got)
+	if got := buildCatalogueRelease(r, nil, true, false).Title; got != "(untitled)" {
+		t.Errorf("crawlable title, curated but unpinned = %q, want (untitled)", got)
+	}
+	if got := buildCatalogueRelease(r, nil, true, true).Title; got != "A Curated Name" {
+		t.Errorf("crawlable title with a curated, pinned name = %q, want it kept", got)
 	}
 }
