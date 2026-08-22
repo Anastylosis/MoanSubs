@@ -1,29 +1,88 @@
 <!doctype html>
+<html lang="en">
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>moansubs plugin index</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  body{max-width:42rem;margin:4rem auto;padding:0 1.25rem;
-       font:16px/1.6 system-ui,sans-serif;color:#1b1d22;background:#e9e7e1}
-  code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em;
-       background:#f3f1ec;border:1px solid #cfccc4;border-radius:3px;padding:.1em .35em}
-  a{color:#8a6d00}
-  @media (prefers-color-scheme:dark){
-    body{color:#ece8df;background:#1b1d22}
-    code{background:#22252b;border-color:#33373f}
-    a{color:#f3ce4a}}
+  /* The catalogue's own tokens (internal/api/templates/page.html), copied
+     rather than shared: this branch is served by GitHub Pages and cannot
+     reach the server's stylesheet. The accent is DefaultAccent #f02460 as
+     ParseAccent fits it to each theme's grounds -- the same two values the
+     server renders, not an eyeballed match. */
+  :root {
+    color-scheme: dark light;
+    --bg: #1b1d22; --surface: #22252b; --fg: #ece8df; --muted: #9a9ea8;
+    --line: #33373f; --accent: #f34e7f;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #e9e7e1; --surface: #f3f1ec; --fg: #1b1d22; --muted: #5e626b;
+            --line: #cfccc4; --accent: #cd0e46; }
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body { margin: 0; color: var(--fg); background: var(--bg);
+         font: 17px/1.55 var(--serif); -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: .15em; }
+  a:hover { text-decoration-thickness: 2px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  h1 { font-family: var(--serif); font-weight: 600; letter-spacing: -.01em; line-height: 1.2;
+       font-size: 2rem; margin: 0 0 .5rem; }
+  p { margin: 0 0 1rem; }
+  code { font-family: var(--mono); font-size: .85em; }
+
+  .bar { border-bottom: 1px solid var(--line); background: var(--surface); }
+  .bar-in { max-width: 64rem; margin: 0 auto; padding: .7rem 1.25rem; display: flex; align-items: baseline; gap: 1.5rem; flex-wrap: wrap; }
+  .wordmark { font-family: var(--mono); font-size: 1rem; font-weight: 700; letter-spacing: .02em; color: var(--fg); text-decoration: none; }
+  .wordmark b { color: var(--accent); font-weight: 700; }
+  nav { display: flex; gap: 1.25rem; margin-left: auto; font-family: var(--sans); font-size: .9rem; }
+  nav a { color: var(--fg); text-decoration: none; opacity: .85; }
+  nav a:hover { opacity: 1; text-decoration: underline; }
+  main { max-width: 64rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+  footer { border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; font-family: var(--sans); }
+  footer .bar-in { justify-content: space-between; }
+  footer a { color: inherit; }
+
+  /* The index URLs are the one thing anyone comes here to copy, so they
+     get the surface treatment rather than sitting in a bare list. */
+  .urls { list-style: none; padding: 0; margin: 0 0 1.5rem; display: grid; gap: .5rem; }
+  .urls li { background: var(--surface); border: 1px solid var(--line); border-radius: 4px;
+             padding: .6rem .8rem; display: flex; align-items: baseline; gap: .8rem; flex-wrap: wrap; }
+  .urls .arch { font-family: var(--sans); font-size: .78rem; text-transform: uppercase;
+                letter-spacing: .06em; color: var(--muted); font-weight: 600; min-width: 5.5rem; }
+  .urls code { font-size: .9em; word-break: break-all; }
 </style>
-<h1>moansubs plugin index</h1>
-<p>This branch serves the Stash package index for the
-<a href="https://github.com/Anastylosis/MoanSubs">moansubs</a> plugin. It is
-published by the release workflow; there is nothing to browse here by hand.</p>
-<p>Add the URL matching the architecture <em>Stash itself</em> runs on, under
-Settings → Plugins → Add source. The exec half is a native binary, so an
-arm64 NAS needs the arm64 index even when the server runs elsewhere.</p>
-<ul>
-  <li><code>https://plugins.moansubs.org/plugin/amd64/index.yml</code></li>
-  <li><code>https://plugins.moansubs.org/plugin/arm64/index.yml</code></li>
-</ul>
-<p>Each index points at bundles attached to a release, so adding it once
-reaches every later release. See
-<a href="https://github.com/Anastylosis/MoanSubs/blob/master/plugin/README.md">plugin/README.md</a>.</p>
+<header class="bar">
+  <div class="bar-in">
+    <a class="wordmark" href="https://moansubs.org/">moan<b>subs</b></a>
+    <nav aria-label="Site">
+      <a href="https://moansubs.org/browse">Browse</a>
+      <a href="https://github.com/Anastylosis/MoanSubs/blob/master/plugin/README.md">Plugin docs</a>
+    </nav>
+  </div>
+</header>
+<main>
+  <h1>Stash plugin index</h1>
+  <p>This branch serves the Stash package index for the
+  <a href="https://github.com/Anastylosis/MoanSubs">moansubs</a> plugin. It is
+  published by the release workflow; there is nothing to browse here by hand.</p>
+  <p>Add the URL matching the architecture <em>Stash itself</em> runs on, under
+  Settings → Plugins → Add source. The exec half is a native binary, so an
+  arm64 NAS needs the arm64 index even when the server runs elsewhere.</p>
+  <ul class="urls">
+    <li><span class="arch">linux/amd64</span><code>https://plugins.moansubs.org/plugin/amd64/index.yml</code></li>
+    <li><span class="arch">linux/arm64</span><code>https://plugins.moansubs.org/plugin/arm64/index.yml</code></li>
+  </ul>
+  <p>Each index points at bundles attached to a release, so adding it once
+  reaches every later release. See
+  <a href="https://github.com/Anastylosis/MoanSubs/blob/master/plugin/README.md">plugin/README.md</a>.</p>
+</main>
+<footer>
+  <div class="bar-in">
+    <span>Searching and downloading need no account; an account is only for uploading and voting.</span>
+    <span><a href="https://github.com/Anastylosis/MoanSubs">Source and plugin</a></span>
+  </div>
+</footer>
+</html>
