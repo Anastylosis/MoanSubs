@@ -8,6 +8,22 @@ ask for it. Generic on purpose — no real hostnames, buckets or credentials
 are checked in here; every placeholder needs a real value before you start
 the stack — private infrastructure details never enter tracked files.
 
+## Contents
+
+- [Layout](#layout)
+- [First boot](#first-boot)
+- [Configuring with a file instead](#configuring-with-a-file-instead)
+- [Upgrades](#upgrades)
+- [Upgrading Postgres](#upgrading-postgres)
+- [Restore drill](#restore-drill)
+- [TLS without Let's Encrypt](#tls-without-lets-encrypt)
+  - [What this does to the Stash plugin](#what-this-does-to-the-stash-plugin)
+- [Being found (indexing, sitemap, link previews)](#being-found-indexing-sitemap-link-previews)
+  - [Auto-confirm](#auto-confirm)
+- [Analytics](#analytics)
+- [Trust proxy note](#trust-proxy-note)
+- [Publishing a mirror dump](#publishing-a-mirror-dump)
+
 ## Layout
 
 - `docker-compose.yml` — the stack. Routing lives on the `server`
