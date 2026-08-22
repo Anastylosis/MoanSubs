@@ -745,6 +745,17 @@ your analytics host. If you point `MOANSUBS_ANALYTICS_SCRIPT` at a tracker
 that does not understand that attribute, check what it records before
 trusting this paragraph.
 
+**It covers this node, and nothing else you publish.** The tag is written
+by this server into pages this server renders, so a separate static site —
+the plugin package index at `plugins.moansubs.org`, say, which is a
+`gh-pages` branch on GitHub Pages — is outside it entirely. Adding one
+there means hardcoding the script URL into a public branch, where the
+tracker's hostname becomes a permanent part of that repository's history.
+For a self-hosted tracker on a host you would rather not advertise, that
+is a real cost for a page-view count, and this project's own plugin index
+deliberately carries no tag for exactly that reason. A tracker on a
+hostname you are happy to publish has no such problem.
+
 **Prefer a same-origin path.** Give the variable a path rather than an
 absolute URL and reverse-proxy it to your analytics host (see
 `deploy/README.md`). The CSP then stays `script-src 'self'; connect-src
