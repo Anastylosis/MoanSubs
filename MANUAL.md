@@ -3,6 +3,47 @@
 The server is one static binary (`moansubs`). Migrations run automatically
 at startup; there is no separate schema setup.
 
+## Contents
+
+- [Configuration](#configuration)
+- [Commands](#commands)
+  - [`moansubs serve`](#moansubs-serve)
+  - [`moansubs migrate`](#moansubs-migrate)
+  - [`moansubs account create <name>`](#moansubs-account-create-name)
+  - [`moansubs account list`](#moansubs-account-list)
+  - [`moansubs account disable <name> [--reason TEXT]` / `enable <name>`](#moansubs-account-disable-name---reason-text--enable-name)
+  - [`moansubs account rotate-token <name>`](#moansubs-account-rotate-token-name)
+  - [`moansubs account role <name> <user|mod|admin>`](#moansubs-account-role-name-usermodadmin)
+  - [`moansubs account set-password <name>`](#moansubs-account-set-password-name)
+  - [`moansubs account show <name>`](#moansubs-account-show-name)
+  - [`moansubs admin bootstrap`](#moansubs-admin-bootstrap)
+  - [`moansubs invite create --for <name> [--uses N | --unlimited] [--expires DURATION]`](#moansubs-invite-create---for-name---uses-n----unlimited---expires-duration)
+  - [`moansubs invite list [--for <name>]`](#moansubs-invite-list---for-name)
+  - [`moansubs invite disable <code>`](#moansubs-invite-disable-code)
+  - [`moansubs track resanitize [--dry-run] [--id N]`](#moansubs-track-resanitize---dry-run---id-n)
+  - [`moansubs track withdraw <id> [--reason TEXT]`](#moansubs-track-withdraw-id---reason-text)
+  - [`moansubs track restore <id>`](#moansubs-track-restore-id)
+  - [`moansubs track show <id>`](#moansubs-track-show-id)
+  - [`moansubs track list --flagged`](#moansubs-track-list---flagged)
+  - [`moansubs release withdraw <id> [--reason TEXT]`](#moansubs-release-withdraw-id---reason-text)
+  - [`moansubs release restore <id>`](#moansubs-release-restore-id)
+  - [`moansubs account purge <name> [--reason TEXT]`](#moansubs-account-purge-name---reason-text)
+  - [`moansubs work`](#moansubs-work)
+  - [`moansubs dump [-o FILE]`](#moansubs-dump--o-file)
+  - [`moansubs import FILE`](#moansubs-import-file)
+  - [`moansubs --version`](#moansubs---version)
+- [Moderating from the browser](#moderating-from-the-browser)
+- [Operations](#operations)
+- [Upload semantics (what the server does to a subtitle)](#upload-semantics-what-the-server-does-to-a-subtitle)
+- [Counters (`GET /api/v1/stats`, API.md)](#counters-get-apiv1stats-apimd)
+- [Analytics (`MOANSUBS_ANALYTICS_SCRIPT`)](#analytics-moansubs_analytics_script)
+- [Where a release's name comes from](#where-a-releases-name-comes-from)
+  - [Filenames are not titles](#filenames-are-not-titles)
+  - [Fingerprints on a release page](#fingerprints-on-a-release-page)
+  - [Moderating metadata](#moderating-metadata)
+  - [Being found](#being-found)
+- [Indexing and the age gate](#indexing-and-the-age-gate)
+
 ## Configuration
 
 Settings come from two places, and the rule between them is one line:
@@ -60,7 +101,7 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_SESSION_TTL` | `720h` | How long a browser session (the `moansubs_session` cookie from `POST /login`) stays valid, parsed with Go's `time.ParseDuration`. |
 | `MOANSUBS_TRUSTED_PROXY_CIDRS` | *(unset)* | Comma-separated CIDRs (e.g. `172.28.0.0/24,10.0.0.0/8`) — list **every** hop's range, not just the one directly in front of this node: if a CDN sits in front of the reference Traefik, its published ranges belong here too, alongside Traefik's own address or subnet. The rate limiters' `X-Forwarded-For` handling only trusts the header when the request's direct peer address falls inside one of these — see "Reverse proxies" below. It also gates whether `X-Forwarded-Proto: https` is believed for the session cookie's `Secure` flag. Unset means none are trusted. |
 | `MOANSUBS_SEARCH_RATE_PER_MINUTE` | `30` | Per-IP budget for `GET /search`. The only catalogue page where an anonymous visitor makes the database do real work (a GIN array-overlap query), rather than an indexed lookup by prefix or id. |
-| `MOANSUBS_DUMP_URL` | *(unset)* | Link the front page shows under "download the latest dump". Publishing a dump (WP-B2, `moansubs dump`) is an out-of-band operator choice; unset hides the link entirely. |
+| `MOANSUBS_DUMP_URL` | *(unset)* | Link the front page shows under "download the latest dump". Publishing a dump (`moansubs dump`) is an out-of-band operator choice; unset hides the link entirely. |
 | `MOANSUBS_INDEX_FRONT_PAGE` | `false` | Offer the **front page only** to search engines while the catalogue stays unlisted: `/robots.txt` allows `/` and disallows everything else, and crawlers are let past the age gate for `/` alone. The launch posture for a new node — the project should be findable by name long before a catalogue of filename-titled releases is worth publishing. `/sitemap.xml` still 404s, since there is no catalogue on offer. Ignored when `MOANSUBS_INDEXABLE` is on, which already offers strictly more. |
 | `MOANSUBS_AUTOCONFIRM` | `false` | Lets a trusted account's stash-box-backed metadata pin itself, with no moderator. Does nothing until at least one account is marked with `moansubs account trust <name>` — see "Auto-confirming" below for what qualifies and what it deliberately refuses. |
 | `MOANSUBS_AUTOCONFIRM_ENDPOINTS` | `https://stashdb.org/graphql,https://theporndb.net/graphql` | Which stash-boxes' ids may pin a name with no moderator, when `MOANSUBS_AUTOCONFIRM` is on. Deliberately narrower than `MOANSUBS_STASH_ENDPOINTS`: a node can accept ids from a broad, loosely-curated database for *matching* — which is where breadth pays — without letting them *publish* a name uncorrected on a page a crawler will cache. Same syntax, including `*`; an empty value means the default, and a list naming nothing valid is a startup error. |
@@ -75,10 +116,10 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_INDEXABLE` | `false` | Opens this node to search engines. The default is the historical posture: `/robots.txt` is a blanket `Disallow: /` and `/browse`, `/search`, `/release/*`, `/u/*` all send `X-Robots-Tag: noindex, nofollow`. `true` narrows both to the public catalogue — `/`, `/browse`, `/release/*`, `/u/*` become indexable **once a release carries a title someone asserted and a moderator has confirmed it** (see "Moderating metadata" below): a release known only by an uploader's filename, or one whose name nobody has yet pinned, keeps its `noindex` and shows `(untitled)` in listings, however readable that filename is (see "Filenames are not titles" below), while `/admin`, `/api/`, `/login`, `/me`, `/mod`, `/register`, `/search` and `/upload` stay disallowed (`/search` keeps its `noindex` on every node: it is `/browse`'s rows behind a query string, and the one catalogue page that does real database work per hit). It also lets the major search crawlers past the age gate, which is a real trade and is described under "Indexing and the age gate" below. Whether an adult catalogue belongs in a search index depends on your jurisdiction and appetite, so this server will not decide it for you. |
 | `MOANSUBS_ANALYTICS_SCRIPT` | *(unset)* | URL of a visitor-analytics tracker script, written into every public page as `<script defer src=… data-website-id=… data-exclude-search="true">`. Built against [Umami](https://umami.is) — self-hosted and cookieless — but anything served as a `<script>` that reads `data-website-id` works. Two forms are accepted: a **same-origin path** (`/s/script.js`, for a reverse proxy in front of this node — see `deploy/README.md`), which keeps the page's CSP on `script-src 'self'; connect-src 'self'` with no third-party origin in it at all; or an **absolute http(s) URL**, whose origin is added to `script-src` and `connect-src` instead. A scheme-relative `//host/path` is rejected rather than guessed at. Must be set together with `MOANSUBS_ANALYTICS_WEBSITE_ID`; setting one alone fails startup, because the resulting tag would load and then silently record nothing. |
 | `MOANSUBS_ANALYTICS_WEBSITE_ID` | *(unset)* | The tracker's site identifier, emitted verbatim as `data-website-id`. See `MOANSUBS_ANALYTICS_SCRIPT`. |
-| `MOANSUBS_STASH_ENDPOINTS` | `https://stashdb.org/graphql,https://fansdb.cc/graphql,https://theporndb.net/graphql,https://javstash.org/graphql,https://pmvstash.org/graphql` | Comma-separated allow-list of stash-box GraphQL endpoints an upload's `stash_ids` may name (WP-R6, defense in depth against a rogue uploader attaching an arbitrary URL the UI would render as a link — API.md "`POST /api/v1/subtitles`"). An endpoint outside it is rejected with `400 stash_ids: endpoint not accepted by this node`. The single value `*` accepts any http(s) endpoint. `GET /api/v1/version` advertises the resolved list as `stash_endpoints`, so the plugin filters what it pushes against it rather than racing the 400 one id at a time; the `/upload` form's endpoint `<select>` lists exactly this set too (plus "other" only when it's `*`). |
+| `MOANSUBS_STASH_ENDPOINTS` | `https://stashdb.org/graphql,https://fansdb.cc/graphql,https://theporndb.net/graphql,https://javstash.org/graphql,https://pmvstash.org/graphql` | Comma-separated allow-list of stash-box GraphQL endpoints an upload's `stash_ids` may name (defense in depth against a rogue uploader attaching an arbitrary URL the UI would render as a link — API.md "`POST /api/v1/subtitles`"). An endpoint outside it is rejected with `400 stash_ids: endpoint not accepted by this node`. The single value `*` accepts any http(s) endpoint. `GET /api/v1/version` advertises the resolved list as `stash_endpoints`, so the plugin filters what it pushes against it rather than racing the 400 one id at a time; the `/upload` form's endpoint `<select>` lists exactly this set too (plus "other" only when it's `*`). |
 | `MOANSUBS_STATEMENT_TIMEOUT` | `30s` | Caps how long any single query may run before Postgres kills it (SQLSTATE `57014`), parsed with `time.ParseDuration`. Without it an anonymous fuzzy phash lookup (a full `bit_count` scan) or `CreatorNames`' DISTINCT+unnest over every release could pin every pooled connection with nothing able to kill the slow statements. `0` removes the limit entirely. Applies to every command that opens the store (`serve` and the CLI subcommands alike), not only the server. **The DSN's own `statement_timeout` connection parameter, if present, always wins over this setting** — this variable only fills the gap when the DSN leaves it unset. Migrations themselves are exempt regardless (schema changes on a large existing table may legitimately need longer than a query budget meant for application traffic). |
 
-**Invite economy (WP-C7c).** An account's invite budget is `earned =
+**Invite economy.** An account's invite budget is `earned =
 MOANSUBS_INVITES_INITIAL + floor(visible uploads / MOANSUBS_INVITES_PER_UPLOADS)`
 (withdrawn tracks and tracks under a withdrawn release don't count as
 visible), `minted` = every code it has ever created regardless of state
@@ -192,7 +233,7 @@ A pasted value is never overwritten. A file too small to fingerprint, or a
 container the browser can't decode, leaves the field for the uploader to
 type — same as with JavaScript disabled, which leaves every field plain.
 "About the scene" also carries a `stash_id` text field and a
-`stash_endpoint` select — migration 0011's WP-C9a stash-box scene id, one
+`stash_endpoint` select — migration 0011's stash-box scene id, one
 per submission (the JSON API accepts up to 5; the form is for a person
 filling this in by hand, so one is what fits the UI), stored the same
 additive way an ordinary upload's `stash_ids` is. The select's options are
@@ -490,7 +531,7 @@ Writes every non-withdrawn release and track as gzip-compressed JSONL: a
 `release` line per release (fingerprints, duration, resolution, the
 name metadata `POST /api/v1/match` scores against — a mirror without it
 would have no name matching and an empty catalogue — and its stash-box ids,
-migration 0011, WP-C9a), then one `track` line
+migration 0011), then one `track` line
 per track. Withdrawn
 releases and tracks are excluded, as is any track under a withdrawn release
 even if the track itself was never individually withdrawn (TAKEDOWN.md).
@@ -554,7 +595,7 @@ existence isn't advertised to someone who can't use it. An API token in an
 human-facing page (`/me`, `/upload`, and this section): only the session
 cookie logs a browser in, so a leaked token can't be used to reach a mod
 or admin page (SECURITY.md). Every state-changing action is a same-origin
-POST (WP-C1's Origin/Referer check, SECURITY.md), same as `/me`'s own
+POST (the Origin/Referer check, SECURITY.md), same as `/me`'s own
 buttons.
 
 **Role `mod` or higher:**
@@ -615,7 +656,7 @@ That is the only non-additive operation on stash ids.
 automatically and are safe to re-run. Migrations are append-only; nothing
 ever rewrites an applied migration file.
 
-Language-tag canonicalisation (WP-P2) is not a migration: `lang` values
+Language-tag canonicalisation is not a migration: `lang` values
 stored before this change are left exactly as they were uploaded, and
 `track resanitize` re-renders subtitle bodies only — it never touches
 `lang`. A node upgrading past this change starts canonicalising fresh

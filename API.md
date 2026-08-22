@@ -16,6 +16,33 @@ call is exempt, since a script sending its own token is not the
 cross-site-browser case that check defends against. See SECURITY.md for
 the full session/CSRF model.
 
+## Contents
+
+- [The bucket contract](#the-bucket-contract)
+- [Endpoints](#endpoints)
+  - [`GET /healthz`](#get-healthz)
+  - [`GET /api/v1/version`](#get-apiv1version)
+  - [`GET /api/v1/lookup/oshash/{prefix}`](#get-apiv1lookuposhashprefix)
+  - [`GET /api/v1/lookup/phash/{block}/{val}`](#get-apiv1lookupphashblockval)
+  - [`GET /api/v1/lookup/stash/{ehash}/{stash_id}`](#get-apiv1lookupstashehashstash_id)
+  - [`POST /api/v1/lookup/batch`](#post-apiv1lookupbatch)
+  - [`POST /api/v1/lookup/exact`](#post-apiv1lookupexact)
+  - [`GET /api/v1/stats`](#get-apiv1stats)
+  - [`POST /api/v1/match`](#post-apiv1match)
+  - [Release shape (shared by all lookups)](#release-shape-shared-by-all-lookups)
+  - [`GET /api/v1/subtitles/{id}`](#get-apiv1subtitlesid)
+  - [`POST /api/v1/accounts`](#post-apiv1accounts)
+  - [`POST /login`](#post-login)
+  - [`POST /logout`](#post-logout)
+  - [`POST /api/v1/subtitles` *(auth required)*](#post-apiv1subtitles-auth-required)
+  - [`GET /sitemap.xml`](#get-sitemapxml)
+  - [`POST /api/v1/metadata` *(auth required)*](#post-apiv1metadata-auth-required)
+- [Votes](#votes)
+  - [`PUT /api/v1/subtitles/{id}/vote` *(auth required)*](#put-apiv1subtitlesidvote-auth-required)
+  - [`DELETE /api/v1/subtitles/{id}/vote` *(auth required)*](#delete-apiv1subtitlesidvote-auth-required)
+  - [`GET /api/v1/subtitles/{id}/votes`](#get-apiv1subtitlesidvotes)
+- [Works and sibling subtitles](#works-and-sibling-subtitles)
+
 ## The bucket contract
 
 Client and server MUST agree bit-for-bit on these definitions; they are
@@ -62,13 +89,13 @@ appends its own name here in the commit that adds it. A node predating this
 endpoint entirely 404s, which a client should treat identically to a current
 node answering with an empty `features` list.
 
-`stash_endpoints` (WP-R6) is the node's `MOANSUBS_STASH_ENDPOINTS` allow-list
+`stash_endpoints` is the node's `MOANSUBS_STASH_ENDPOINTS` allow-list
 verbatim — the only stash-box endpoints `POST /api/v1/subtitles`'s
 `stash_ids` will accept, `*` when the node accepts any http(s) endpoint.
 The plugin filters what it sends on a push against this list rather than
 racing the upload endpoint's `400` one id at a time; a node that predates
 this field omits it entirely, which a client reads the same as "send
-everything", the behavior before WP-R6.
+everything", the behavior on a node that predates the allow-list.
 
 ### `GET /api/v1/lookup/oshash/{prefix}`
 
@@ -84,7 +111,7 @@ that block bucket.
 
 ### `GET /api/v1/lookup/stash/{ehash}/{stash_id}`
 
-The level-0 "identity" match (migration 0011, WP-C9a): a Stash scene's own
+The level-0 "identity" match (migration 0011): a Stash scene's own
 stash-box id (StashDB, FansDB, …) identifies it across every encode, which
 beats phash outright and costs no stash-box API key. `ehash` is the first 12
 hex characters of `sha256(normalized endpoint)` — the client computes this
@@ -156,7 +183,7 @@ interval (30s) — see MANUAL.md.
 
 ### `POST /api/v1/match`
 
-The v2 no-phash fallback (PLAN.md "Matching" level 5): when a scene has no
+The no-phash fallback (matching level 5): when a scene has no
 phash — or hash lookup simply found nothing — this scores stored releases'
 name metadata (title, filename stem, studio, performers) against the query
 scene, via the shared `subtitlematch` token/runtime scorer. POST
@@ -174,7 +201,7 @@ a name.
 `stem` or `title` is required (at least one non-empty); `duration_ms` (>0)
 is required. `studio`/`performers` are optional evidence for the scorer's
 vocabulary split. `date` (optional, `YYYY-MM-DD`, 400 `"date: want
-YYYY-MM-DD"` otherwise) is the scene date (WP-A7): same-titled scenes from
+YYYY-MM-DD"` otherwise) is the scene date: same-titled scenes from
 lazily-named studio releases are otherwise indistinguishable by name and
 runtime alone, so when both the query and a candidate carry a date, they
 agree within 2 days for +25 same as today, but disagree by more than that
@@ -229,7 +256,7 @@ do its tracks, even the ones not individually marked.
 `downloads` (migration 0006) is additive: a plugin built before it simply
 ignores the field. See `GET /api/v1/subtitles/{id}` for what increments it.
 `up`/`down` (migration 0008, "Votes" below) are additive the same way.
-`stash_ids` (migration 0011, WP-C9a) is additive too — always present,
+`stash_ids` (migration 0011) is additive too — always present,
 `[]` when the release carries none — and lists every stash-box scene id
 ever attached to the release, not just the one a `/lookup/stash` call
 matched on.
@@ -413,7 +440,7 @@ stored once (from whichever upload first supplies one), never proposed
 against, and never shown as a title on a page search engines may index.
 It still feeds the matcher's retrieval tokens.
 
-Each is capped (WP-P3), measured in runes after trimming surrounding
+Each is capped, measured in runes after trimming surrounding
 whitespace, and none may contain a control character: `title`
 (`internal/api.MaxTitleLen`, 300), `stem` (`MaxStemLen`, 255), `studio`
 (`MaxStudioLen`, 200), and each `performers` entry (`MaxPerformerLen`, 100)
@@ -427,12 +454,12 @@ own otherwise, and this metadata is what gets tokenized, rendered on
 `/browse` and `/release/{id}`, and shown in every Stash panel that matches
 the release.
 
-`stash_ids` (migration 0011, WP-C9a) is optional, at most 5 entries.
+`stash_ids` (migration 0011) is optional, at most 5 entries.
 `endpoint` is normalized (trimmed, scheme and host lowercased, path kept as
 given) before storage; `stash_id` is validated as a 36-character UUID shape
 and lowercased — either malformed rejects the whole upload with `400`.
 `endpoint` must also be in the node's `MOANSUBS_STASH_ENDPOINTS` allow-list
-(WP-R6, MANUAL.md), or `400 {"error": "stash_ids: endpoint not accepted by
+(MANUAL.md), or `400 {"error": "stash_ids: endpoint not accepted by
 this node"}` rejects the whole upload the same way — defense in depth
 against a rogue uploader attaching an arbitrary URL the UI would otherwise
 render as a link; `GET /api/v1/version`'s `stash_endpoints` is how a client
