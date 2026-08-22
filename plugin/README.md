@@ -103,6 +103,31 @@ across different people's libraries is nearly never.
   for that scene. Badges for a whole wall resolve in one batched call; if
   the server is down they simply don't appear.
 
+## Finding scenes by subtitle
+
+Filtering the library by which scenes *have* subtitles is Stash's own
+feature rather than this plugin's: **Scenes → Filter → Captions**.
+
+| Criterion | Shows |
+|---|---|
+| Captions *is not null* | Every scene with a subtitle attached. |
+| Captions *is null* | Every scene with none. |
+| Captions *equals* `pl` | Scenes with a Polish subtitle. |
+
+The language values are the bare ISO 639 subtags Stash parsed off the
+caption filenames — the same restriction the Download note above
+describes, so a track downloaded as `pt-BR` filters as `pt`.
+
+That filter reads library state, so a subtitle this plugin downloads
+appears in it only once the metadata scan attaching it has finished:
+until then the file is on disk but Stash holds no caption record to
+filter on.
+
+The filter and the **CC** badge answer different questions, and pairing
+them is the point — filter to *Captions is null* for the scenes you have
+nothing for, and the badges on that wall mark the ones the server can
+fill. Saved, it stays a standing worklist.
+
 ## Subtitles from another cut
 
 A scene sometimes matches a release whose subtitles were authored against a
