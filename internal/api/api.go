@@ -254,6 +254,13 @@ type Server struct {
 	// reason as Limiter.
 	VoteLimiter *RateLimiter
 
+	// PublicURL is this node's origin as visitors reach it
+	// (MOANSUBS_PUBLIC_URL), used for the absolute URLs the sitemap
+	// protocol and Open Graph both require. Empty — the default — derives
+	// it from each request's own Host, which is correct for a node reached
+	// under one name and keeps a single-domain install knob-free.
+	PublicURL string
+
 	// MetadataLimiter is the per-account limiter for POST
 	// /api/v1/metadata, separate from the upload budget: contributing what
 	// a scene is costs the server a derivation rather than a stored file,
@@ -376,6 +383,7 @@ func NewMux(s *Server) http.Handler {
 	// come back as an HTML 404 page.
 	mux.HandleFunc("GET /favicon.ico", s.handleFavicon)
 	mux.HandleFunc("GET /robots.txt", s.handleRobotsTxt)
+	mux.HandleFunc("GET /sitemap.xml", s.handleSitemap)
 	mux.HandleFunc("GET /browse", s.page(s.handleBrowse))
 	mux.HandleFunc("GET /search", s.page(s.handleSearch))
 	mux.HandleFunc("GET /release/{id}", s.page(s.handleReleasePage))

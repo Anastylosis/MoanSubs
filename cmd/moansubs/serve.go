@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -184,6 +185,19 @@ var serveCmd = &cobra.Command{
 			metadataRate = n
 		}
 
+		// This node's origin as visitors reach it, for the absolute URLs
+		// the sitemap protocol and Open Graph both require. Unset derives
+		// it per request from Host, which is right until a node answers to
+		// more than one name.
+		publicURL := strings.TrimSpace(os.Getenv("MOANSUBS_PUBLIC_URL"))
+		if publicURL != "" {
+			u, perr := url.Parse(publicURL)
+			if perr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_PUBLIC_URL %q: want an absolute http(s) URL", publicURL)
+			}
+			publicURL = strings.TrimSuffix(u.Scheme+"://"+u.Host, "/")
+		}
+
 		// Unset (the default) hides the front page's dump link entirely —
 		// publishing a dump is an out-of-band operator choice (WP-C2,
 		// deploy/README.md), not something this server does on its own.
@@ -345,6 +359,7 @@ var serveCmd = &cobra.Command{
 		apiSrv.DumpURL = dumpURL
 		apiSrv.VoteLimiter = api.NewRateLimiter(voteRate)
 		apiSrv.MetadataLimiter = api.NewRateLimiter(metadataRate)
+		apiSrv.PublicURL = publicURL
 		// version is main.go's ldflags-stamped build var ("dev" when built
 		// without them); GET /api/v1/version reports whatever this process
 		// actually is, the same source --version already uses.

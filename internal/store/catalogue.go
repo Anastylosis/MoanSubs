@@ -225,3 +225,52 @@ func (s *Store) VisibleTrackCountByAccount(ctx context.Context, accountID int64)
 	}
 	return n, nil
 }
+
+// SitemapEntry is one indexable release, with the timestamp a crawler uses
+// to decide whether to refetch.
+type SitemapEntry struct {
+	ReleaseID int64
+	LastMod   time.Time
+}
+
+// IndexableReleases returns the releases a crawler may be pointed at, in
+// id order, up to limit.
+//
+// The predicate is deliberately the strict one and must stay in step with
+// the API layer's releaseIsIndexable: a curated title (never a filename)
+// AND a moderator's pin. A sitemap is an invitation, so anything listed
+// here is a page this node is actively asking a crawler to cache — the one
+// place where being more generous than the page's own X-Robots-Tag would
+// silently undo the whole rule.
+//
+// LastMod is the confirmation's timestamp rather than the release's: it is
+// the moderator's pin that decides what the page says, so re-confirming
+// after a correction is exactly the event a crawler should notice.
+func (s *Store) IndexableReleases(ctx context.Context, limit int) ([]SitemapEntry, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT r.id, c.confirmed_at
+		FROM releases r
+		JOIN release_metadata_confirmed c ON c.release_id = r.id
+		WHERE r.withdrawn_at IS NULL
+		  AND r.title IS NOT NULL AND btrim(r.title) <> ''
+		  AND `+hasVisibleTrack("")+`
+		ORDER BY r.id
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: IndexableReleases: %w", err)
+	}
+	defer rows.Close()
+
+	var out []SitemapEntry
+	for rows.Next() {
+		var e SitemapEntry
+		if err := rows.Scan(&e.ReleaseID, &e.LastMod); err != nil {
+			return nil, fmt.Errorf("store: IndexableReleases: scanning: %w", err)
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: IndexableReleases: %w", err)
+	}
+	return out, nil
+}

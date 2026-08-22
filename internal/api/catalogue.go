@@ -52,14 +52,19 @@ type ownVote struct {
 // rather than in the template, since html/template's default formatting of
 // a pointer to a scalar prints its address, not its value.
 type catalogueRelease struct {
-	ID          int64
-	Title       string // never empty — see displayTitle
-	Studio      string // "" when unknown
-	ReleaseDate string // "" when unknown, else the stored YYYY-MM-DD
-	Duration    string // "" when unknown, else "M:SS" or "H:MM:SS"
-	Resolution  string // "" when unknown, else "WIDTHxHEIGHT"
-	Performers  []string
-	Tracks      []catalogueTrack
+	ID    int64
+	Title string // never empty — see displayTitle
+	// CuratedTitle is the title a human asserted, empty when nobody has.
+	// Title is not a substitute: it falls back to a cleaned filename, and
+	// the places that must never emit one — a link preview's card, a
+	// crawlable listing's link text — have to tell the two apart (meta.go).
+	CuratedTitle string
+	Studio       string // "" when unknown
+	ReleaseDate  string // "" when unknown, else the stored YYYY-MM-DD
+	Duration     string // "" when unknown, else "M:SS" or "H:MM:SS"
+	Resolution   string // "" when unknown, else "WIDTHxHEIGHT"
+	Performers   []string
+	Tracks       []catalogueTrack
 	// StashLinks is migration 0011's stash-box scene identities (WP-C9a),
 	// rendered as "On StashDB ↗" links — populated only by
 	// renderReleasePage (browse/search never show it, so their callers
@@ -267,11 +272,12 @@ func buildCatalogueRelease(r store.Release, tracks []store.SubtitleTrackSummary,
 		title = "(untitled)"
 	}
 	out := catalogueRelease{
-		ID:         r.ID,
-		Title:      title,
-		Duration:   formatDuration(r.DurationMs),
-		Resolution: formatResolution(r.Width, r.Height),
-		Performers: r.Performers,
+		ID:           r.ID,
+		Title:        title,
+		CuratedTitle: curatedTitle(r),
+		Duration:     formatDuration(r.DurationMs),
+		Resolution:   formatResolution(r.Width, r.Height),
+		Performers:   r.Performers,
 	}
 	if r.Studio != nil {
 		out.Studio = *r.Studio
@@ -343,11 +349,14 @@ Disallow: /upload
 // handleRobotsTxt implements GET /robots.txt (WP-C2): every catalogue page
 // also sends its own X-Robots-Tag, but a well-behaved crawler checks
 // robots.txt before ever fetching a page at all.
-func (s *Server) handleRobotsTxt(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleRobotsTxt(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	body := robotsClosed
 	if s.Indexable {
-		body = robotsOpen
+		// The sitemap line carries an absolute URL by protocol, and is only
+		// meaningful on the node that serves one: /sitemap.xml 404s when
+		// this node does not index.
+		body = robotsOpen + "Sitemap: " + s.publicBase(r) + "/sitemap.xml\n"
 	}
 	_, _ = w.Write([]byte(body))
 }
