@@ -1,10 +1,12 @@
 package api
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // clientIP is a pure function of a Server's TrustedProxyCIDRs, so unlike
@@ -211,5 +213,97 @@ func TestLimiterKey_DifferentSlash64SeparateBuckets(t *testing.T) {
 	}
 	if !l.Allow(limiterKey(ip2)) {
 		t.Error("address in a different /64 should get its own, unexhausted bucket")
+	}
+}
+
+// bucketCount reads the limiter's map size under its own lock, so the race
+// detector stays quiet if a test ever drives Allow concurrently.
+func bucketCount(l *RateLimiter) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.buckets)
+}
+
+// Eviction is the whole reason prune exists: a public node sees a long tail
+// of one-off IPs, and a map that only grows is a memory-exhaustion lever for
+// anyone with addresses to spare. A bucket idle long enough to have refilled
+// completely carries no information, so the sweep must drop it.
+func TestRateLimiterPruneEvictsIdleBuckets(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	l := NewRateLimiterPerMinute(60)
+	l.now = func() time.Time { return now }
+
+	for i := range 100 {
+		l.Allow(fmt.Sprintf("ip-%d", i))
+	}
+	if got := bucketCount(l); got != 100 {
+		t.Fatalf("bucketCount = %d, want 100 before any sweep", got)
+	}
+
+	// A per-minute limiter refills in 60s, so the idle threshold is 61s.
+	// Jump well past it and drive Allow until the counter lands on a sweep.
+	now = now.Add(time.Hour)
+	for l.calls%pruneEvery != pruneEvery-1 {
+		l.Allow("sweeper")
+	}
+	l.Allow("sweeper")
+
+	// Only "sweeper" is left: it was touched at the current instant, so it
+	// is not idle, while the 100 one-off keys are.
+	if got := bucketCount(l); got != 1 {
+		t.Errorf("bucketCount = %d after a sweep, want 1 (only the freshly-used key survives)", got)
+	}
+}
+
+// The flip side: a bucket that is still spending its budget must survive a
+// sweep, or the limiter would forget an active abuser's consumption and
+// hand them a full bucket every pruneEvery calls.
+func TestRateLimiterPruneKeepsActiveBuckets(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	l := NewRateLimiterPerMinute(60)
+	l.now = func() time.Time { return now }
+
+	for range 30 {
+		l.Allow("busy")
+	}
+	for l.calls%pruneEvery != pruneEvery-1 {
+		l.Allow("busy")
+		if l.calls > pruneEvery*2 {
+			t.Fatal("never reached a sweep boundary")
+		}
+	}
+	l.Allow("busy")
+
+	l.mu.Lock()
+	b, ok := l.buckets["busy"]
+	var tokens float64
+	if ok {
+		tokens = b.tokens
+	}
+	l.mu.Unlock()
+
+	if !ok {
+		t.Fatal("an actively-used bucket was pruned")
+	}
+	if tokens >= l.burst {
+		t.Errorf("tokens = %v, want less than the full burst %v — a surviving bucket keeps its spend",
+			tokens, l.burst)
+	}
+}
+
+// prune must not fire on every call: sweeping a large map under the lock on
+// each request is exactly the cost the pruneEvery counter exists to amortize.
+func TestRateLimiterDoesNotPruneEveryCall(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	l := NewRateLimiterPerMinute(60)
+	l.now = func() time.Time { return now }
+
+	l.Allow("old")
+	now = now.Add(time.Hour) // "old" is now idle enough to be prunable
+	for range 10 {
+		l.Allow("new")
+	}
+	if got := bucketCount(l); got != 2 {
+		t.Errorf("bucketCount = %d, want 2 — no sweep is due this soon", got)
 	}
 }

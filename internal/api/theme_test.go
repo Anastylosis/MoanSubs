@@ -121,3 +121,63 @@ func TestContrast_KnownValues(t *testing.T) {
 		t.Errorf("contrast(x, x) = %.2f, want 1", got)
 	}
 }
+
+// pickInk chooses the label colour for text sitting on the accent fill.
+// Buttons should stay part of the palette, so the preferred ink wins
+// whenever it clears contrastTarget against that accent.
+func TestPickInk_PrefersPaletteInkWhenReadable(t *testing.T) {
+	// Near-black accent: the light ink is comfortably readable on it.
+	if got := pickInk(mustParseHex("#101014"), lightInk); got != lightInk {
+		t.Errorf("pickInk = %q, want the preferred palette ink %q", got, lightInk)
+	}
+}
+
+// When the palette's own ink cannot reach contrastTarget, readability wins
+// over palette consistency and pickInk falls back to plain black or white —
+// whichever actually contrasts more with that accent.
+func TestPickInk_FallsBackToBlackOnLightAccent(t *testing.T) {
+	// White on white fails; black is the higher-contrast fallback.
+	if got := pickInk(mustParseHex("#ffffff"), "#fefefe"); got != "#000000" {
+		t.Errorf("pickInk on a white accent = %q, want #000000", got)
+	}
+}
+
+func TestPickInk_FallsBackToWhiteOnDarkAccent(t *testing.T) {
+	if got := pickInk(mustParseHex("#000000"), "#010101"); got != "#ffffff" {
+		t.Errorf("pickInk on a black accent = %q, want #ffffff", got)
+	}
+}
+
+// Whatever pickInk returns must actually be legible: every ink it hands
+// back for a resolved theme has to clear contrastTarget against its accent,
+// which is the entire point of the function.
+func TestPickInk_ResultAlwaysClearsContrastTarget(t *testing.T) {
+	for _, accent := range []string{"#f02460", "#ffffff", "#000000", "#808080", "#00ff00", "#123456"} {
+		a := mustParseHex(accent)
+		for _, preferred := range []string{darkInk, lightInk} {
+			ink := pickInk(a, preferred)
+			if c := contrast(a, mustParseHex(ink)); c < contrastTarget {
+				t.Errorf("pickInk(%s, %s) = %s with contrast %.2f, want >= %.1f",
+					accent, preferred, ink, c, contrastTarget)
+			}
+		}
+	}
+}
+
+// A mid-grey accent is the hard case: neither black nor white is
+// comfortable, but pickInk must still pick the better of the two rather
+// than returning the unreadable preferred ink.
+func TestPickInk_MidGreyPicksTheBetterExtreme(t *testing.T) {
+	a := mustParseHex("#767676")
+	ink := pickInk(a, "#7a7a7a")
+	if ink != "#000000" && ink != "#ffffff" {
+		t.Fatalf("pickInk = %q, want one of the plain fallbacks", ink)
+	}
+	other := "#ffffff"
+	if ink == "#ffffff" {
+		other = "#000000"
+	}
+	if contrast(a, mustParseHex(ink)) < contrast(a, mustParseHex(other)) {
+		t.Errorf("pickInk chose %s over the higher-contrast %s", ink, other)
+	}
+}
