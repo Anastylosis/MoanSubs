@@ -253,15 +253,26 @@ func (s *Store) UnconfirmMetadata(ctx context.Context, releaseID int64) error {
 	return nil
 }
 
-// PurgeProposals deletes every proposal for a release and clears any pin. The takedown path for metadata that must not merely be
+// PurgeProposals deletes every proposal for the given releases and clears
+// their pins. The takedown path for metadata that must not merely be
 // outvoted -- someone's legal name attached to a scene has to leave the
 // database, not sit in the evidence pool waiting to win a future
 // derivation.
 //
+// Takes a set rather than one id because a release's evidence pool is its
+// whole work (derivationPool): purging one member of a group and
+// re-deriving hands the name straight back from a sibling's proposal, so
+// the caller has to be able to say "this whole work" when that is what it
+// means. Which of the two it means is a moderator's judgement -- a work is
+// inferred, not authoritative -- so this function does not decide it.
+//
 // The caller must re-derive afterwards to clear the cached columns; this
 // deliberately does not, so a purge and its re-derive can share one
 // transaction boundary at the call site.
-func (s *Store) PurgeProposals(ctx context.Context, releaseID int64) error {
+func (s *Store) PurgeProposals(ctx context.Context, releaseIDs []int64) error {
+	if len(releaseIDs) == 0 {
+		return nil
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("store: PurgeProposals: beginning tx: %w", err)
@@ -269,11 +280,11 @@ func (s *Store) PurgeProposals(ctx context.Context, releaseID int64) error {
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err := tx.Exec(ctx,
-		`DELETE FROM release_metadata_proposals WHERE release_id = $1`, releaseID); err != nil {
+		`DELETE FROM release_metadata_proposals WHERE release_id = ANY($1)`, releaseIDs); err != nil {
 		return fmt.Errorf("store: PurgeProposals: proposals: %w", err)
 	}
 	if _, err := tx.Exec(ctx,
-		`DELETE FROM release_metadata_confirmed WHERE release_id = $1`, releaseID); err != nil {
+		`DELETE FROM release_metadata_confirmed WHERE release_id = ANY($1)`, releaseIDs); err != nil {
 		return fmt.Errorf("store: PurgeProposals: confirmation: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

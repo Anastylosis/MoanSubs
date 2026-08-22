@@ -39,6 +39,21 @@
       onsubmit="return confirm('Delete every metadata proposal for this release? Use this for a name that must leave the database, not for a wrong title.')">
   <button type="submit" class="danger">Purge all metadata</button>
 </form>
+{{if .SiblingProposals}}
+<form method="post" action="/mod/release/{{.Release.ID}}/metadata/purge-work" style="display:inline"
+      onsubmit="return confirm('Delete every metadata proposal for EVERY release in this work? This destroys evidence on releases you may not have reviewed. A work is inferred, not authoritative — check the table below first.')">
+  <button type="submit" class="danger">Purge across the whole work</button>
+</form>
+<p class="hint" style="margin-top:.75rem">
+  This release is grouped with others, and {{.SiblingProposals}} of the
+  proposals below {{if eq .SiblingProposals 1}}was{{else}}were{{end}} filed
+  against a sibling. Evidence pools are per work, so purging this release
+  alone will not remove a name those proposals also carry — the re-derive
+  puts it straight back. Purging across the work does remove it, at the
+  cost of evidence on releases you may not have reviewed; the table says
+  which release each claim came from.
+</p>
+{{end}}
 
 {{if .Proposals}}
 <p class="hint" style="margin-top:1rem">What this was derived from:</p>

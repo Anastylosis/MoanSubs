@@ -445,6 +445,77 @@ func TestProposeMetadata_BlankFormWithNothingOnFileStillErrors(t *testing.T) {
 	}
 }
 
+// A purge on a grouped release only removes what it can see. The evidence
+// pool is the whole work, so a sibling's proposal re-supplies the name on
+// the very next derive -- which for a takedown means the button appears to
+// work and does not. The mod page has to say so, and offer the wider tool.
+func TestModPurge_GroupedReleaseWarnsAndOffersTheWork(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	ctx := context.Background()
+	if err := st.SetAccountRole(ctx, "webuser", "mod"); err != nil {
+		t.Fatalf("SetAccountRole: %v", err)
+	}
+
+	mine := mustTrackedRelease(t, st, "f1f1f1f1f1f1f1f1", "encode.one")
+	theirs := mustTrackedRelease(t, st, "f2f2f2f2f2f2f2f2", "encode.two")
+	if _, err := st.LinkReleases(ctx, mine, theirs); err != nil {
+		t.Fatalf("LinkReleases: %v", err)
+	}
+
+	// The name to be taken down, claimed against the SIBLING.
+	if _, err := st.RecordProposal(ctx, store.MetadataProposal{
+		ReleaseID: theirs, Title: strPtrAPI("A Real Persons Name"),
+	}); err != nil {
+		t.Fatalf("RecordProposal: %v", err)
+	}
+	if err := st.DeriveAfterProposal(ctx, theirs); err != nil {
+		t.Fatalf("DeriveAfterProposal: %v", err)
+	}
+
+	id := strconv.FormatInt(mine, 10)
+	resp, err := client.Get(ts.URL + "/mod/release/" + id)
+	if err != nil {
+		t.Fatalf("GET mod page: %v", err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil {
+		t.Fatalf("reading mod page: %v", err)
+	}
+	if !strings.Contains(string(body), "purge-work") {
+		t.Error("mod page offers no work-wide purge for a grouped release carrying sibling evidence")
+	}
+	if !strings.Contains(string(body), "will not remove a name those proposals also carry") {
+		t.Error("mod page does not warn that a single-release purge under-delivers here")
+	}
+
+	// The narrow purge leaves the name standing, as the warning says.
+	if resp := postSessionForm(t, client, ts, "/mod/release/"+id+"/metadata/purge", url.Values{}); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("purge = %d, want 303", resp.StatusCode)
+	}
+	got, err := st.GetReleaseByID(ctx, mine)
+	if err != nil {
+		t.Fatalf("GetReleaseByID: %v", err)
+	}
+	if got.Title == nil || *got.Title != "A Real Persons Name" {
+		t.Errorf("title after a narrow purge = %v, want it still supplied by the sibling", got.Title)
+	}
+
+	// The work-wide purge removes it from both.
+	if resp := postSessionForm(t, client, ts, "/mod/release/"+id+"/metadata/purge-work", url.Values{}); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("purge-work = %d, want 303", resp.StatusCode)
+	}
+	for _, relID := range []int64{mine, theirs} {
+		got, err := st.GetReleaseByID(ctx, relID)
+		if err != nil {
+			t.Fatalf("GetReleaseByID(%d): %v", relID, err)
+		}
+		if got.Title != nil {
+			t.Errorf("release %d title = %q, want the name gone from the whole work", relID, *got.Title)
+		}
+	}
+}
+
 // mustTrackedRelease creates a release with one visible track -- the shape
 // the catalogue and mod pages both require before they will render it.
 func mustTrackedRelease(t *testing.T, st *store.Store, oshash, stem string) int64 {

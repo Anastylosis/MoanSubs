@@ -436,6 +436,12 @@ type modReleaseData struct {
 	// Proposals is the evidence behind the derived metadata, so a mod can
 	// see who claimed what before confirming any of it.
 	Proposals []store.MetadataProposal
+	// SiblingProposals counts the proposals in this work filed against
+	// OTHER releases. A purge of this release alone leaves those standing,
+	// and since they are evidence for this release too, the re-derive
+	// hands the same name straight back. The page has to say so: a
+	// takedown that silently under-delivers is worse than one that refuses.
+	SiblingProposals int
 }
 
 // handleModRelease implements GET /mod/release/{id} (WP-C7b, "minimal").
@@ -498,6 +504,11 @@ func (s *Server) renderModRelease(w http.ResponseWriter, r *http.Request, ares *
 		log.Printf("api: ProposalsFor (mod): %v", perr)
 	} else {
 		data.Proposals = props
+		for _, p := range props {
+			if p.ReleaseID != id {
+				data.SiblingProposals++
+			}
+		}
 	}
 
 	data.Siblings = s.siblingViews(r.Context(), id)

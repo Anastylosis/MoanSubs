@@ -309,7 +309,7 @@ func TestPurgeProposals_RemovesTextAndTokens(t *testing.T) {
 		t.Fatal("precondition: the title should be set before the purge")
 	}
 
-	if err := s.PurgeProposals(ctx, rel); err != nil {
+	if err := s.PurgeProposals(ctx, []int64{rel}); err != nil {
 		t.Fatalf("PurgeProposals: %v", err)
 	}
 	if err := s.DeriveMetadata(ctx, rel); err != nil {

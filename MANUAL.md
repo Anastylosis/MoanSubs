@@ -844,6 +844,15 @@ On `/mod/release/{id}`:
   for a name that must leave the database rather than merely be outvoted;
   it clears the derived retrieval tokens too, which a plain overwrite
   would leave searchable.
+- **Purge across the whole work**, offered only when the release is
+  grouped and a sibling carries proposals. Evidence pools are per work, so
+  purging one member and re-deriving hands the name straight back from a
+  sibling's claim — the narrow button appears to work and does not. The
+  wider one does remove it, at the cost of evidence on releases you may
+  not have reviewed, and a work is inferred rather than authoritative. The
+  page names how many proposals came from siblings and the table says
+  which release each came from, so the choice is made with the facts
+  rather than by a default.
 
 `noindex` restrains well-behaved crawlers and nothing else — scrapers and
 archives ignore it. It sequences indexing; the structural rule above is

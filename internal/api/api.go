@@ -397,6 +397,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("POST /mod/release/{id}/metadata/confirm", s.page(s.handleModReleaseConfirm))
 	mux.HandleFunc("POST /mod/release/{id}/metadata/unconfirm", s.page(s.handleModReleaseUnconfirm))
 	mux.HandleFunc("POST /mod/release/{id}/metadata/purge", s.page(s.handleModReleasePurgeMetadata))
+	mux.HandleFunc("POST /mod/release/{id}/metadata/purge-work", s.page(s.handleModReleasePurgeWorkMetadata))
 	mux.HandleFunc("GET /admin", s.page(s.handleAdminIndex))
 	mux.HandleFunc("GET /admin/accounts", s.page(s.handleAdminAccounts))
 	mux.HandleFunc("POST /admin/accounts/{name}/disable", s.page(s.handleAdminAccountDisable))

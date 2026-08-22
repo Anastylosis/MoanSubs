@@ -111,7 +111,7 @@ func (s *Server) handleModReleasePurgeMetadata(w http.ResponseWriter, r *http.Re
 	}
 
 	ctx := r.Context()
-	if err := s.Store.PurgeProposals(ctx, id); err != nil {
+	if err := s.Store.PurgeProposals(ctx, []int64{id}); err != nil {
 		log.Printf("api: PurgeProposals: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -122,6 +122,64 @@ func (s *Server) handleModReleasePurgeMetadata(w http.ResponseWriter, r *http.Re
 		return
 	}
 	log.Printf("api: mod %q purged metadata for release %d", ares.Account.Name, id)
+	http.Redirect(w, r, "/mod/release/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
+}
+
+// handleModReleasePurgeWorkMetadata purges every release grouped with this
+// one, not just this one.
+//
+// The separate action exists because the single-release purge quietly
+// under-delivers on a grouped release: evidence pools are per work, so the
+// re-derive that follows hands the name back from a sibling's proposal and
+// the mod watches the page reload unchanged. The alternative -- silently
+// widening the existing button to the work -- would destroy evidence on
+// releases the moderator never looked at, and a work is inferred rather
+// than authoritative. So both are offered, labelled, with the mod page
+// saying which siblings carry proposals.
+func (s *Server) handleModReleasePurgeWorkMetadata(w http.ResponseWriter, r *http.Request) {
+	ares, ok := s.requireWebRole(w, r, "mod")
+	if !ok {
+		return
+	}
+	if !checkOrigin(w, r) {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	ctx := r.Context()
+	work, err := s.Store.WorkOf(ctx, id)
+	if errors.Is(err, store.ErrNotFound) {
+		// Ungrouped: the two actions mean the same thing, so do the one
+		// that was asked for rather than refusing on a technicality.
+		s.handleModReleasePurgeMetadata(w, r)
+		return
+	}
+	if err != nil {
+		log.Printf("api: WorkOf (purge work): %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	ids, err := s.Store.WorkReleaseIDs(ctx, work.ID)
+	if err != nil {
+		log.Printf("api: WorkReleaseIDs (purge work): %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := s.Store.PurgeProposals(ctx, ids); err != nil {
+		log.Printf("api: PurgeProposals (work %d): %v", work.ID, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := s.Store.DeriveWork(ctx, work.ID); err != nil {
+		log.Printf("api: DeriveWork after purge: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("api: mod %q purged metadata across work %d (%d releases)", ares.Account.Name, work.ID, len(ids))
 	http.Redirect(w, r, "/mod/release/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
 }
 
