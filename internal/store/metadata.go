@@ -179,6 +179,23 @@ func (s *Store) Confirmed(ctx context.Context, releaseID int64) (*ConfirmedMetad
 	return &c, nil
 }
 
+// DeleteProposal withdraws one account's proposal for a release, reporting
+// whether there was anything to withdraw.
+//
+// The retraction path, and deliberately narrow: it removes the caller's
+// own claim and nobody else's. A moderator's purge is the other tool and
+// answers a different question -- purge exists to make a name leave the
+// database entirely, and destroys everyone's evidence to do it.
+func (s *Store) DeleteProposal(ctx context.Context, releaseID, accountID int64) (bool, error) {
+	tag, err := s.pool.Exec(ctx,
+		`DELETE FROM release_metadata_proposals WHERE release_id = $1 AND proposed_by = $2`,
+		releaseID, accountID)
+	if err != nil {
+		return false, fmt.Errorf("store: DeleteProposal: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 // ConfirmedReleaseIDs reports which of releaseIDs carry a moderator's pin.
 // The batch form of Confirmed, for the listing pages: indexability is a
 // per-release question and a page of releases must not become a query per

@@ -201,7 +201,33 @@ func (s *Server) handleReleaseProposeMetadata(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if !recorded {
-		s.renderReleasePage(w, r, id, http.StatusBadRequest, "nothing to record — fill in at least one field")
+		// Nothing asserted. For an account that has a claim on file, that
+		// is a retraction -- "leave a field blank to say nothing about it",
+		// taken to its conclusion, is saying nothing at all. Withdrawing
+		// your own claim has to be possible without a moderator: the only
+		// alternative was a purge, which destroys everyone's evidence to
+		// remove one person's mistake.
+		//
+		// A pinned release will not visibly move afterwards, and that is
+		// correct: the pin is a moderator's snapshot, and derivation is
+		// held to it until someone unpins.
+		withdrawn, derr := s.Store.DeleteProposal(ctx, id, ares.Account.ID)
+		if derr != nil {
+			log.Printf("api: DeleteProposal(release %d): %v", id, derr)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if !withdrawn {
+			s.renderReleasePage(w, r, id, http.StatusBadRequest, "nothing to record — fill in at least one field")
+			return
+		}
+		if err := s.Store.DeriveAfterProposal(ctx, id); err != nil {
+			log.Printf("api: DeriveAfterProposal after retraction (release %d): %v", id, err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		log.Printf("api: %q withdrew their metadata claim for release %d", ares.Account.Name, id)
+		http.Redirect(w, r, "/release/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
 		return
 	}
 	if err := s.Store.DeriveAfterProposal(ctx, id); err != nil {

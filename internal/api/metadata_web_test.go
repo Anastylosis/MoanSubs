@@ -361,3 +361,105 @@ func TestProposeMetadata_UnknownReleaseIs404(t *testing.T) {
 		t.Errorf("POST to an unknown release = %d, want 404", resp.StatusCode)
 	}
 }
+
+// An account must be able to take back its own claim. Before this the only
+// removal was a moderator's purge, which destroys everyone's evidence to
+// undo one person's mistake.
+func TestProposeMetadata_BlankFormWithdrawsYourOwnClaim(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	ctx := context.Background()
+
+	rel, err := st.GetOrCreateRelease(ctx, store.Release{
+		OSHash: mustOSHash(t, "e4e4e4e4e4e4e4e4"), DurationMs: 600000,
+		Stem: strPtrAPI("withdrawable.file"),
+	})
+	if err != nil {
+		t.Fatalf("GetOrCreateRelease: %v", err)
+	}
+	if _, err := st.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+		ReleaseID: rel.ID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+	}); err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+	id := strconv.FormatInt(rel.ID, 10)
+
+	// Somebody else's claim, which must survive the retraction untouched.
+	if _, err := st.RecordProposal(ctx, store.MetadataProposal{
+		ReleaseID: rel.ID, Studio: strPtrAPI("Their Studio"),
+	}); err != nil {
+		t.Fatalf("RecordProposal (other account): %v", err)
+	}
+
+	if resp := postSessionForm(t, client, ts, "/release/"+id+"/metadata", url.Values{
+		"title": {"A Claim I Regret"},
+	}); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST metadata = %d, want 303", resp.StatusCode)
+	}
+	got, err := st.GetReleaseByID(ctx, rel.ID)
+	if err != nil {
+		t.Fatalf("GetReleaseByID: %v", err)
+	}
+	if got.Title == nil || *got.Title != "A Claim I Regret" {
+		t.Fatalf("precondition: title = %v, want the claim to have landed", got.Title)
+	}
+
+	// An empty submit -- the "Withdraw my claim" button posts exactly this.
+	if resp := postSessionForm(t, client, ts, "/release/"+id+"/metadata", url.Values{}); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("withdrawing = %d, want 303", resp.StatusCode)
+	}
+
+	got, err = st.GetReleaseByID(ctx, rel.ID)
+	if err != nil {
+		t.Fatalf("GetReleaseByID after withdrawal: %v", err)
+	}
+	if got.Title != nil {
+		t.Errorf("title = %v, want the withdrawn claim gone from derivation", *got.Title)
+	}
+	if got.Studio == nil || *got.Studio != "Their Studio" {
+		t.Errorf("studio = %v, want the other account's evidence untouched", got.Studio)
+	}
+}
+
+// With nothing on file, an empty submit is still the old mistake-catcher,
+// not a silent no-op that looks like it worked.
+func TestProposeMetadata_BlankFormWithNothingOnFileStillErrors(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	ctx := context.Background()
+
+	rel, err := st.GetOrCreateRelease(ctx, store.Release{
+		OSHash: mustOSHash(t, "e5e5e5e5e5e5e5e5"), DurationMs: 600000,
+		Stem: strPtrAPI("nothing.on.file"),
+	})
+	if err != nil {
+		t.Fatalf("GetOrCreateRelease: %v", err)
+	}
+	if _, err := st.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+		ReleaseID: rel.ID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+	}); err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	resp := postSessionForm(t, client, ts, "/release/"+strconv.FormatInt(rel.ID, 10)+"/metadata", url.Values{})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("empty submit with nothing on file = %d, want 400", resp.StatusCode)
+	}
+}
+
+// mustTrackedRelease creates a release with one visible track -- the shape
+// the catalogue and mod pages both require before they will render it.
+func mustTrackedRelease(t *testing.T, st *store.Store, oshash, stem string) int64 {
+	t.Helper()
+	ctx := context.Background()
+	rel, err := st.GetOrCreateRelease(ctx, store.Release{
+		OSHash: mustOSHash(t, oshash), DurationMs: 600000, Stem: strPtrAPI(stem),
+	})
+	if err != nil {
+		t.Fatalf("GetOrCreateRelease(%s): %v", oshash, err)
+	}
+	if _, err := st.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+		ReleaseID: rel.ID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+	}); err != nil {
+		t.Fatalf("CreateSubtitleTrack(%s): %v", oshash, err)
+	}
+	return rel.ID
+}
