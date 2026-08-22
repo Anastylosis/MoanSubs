@@ -379,17 +379,29 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	}
 
 	// Runtime sanity check (PLAN.md Order of work step 2: "runtime sanity
-	// check (port runtime.go + lang.go...)"). RuntimeFit's own doc comment
-	// defines score==0 as "the runtimes are incompatible" — that is the
-	// hard-contradiction threshold this rejects on; any positive score
-	// (weak mismatch included) is logged, not rejected, since runtime alone
-	// is never sole grounds to refuse an otherwise-valid upload.
+	// check (port runtime.go + lang.go...)").
+	//
+	// Only ONE direction is a contradiction. A subtitle whose cues run past
+	// the end of the video cannot belong to it: there is nothing left to
+	// caption. A subtitle that stops long BEFORE the end is ordinary --
+	// dialogue ends and the scene carries on -- and a sparse file is the
+	// normal case here, not the exception: four cues of setup over an
+	// eleven-minute video is a real subtitle, and rejecting it means the
+	// contributor has nowhere to put it.
+	//
+	// RuntimeFit scores both ends at zero because for RANKING a candidate
+	// both are weak evidence. Refusing an upload is a different question,
+	// so the sign is what decides it. The zero-with-negative-delta case is
+	// exactly "overruns by more than the module's tolerance", which is why
+	// this reads the sign rather than restating the threshold.
 	if subRuntime, ok := subs.Runtime(strings.NewReader(rendered)); ok {
 		sceneDur := time.Duration(req.DurationMs) * time.Millisecond
-		if score, delta := subs.RuntimeFit(subRuntime, sceneDur); score == 0 {
+		score, delta := subs.RuntimeFit(subRuntime, sceneDur)
+		switch {
+		case score == 0 && delta < 0:
 			return nil, &apiError{http.StatusBadRequest,
-				"subtitle runtime is incompatible with the declared duration_ms"}
-		} else if score < 1 {
+				"subtitle runs past the end of the video: its last cue ends after duration_ms"}
+		case score < 1:
 			log.Printf("api: weak runtime fit for upload (score=%.2f delta=%v duration_ms=%d subtitle_runtime=%v), accepting anyway",
 				score, delta, req.DurationMs, subRuntime)
 		}

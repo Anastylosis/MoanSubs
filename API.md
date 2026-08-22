@@ -448,7 +448,11 @@ See MANUAL.md "Upload semantics" for the sanitization pipeline. Responses:
 - `400` — unparseable subtitle, bad or unusable language tag (`{"error":
   "lang: no usable base language in \"und\""}`, `{"error": "lang: no usable
   base language in \"x-klingon\""}`), over caps, a `stash_ids` endpoint
-  outside the allow-list, or runtime incompatible with `duration_ms`.
+  outside the allow-list, or a subtitle whose cues run past the end of the
+  video (`{"error": "subtitle runs past the end of the video: its last cue
+  ends after duration_ms"}`). A subtitle that *stops* well before the end is
+  accepted: dialogue ending early says nothing about whether the pairing is
+  right.
 - `401`/`429` — bad token / over the upload budget.
 - `410` `{"error":"release withdrawn"}` — `oshash` names a release that was
   withdrawn (TAKEDOWN.md). The release is still found by `oshash` — the

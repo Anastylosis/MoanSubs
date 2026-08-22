@@ -373,18 +373,35 @@ func TestUpload_SanitizationVisibleInStoredBody(t *testing.T) {
 	}
 }
 
-// A subtitle whose own runtime is wildly incompatible with the declared
-// scene duration must be rejected outright — RuntimeFit's own doc comment
-// defines score==0 as "the runtimes are incompatible".
-func TestUpload_RuntimeContradictionRejected(t *testing.T) {
+// A subtitle whose cues run past the end of the video cannot belong to it:
+// there is nothing left to caption. That is the one runtime contradiction,
+// and the only one an upload is refused for.
+func TestUpload_SubtitleOutlivingTheVideoRejected(t *testing.T) {
 	ts, _, token := newTestServer(t)
-	// Subtitle's last cue is at ~12s; declaring a 1-hour scene is a delta
-	// far past RuntimeFit's 180s cutoff.
+	// Last cue ends at 1:00; the file is declared to be 10 seconds long.
+	longSRT := "1\n00:00:55,000 --> 00:01:00,000\nstill talking\n\n"
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "4444444444444444", "duration_ms": 10000, "lang": "en", "body": longSRT,
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 (the subtitle outlives the video)", resp.StatusCode)
+	}
+}
+
+// The other direction is not a contradiction and must not be refused.
+// Dialogue ends and the scene carries on; a sparse file is the normal case
+// in this library, not the exception. Observed live: a four-cue subtitle
+// whose last line lands at 8:26 of an 11:50 video -- a 203s delta, past
+// RuntimeFit's 180s cutoff and so scored zero -- was rejected outright,
+// leaving a real subtitle with nowhere to go.
+func TestUpload_SubtitleThatStopsLongBeforeTheEndIsAccepted(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	// basicSRT's last cue is at ~12s; an hour-long scene is a 3588s delta.
 	resp := doUpload(t, ts, token, map[string]any{
 		"oshash": "4444444444444444", "duration_ms": 3600000, "lang": "en", "body": basicSRT,
 	})
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400 (runtime contradiction)", resp.StatusCode)
+	if resp.StatusCode != http.StatusCreated {
+		t.Errorf("status = %d, want 201 — a subtitle ending early is ordinary, not a contradiction", resp.StatusCode)
 	}
 }
 

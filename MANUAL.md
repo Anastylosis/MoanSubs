@@ -662,8 +662,12 @@ on the host disk otherwise.
 3. Detects machine generation from the Scriptorium/stash-subs marker (on the raw
    upload, before sanitization) and records structured provenance. The
    uploader's own claim is ignored.
-4. Rejects subtitles whose last-cue runtime is incompatible with the
-   declared video duration.
+4. Rejects a subtitle whose cues run past the end of the declared video
+   duration — there would be nothing left to caption, so it cannot be this
+   file. Only that direction. A subtitle whose last cue lands well *before*
+   the end is accepted with a log line: dialogue finishes and scenes carry
+   on, and a sparse file (a handful of cues over a long video) is ordinary
+   rather than suspect.
 5. Canonicalises `lang`: parsed and normalized to its canonical BCP-47 form
    (`en_US` → `en-US`, `EN` → `en`), requiring a real base language —
    `und` and a private-use tag like `x-klingon` are rejected (`400 lang: no
