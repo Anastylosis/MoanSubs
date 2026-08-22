@@ -42,10 +42,16 @@ type Release struct {
 	// never one without the other.
 	WithdrawnAt     *time.Time
 	WithdrawnReason *string
+	// AutoConfirmBlocked records that a moderator unpinned this release
+	// (migration 0017). Auto-confirm refuses to re-pin it: a human
+	// removing a pin outranks a rule, and without this the next upload
+	// would simply put it back.
+	AutoConfirmBlocked bool
 }
 
 const releaseColumns = `id, work_id, oshash, phash, md5, duration_ms, width, height, video_codec,
-	title, stem, release_date, studio, performers, created_at, withdrawn_at, withdrawn_reason`
+	title, stem, release_date, studio, performers, created_at, withdrawn_at, withdrawn_reason,
+	autoconfirm_blocked`
 
 // phashColumns computes the raw signed-bigint phash plus its 5 MIH block
 // values from r.PHash, all nil when r.PHash is nil — internal/hash is the
@@ -467,29 +473,32 @@ func scanRelease(row rowScanner) (*Release, error) {
 		createdAt       time.Time
 		withdrawnAt     *time.Time
 		withdrawnReason *string
+		autoconfirmOff  bool
 	)
 	if err := row.Scan(&id, &workID, &oshashStr, &phashBig, &md5, &durationMs, &width, &height, &videoCodec,
-		&title, &stem, &releaseDate, &studio, &performers, &createdAt, &withdrawnAt, &withdrawnReason); err != nil {
+		&title, &stem, &releaseDate, &studio, &performers, &createdAt, &withdrawnAt, &withdrawnReason,
+		&autoconfirmOff); err != nil {
 		return nil, err
 	}
 
 	r := &Release{
-		ID:              id,
-		WorkID:          workID,
-		OSHash:          hash.OSHash(oshashStr),
-		MD5:             md5,
-		DurationMs:      durationMs,
-		Width:           width,
-		Height:          height,
-		VideoCodec:      videoCodec,
-		Title:           title,
-		Stem:            stem,
-		ReleaseDate:     releaseDate,
-		Studio:          studio,
-		Performers:      performers,
-		CreatedAt:       createdAt,
-		WithdrawnAt:     withdrawnAt,
-		WithdrawnReason: withdrawnReason,
+		ID:                 id,
+		WorkID:             workID,
+		OSHash:             hash.OSHash(oshashStr),
+		MD5:                md5,
+		DurationMs:         durationMs,
+		Width:              width,
+		Height:             height,
+		VideoCodec:         videoCodec,
+		Title:              title,
+		Stem:               stem,
+		ReleaseDate:        releaseDate,
+		Studio:             studio,
+		Performers:         performers,
+		CreatedAt:          createdAt,
+		WithdrawnAt:        withdrawnAt,
+		WithdrawnReason:    withdrawnReason,
+		AutoConfirmBlocked: autoconfirmOff,
 	}
 	if phashBig != nil {
 		p := hash.PHashFromBigint(*phashBig)

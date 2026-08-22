@@ -303,6 +303,53 @@ var accountRoleCmd = &cobra.Command{
 	},
 }
 
+// accountTrustCmd marks an account whose metadata may be pinned without a
+// moderator reviewing it (MOANSUBS_AUTOCONFIRM, MANUAL.md).
+//
+// Separate from the role ladder deliberately: mod and admin are about
+// moderating other people's contributions, while trust here is about
+// vouching for your own. A seeding account that pushes a curated library
+// is the case this exists for — trusted, with no business moderating
+// anyone.
+var accountTrustCmd = &cobra.Command{
+	Use:   "trust <name>",
+	Short: "Let this account's stash-box-backed metadata pin itself",
+	Args:  cobra.ExactArgs(1),
+	RunE:  func(cmd *cobra.Command, args []string) error { return setTrusted(cmd, args[0], true) },
+}
+
+var accountUntrustCmd = &cobra.Command{
+	Use:   "untrust <name>",
+	Short: "Stop this account's metadata pinning itself",
+	Long: "Stop this account's metadata pinning itself.\n\n" +
+		"Releases it already pinned stay pinned: a moderator unpins those, which is\n" +
+		"also what stops auto-confirm putting them back.",
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error { return setTrusted(cmd, args[0], false) },
+}
+
+func setTrusted(cmd *cobra.Command, name string, trusted bool) error {
+	s, ctx, cancel, err := openStore(cmd, "account trust")
+	if err != nil {
+		return err
+	}
+	defer cancel()
+	defer s.Close()
+
+	if err := s.SetAccountTrusted(ctx, name, trusted); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("moansubs account trust: no account named %q", name)
+		}
+		return fmt.Errorf("moansubs account trust: %w", err)
+	}
+	verb := "no longer trusted"
+	if trusted {
+		verb = "trusted"
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Account %q is %s for metadata auto-confirm.\n", name, verb)
+	return nil
+}
+
 // accountSetPasswordCmd is WP-C8's answer to "an account with no password
 // (API-created, or a pre-existing row) can't log in": an operator sets one
 // on the account's behalf. The password is read from stdin rather than a
@@ -394,6 +441,6 @@ func yesNo(b bool) string {
 
 func init() {
 	accountPurgeCmd.Flags().StringVar(&accountPurgeReason, "reason", "", "reason recorded for the withdrawal")
-	accountCmd.AddCommand(accountCreateCmd, accountListCmd, accountDisableCmd, accountEnableCmd, accountRotateTokenCmd, accountPurgeCmd, accountRoleCmd, accountSetPasswordCmd, accountShowCmd)
+	accountCmd.AddCommand(accountCreateCmd, accountListCmd, accountDisableCmd, accountEnableCmd, accountRotateTokenCmd, accountPurgeCmd, accountRoleCmd, accountTrustCmd, accountUntrustCmd, accountSetPasswordCmd, accountShowCmd)
 	rootCmd.AddCommand(accountCmd)
 }

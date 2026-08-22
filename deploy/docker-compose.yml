@@ -134,6 +134,12 @@ services:
       # scheme is read from X-Forwarded-Proto, trusted because
       # MOANSUBS_TRUSTED_PROXY_CIDRS names Traefik above.
       MOANSUBS_PUBLIC_URL: ${MOANSUBS_PUBLIC_URL:-}
+      # Auto-confirm, off by default: lets a trusted account's
+      # stash-box-backed metadata pin itself instead of waiting for a
+      # moderator. Does NOTHING until an account is marked with
+      # `moansubs account trust <name>` -- see "Auto-confirm" in
+      # README.md, which is also where the failure mode is written down.
+      # MOANSUBS_AUTOCONFIRM: "true"
       # Search-engine indexing, off by default. Read "Indexing and the age
       # gate" in MANUAL.md before turning it on: on a node with the age
       # gate up it also lets crawlers past the click-through, which is a

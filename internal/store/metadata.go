@@ -239,6 +239,16 @@ func (s *Store) ConfirmMetadata(ctx context.Context, releaseID int64, confirmedB
 	if err != nil {
 		return fmt.Errorf("store: ConfirmMetadata: %w", err)
 	}
+	// A human confirming says the opposite of whatever an earlier unpin
+	// said, so it lifts that release's auto-confirm block. Skipped when
+	// nobody clicked (confirmedBy nil, i.e. auto-confirm itself), which
+	// cannot reach a blocked release anyway.
+	if confirmedBy != nil {
+		if _, err := s.pool.Exec(ctx,
+			`UPDATE releases SET autoconfirm_blocked = false WHERE id = $1`, releaseID); err != nil {
+			return fmt.Errorf("store: ConfirmMetadata: clearing auto-confirm block: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -246,9 +256,27 @@ func (s *Store) ConfirmMetadata(ctx context.Context, releaseID int64, confirmedB
 // again. This is the revert path for a confirmation that turns out to have
 // blessed something wrong.
 func (s *Store) UnconfirmMetadata(ctx context.Context, releaseID int64) error {
-	if _, err := s.pool.Exec(ctx,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("store: UnconfirmMetadata: beginning tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx,
 		`DELETE FROM release_metadata_confirmed WHERE release_id = $1`, releaseID); err != nil {
 		return fmt.Errorf("store: UnconfirmMetadata: %w", err)
+	}
+	// Unpinning also blocks auto-confirm (migration 0017). Otherwise the
+	// next upload re-derives, the rule fires again, and the pin a human
+	// deliberately removed is back within minutes -- which would make
+	// unpinning useless on exactly the releases that still receive
+	// uploads. Confirming by hand clears the block again.
+	if _, err := tx.Exec(ctx,
+		`UPDATE releases SET autoconfirm_blocked = true WHERE id = $1`, releaseID); err != nil {
+		return fmt.Errorf("store: UnconfirmMetadata: blocking auto-confirm: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("store: UnconfirmMetadata: commit: %w", err)
 	}
 	return nil
 }

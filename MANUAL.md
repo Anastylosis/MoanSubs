@@ -26,6 +26,7 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_TRUSTED_PROXY_CIDRS` | *(unset)* | Comma-separated CIDRs (e.g. `172.28.0.0/24,10.0.0.0/8`) — list **every** hop's range, not just the one directly in front of this node: if a CDN sits in front of the reference Traefik, its published ranges belong here too, alongside Traefik's own address or subnet. The rate limiters' `X-Forwarded-For` handling only trusts the header when the request's direct peer address falls inside one of these — see "Reverse proxies" below. It also gates whether `X-Forwarded-Proto: https` is believed for the session cookie's `Secure` flag. Unset means none are trusted. |
 | `MOANSUBS_SEARCH_RATE_PER_MINUTE` | `30` | Per-IP budget for `GET /search`. The only catalogue page where an anonymous visitor makes the database do real work (a GIN array-overlap query), rather than an indexed lookup by prefix or id. |
 | `MOANSUBS_DUMP_URL` | *(unset)* | Link the front page shows under "download the latest dump". Publishing a dump (WP-B2, `moansubs dump`) is an out-of-band operator choice; unset hides the link entirely. |
+| `MOANSUBS_AUTOCONFIRM` | `false` | Lets a trusted account's stash-box-backed metadata pin itself, with no moderator. Does nothing until at least one account is marked with `moansubs account trust <name>` — see "Auto-confirming" below for what qualifies and what it deliberately refuses. |
 | `MOANSUBS_PUBLIC_URL` | *(derived)* | This node's origin as visitors reach it, e.g. `https://moansubs.org`. Used for the absolute URLs the sitemap protocol and Open Graph link previews both require. Unset — the default — derives it per request from the `Host` header, with the scheme following the same trusted-proxy rule as the session cookie's `Secure` attribute (`MOANSUBS_TRUSTED_PROXY_CIDRS`). Set it when the node answers to more than one name and you want one canonical form. |
 | `MOANSUBS_METADATA_RATE_PER_HOUR` | `60` | Per-account budget for `POST /api/v1/metadata` (API.md), the route that says what a scene *is* without uploading a subtitle for it. Each request carries up to 25 scenes, so this is a large library in an hour; the bound exists because every entry triggers a derivation, and a grouped release derives its whole work. |
 | `MOANSUBS_VOTE_RATE_PER_HOUR` | `60` | Per-account budget for `PUT`/`DELETE /api/v1/subtitles/{id}/vote` (API.md "Votes"). Generous enough for a person triaging their own downloads in one sitting, tight enough to stop a script grinding a track's score. |
@@ -893,6 +894,47 @@ by whatever service rendered it exactly as durably as a crawled heading,
 so a release nobody has named previews as plain "moansubs" while the page
 itself still shows the reader the cleaned filename.
 
+#### Auto-confirming
+
+Confirming by hand does not scale, and the arithmetic is unkind: a node
+holding a thousand releases where most carry a title lists *none* of them
+until somebody clicks through them one at a time. A single-moderator node
+indexes nothing, indefinitely.
+
+`MOANSUBS_AUTOCONFIRM=true` lets a pin happen without the click, for
+metadata narrow enough to be worth trusting. A release is pinned
+automatically only when **all** of these hold:
+
+1. It has a derived title. A pin vouches for a name; a release with none
+   has nothing to vouch for.
+2. Some proposal for it comes from an account marked trusted
+   (`moansubs account trust <name>`) that is not disabled.
+3. That proposal carries a **stash-box id**. Trust alone is not enough:
+   the id is what ties the claim to a curated database rather than to one
+   person's typing.
+4. The id does not contradict this node's own data — every other release
+   carrying it agrees on runtime within 5%. A stash-box id attached to the
+   wrong video is the realistic mistake, and it is visible here without
+   asking any external service. Different encodes of one scene legitimately
+   differ by seconds, which is why the tolerance is generous rather than
+   exact.
+5. **No moderator has unpinned it.** Unpinning sets a block that
+   auto-confirm will not cross. Without that, unpinning would be useless
+   on exactly the releases that still receive uploads — the next push
+   would put the pin straight back. Confirming by hand lifts the block,
+   since that is the same person saying the opposite.
+
+Trust is deliberately **not** the role ladder. `mod` and `admin` are about
+moderating other people's contributions; trust here is about vouching for
+your own. A seeding account that pushes a curated library is exactly the
+case — trusted, and with no business moderating anyone.
+`moansubs account untrust <name>` stops future pins; releases already
+pinned stay pinned, and a moderator unpins those.
+
+An auto-confirmed pin records no `confirmed_by`: nobody clicked, and
+putting a moderator's name on a decision they did not make would be a lie
+the evidence table then repeats.
+
 #### Getting listed
 
 Four steps, in order, and the last is the one that actually gates it:
@@ -907,7 +949,10 @@ Four steps, in order, and the last is the one that actually gates it:
    care about, through their own webmaster tools.
 4. **Confirm some releases.** Nothing is listed until a moderator pins it
    — see "Moderating metadata" above. A node with `MOANSUBS_INDEXABLE=true`
-   and no pins serves a sitemap containing two URLs.
+   and no pins serves a sitemap containing two URLs. On a node with a
+   seeding account, `MOANSUBS_AUTOCONFIRM=true` plus
+   `moansubs account trust <name>` does most of this for you — see
+   "Auto-confirming" above.
 
 `noindex` restrains well-behaved crawlers and nothing else — scrapers and
 archives ignore it. It sequences indexing; the structural rule above is

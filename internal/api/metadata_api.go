@@ -174,6 +174,7 @@ func (s *Server) contributeOne(r *http.Request, accountID int64, e metadataEntry
 	if err := s.Store.DeriveAfterProposal(ctx, release.ID); err != nil {
 		log.Printf("api: DeriveAfterProposal (contribute, release %d): %v", release.ID, err)
 	}
+	s.maybeAutoConfirm(ctx, release.ID)
 	return metadataResult{ReleaseID: release.ID, Known: true, Recorded: true}
 }
 
@@ -200,4 +201,25 @@ func (s *Server) resolveMetadataRelease(ctx context.Context, e metadataEntry) (*
 		return nil, nil
 	}
 	return rel, nil
+}
+
+// maybeAutoConfirm pins a release without a moderator when the operator
+// has enabled it and the evidence qualifies (store.AutoConfirmIfEligible).
+//
+// Called after derivation on every path that records a proposal. Errors
+// and refusals are logged, never surfaced: the caller asked to contribute
+// metadata, and whether that also happened to pin the release is this
+// node's business rather than theirs.
+func (s *Server) maybeAutoConfirm(ctx context.Context, releaseID int64) {
+	if !s.AutoConfirm {
+		return
+	}
+	got, err := s.Store.AutoConfirmIfEligible(ctx, releaseID)
+	if err != nil {
+		log.Printf("api: AutoConfirmIfEligible(release %d): %v", releaseID, err)
+		return
+	}
+	if got.Eligible {
+		log.Printf("api: auto-confirmed metadata for release %d", releaseID)
+	}
 }

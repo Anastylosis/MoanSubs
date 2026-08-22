@@ -195,6 +195,68 @@ Everything else is unaffected: Traefik still sets `X-Forwarded-Proto: https`,
 so the server still marks session cookies `Secure` exactly as it does behind
 a publicly-issued certificate.
 
+## Being found (indexing, sitemap, link previews)
+
+Off by default, and four steps rather than one — the last is the one that
+actually gates it, and the one people forget.
+
+1. **Open the node to crawlers.** Uncomment `MOANSUBS_INDEXABLE: "true"`
+   on the `server` service. This is a real trade on a node with the age
+   gate up — it also lets the major crawlers past the click-through. Read
+   "Indexing and the age gate" in MANUAL.md before turning it on.
+2. **Name one canonical origin.** Set `MOANSUBS_PUBLIC_URL` in `.env`,
+   e.g. `https://subs.example`. Without it, the sitemap's URLs and every
+   `og:url` follow whatever `Host` a request arrived with — fine for a
+   node reached under one name, wrong the moment it answers to two.
+3. **Submit the sitemap.** `https://<DOMAIN>/sitemap.xml` exists only on
+   an indexing node (it 404s otherwise, deliberately) and `/robots.txt`
+   names it automatically. Hand it to whichever search engines you care
+   about through their own webmaster tools.
+4. **Get releases pinned, or nothing is listed.** A release reaches the
+   sitemap only with a title a human asserted *and* a moderator's pin. A
+   fresh node with thousands of releases and no pins serves a sitemap
+   containing two URLs, which is the correct behaviour and looks exactly
+   like a bug. Two ways forward:
+
+   - Pin by hand at `/mod/release/{id}` → **Confirm**, or
+   - turn on auto-confirm, below.
+
+### Auto-confirm
+
+For a node seeded from a curated library, pinning by hand does not scale.
+Set on the `server` service:
+
+```yaml
+      MOANSUBS_AUTOCONFIRM: "true"
+```
+
+then mark the account whose pushes you stand behind:
+
+```sh
+docker compose exec server moansubs account trust <name>
+```
+
+**Both steps are required** — the variable alone does nothing, because
+nothing is trusted yet. That is the failure mode to expect: auto-confirm
+"not working" is almost always an untrusted account.
+
+What it pins, and what it refuses, is in MANUAL.md under
+"Auto-confirming"; the short version is that a proposal must come from a
+trusted account *and* carry a stash-box id that does not contradict a
+runtime this node already knows. Metadata typed into the web correction
+form never qualifies — there is no stash-box field on it — which is
+intended: that path is a human correcting one release, and it is already
+in front of a moderator.
+
+Two operational notes worth knowing before you need them:
+
+- A moderator unpinning a release **blocks** auto-confirm on it
+  permanently, until a human confirms it again. Without that, unpinning
+  would be undone by the next upload.
+- `moansubs account untrust <name>` stops future pins only. Releases that
+  account already pinned stay pinned; unpin those individually if that is
+  what you meant.
+
 ## Analytics
 
 Optional and off by default. If you run your own analytics host (this is

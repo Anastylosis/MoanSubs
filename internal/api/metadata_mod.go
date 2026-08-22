@@ -293,6 +293,7 @@ func (s *Server) handleReleaseProposeMetadata(w http.ResponseWriter, r *http.Req
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	s.maybeAutoConfirm(ctx, id)
 	log.Printf("api: %q proposed metadata for release %d", ares.Account.Name, id)
 	http.Redirect(w, r, "/release/"+strconv.FormatInt(id, 10), http.StatusSeeOther)
 }

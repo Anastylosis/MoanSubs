@@ -185,6 +185,19 @@ var serveCmd = &cobra.Command{
 			metadataRate = n
 		}
 
+		// Auto-confirm, off by default. Pinning is what opens a page to
+		// crawlers, so switching this on is an operator saying they stand
+		// behind the accounts they have marked trusted -- and it does
+		// nothing at all until at least one is (`moansubs account trust`).
+		autoConfirm := false
+		if v := os.Getenv("MOANSUBS_AUTOCONFIRM"); v != "" {
+			b, perr := strconv.ParseBool(v)
+			if perr != nil {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_AUTOCONFIRM %q", v)
+			}
+			autoConfirm = b
+		}
+
 		// This node's origin as visitors reach it, for the absolute URLs
 		// the sitemap protocol and Open Graph both require. Unset derives
 		// it per request from Host, which is right until a node answers to
@@ -360,6 +373,7 @@ var serveCmd = &cobra.Command{
 		apiSrv.VoteLimiter = api.NewRateLimiter(voteRate)
 		apiSrv.MetadataLimiter = api.NewRateLimiter(metadataRate)
 		apiSrv.PublicURL = publicURL
+		apiSrv.AutoConfirm = autoConfirm
 		// version is main.go's ldflags-stamped build var ("dev" when built
 		// without them); GET /api/v1/version reports whatever this process
 		// actually is, the same source --version already uses.

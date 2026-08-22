@@ -254,6 +254,12 @@ type Server struct {
 	// reason as Limiter.
 	VoteLimiter *RateLimiter
 
+	// AutoConfirm lets a trusted account's stash-box-backed metadata pin
+	// itself, without a moderator (MOANSUBS_AUTOCONFIRM, MANUAL.md). Off
+	// by default: pinning is what opens a page to crawlers, so turning it
+	// on is an operator saying which accounts they stand behind.
+	AutoConfirm bool
+
 	// PublicURL is this node's origin as visitors reach it
 	// (MOANSUBS_PUBLIC_URL), used for the absolute URLs the sitemap
 	// protocol and Open Graph both require. Empty — the default — derives

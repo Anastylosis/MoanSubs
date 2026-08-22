@@ -236,6 +236,7 @@ func (s *Server) recordUploadMetadata(ctx context.Context, releaseID, accountID 
 	if err := s.Store.DeriveAfterProposal(ctx, releaseID); err != nil {
 		log.Printf("api: DeriveAfterProposal(release %d): %v", releaseID, err)
 	}
+	s.maybeAutoConfirm(ctx, releaseID)
 }
 
 // authenticateStateChange is the shared auth step for every state-changing
