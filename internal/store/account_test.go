@@ -544,3 +544,68 @@ func TestStore_PurgeAccount_WithdrawsDisablesAndKillsSessions(t *testing.T) {
 		t.Errorf("ReleasesByStashID after purge = %+v, want no results", releases)
 	}
 }
+
+// A ban with no recorded why is the half that does not help: the moderator
+// reading it six months later, or the second one asked to reinstate the
+// account, has nothing to go on.
+func TestSetAccountDisabled_RecordsWhyAndWhen(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	if _, _, err := s.CreateAccount(ctx, "banned-user"); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	if err := s.SetAccountDisabled(ctx, "banned-user", true, "  uploading other people's work  "); err != nil {
+		t.Fatalf("SetAccountDisabled: %v", err)
+	}
+	d, err := s.AccountDetail(ctx, "banned-user")
+	if err != nil {
+		t.Fatalf("AccountDetail: %v", err)
+	}
+	if !d.Disabled {
+		t.Fatal("account is not disabled")
+	}
+	if d.DisabledReason == nil || *d.DisabledReason != "uploading other people's work" {
+		t.Errorf("reason = %v, want it recorded and trimmed", d.DisabledReason)
+	}
+	if d.DisabledAt == nil {
+		t.Error("no timestamp recorded for the disablement")
+	}
+
+	// Re-enabling clears both: they describe a ban that is over, and leaving
+	// them would make the next reader think an active account is banned.
+	if err := s.SetAccountDisabled(ctx, "banned-user", false, ""); err != nil {
+		t.Fatalf("re-enable: %v", err)
+	}
+	d, err = s.AccountDetail(ctx, "banned-user")
+	if err != nil {
+		t.Fatalf("AccountDetail after enable: %v", err)
+	}
+	if d.Disabled || d.DisabledReason != nil || d.DisabledAt != nil {
+		t.Errorf("re-enabled account still carries ban state: disabled=%v reason=%v at=%v",
+			d.Disabled, d.DisabledReason, d.DisabledAt)
+	}
+}
+
+// An empty reason stays NULL rather than becoming an empty string, so
+// "nobody recorded one" and "someone recorded nothing" do not blur.
+func TestSetAccountDisabled_BlankReasonIsNull(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	if _, _, err := s.CreateAccount(ctx, "quietly-banned"); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	if err := s.SetAccountDisabled(ctx, "quietly-banned", true, "   "); err != nil {
+		t.Fatalf("SetAccountDisabled: %v", err)
+	}
+	d, err := s.AccountDetail(ctx, "quietly-banned")
+	if err != nil {
+		t.Fatalf("AccountDetail: %v", err)
+	}
+	if d.DisabledReason != nil {
+		t.Errorf("blank reason stored as %q, want NULL", *d.DisabledReason)
+	}
+	if d.DisabledAt == nil {
+		t.Error("timestamp should be recorded even without a reason")
+	}
+}

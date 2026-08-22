@@ -223,7 +223,7 @@ func TestLogin_DisabledAccountCannotLogIn(t *testing.T) {
 	t.Cleanup(ts.Close)
 
 	createWebAccount(t, ts, "disabled-user")
-	if err := st.SetAccountDisabled(context.Background(), "disabled-user", true); err != nil {
+	if err := st.SetAccountDisabled(context.Background(), "disabled-user", true, ""); err != nil {
 		t.Fatalf("SetAccountDisabled: %v", err)
 	}
 
@@ -281,7 +281,7 @@ func TestSession_DiesOnAccountDisable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAccountByName: %v", err)
 	}
-	if err := st.SetAccountDisabled(context.Background(), "webuser", true); err != nil {
+	if err := st.SetAccountDisabled(context.Background(), "webuser", true, ""); err != nil {
 		t.Fatalf("SetAccountDisabled: %v", err)
 	}
 	if err := st.DeleteSessionsForAccount(context.Background(), account.ID); err != nil {

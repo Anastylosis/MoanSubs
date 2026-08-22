@@ -200,13 +200,18 @@ func (s *Store) ListAccounts(ctx context.Context) ([]Account, error) {
 // upload count and inviter name, both resolved via a join, on top of the
 // plain account columns.
 type AdminAccountRow struct {
-	ID            int64
-	Name          string
-	Role          string
-	CreatedAt     time.Time
-	Disabled      bool
-	UploadCount   int
-	InvitedByName *string // nil when not invited (operator-created, or pre-dates invites)
+	ID        int64
+	Name      string
+	Role      string
+	CreatedAt time.Time
+	Disabled  bool
+	// DisabledReason is why, when someone recorded one (migration 0018).
+	// Nil on an account disabled before that existed, which is honest: no
+	// reason was captured, rather than none existing.
+	DisabledReason *string
+	DisabledAt     *time.Time
+	UploadCount    int
+	InvitedByName  *string // nil when not invited (operator-created, or pre-dates invites)
 }
 
 // SearchAccounts returns up to limit accounts whose name contains q
@@ -221,7 +226,8 @@ type AdminAccountRow struct {
 // what their arguments mean.
 func (s *Store) SearchAccounts(ctx context.Context, q string, limit int) ([]AdminAccountRow, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT a.id, a.name, a.role, a.created_at, a.disabled, i.name,
+		SELECT a.id, a.name, a.role, a.created_at, a.disabled,
+		       a.disabled_reason, a.disabled_at, i.name,
 		       (SELECT COUNT(*) FROM subtitle_tracks t WHERE t.uploader_id = a.id)
 		FROM accounts a
 		LEFT JOIN accounts i ON i.id = a.invited_by
@@ -237,7 +243,8 @@ func (s *Store) SearchAccounts(ctx context.Context, q string, limit int) ([]Admi
 	for rows.Next() {
 		var a AdminAccountRow
 		var uploads int64
-		if err := rows.Scan(&a.ID, &a.Name, &a.Role, &a.CreatedAt, &a.Disabled, &a.InvitedByName, &uploads); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Role, &a.CreatedAt, &a.Disabled,
+			&a.DisabledReason, &a.DisabledAt, &a.InvitedByName, &uploads); err != nil {
 			return nil, fmt.Errorf("store: SearchAccounts: scanning: %w", err)
 		}
 		a.UploadCount = int(uploads)
@@ -277,9 +284,16 @@ func (s *Store) CountAccountsByRole(ctx context.Context) (map[string]int, error)
 // case-insensitively so an operator revoking access does not have to
 // reproduce the registrant's capitalization. Returns ErrNotFound when no
 // such account exists.
-func (s *Store) SetAccountDisabled(ctx context.Context, name string, disabled bool) error {
-	tag, err := s.pool.Exec(ctx,
-		`UPDATE accounts SET disabled = $2 WHERE lower(name) = lower($1)`, name, disabled)
+func (s *Store) SetAccountDisabled(ctx context.Context, name string, disabled bool, reason string) error {
+	// Re-enabling clears the reason and the timestamp: they describe a
+	// disablement that is over, and leaving them behind would make the next
+	// reader think an active account is banned.
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE accounts SET
+			disabled = $2,
+			disabled_reason = CASE WHEN $2 THEN nullif(btrim($3), '') ELSE NULL END,
+			disabled_at     = CASE WHEN $2 THEN now() ELSE NULL END
+		WHERE lower(name) = lower($1)`, name, disabled, reason)
 	if err != nil {
 		return fmt.Errorf("store: SetAccountDisabled: %w", err)
 	}
@@ -600,6 +614,8 @@ type AccountDetail struct {
 	Role                string
 	CreatedAt           time.Time
 	Disabled            bool
+	DisabledReason      *string // nil when none was recorded (migration 0018)
+	DisabledAt          *time.Time
 	InvitedByName       *string // nil when not invited (operator-created, or pre-dates invites)
 	HasPassword         bool
 	HasDisplayableToken bool // token_enc IS NOT NULL — a key was configured when the token was last minted/rotated
@@ -610,12 +626,14 @@ type AccountDetail struct {
 func (s *Store) AccountDetail(ctx context.Context, name string) (*AccountDetail, error) {
 	var d AccountDetail
 	err := s.pool.QueryRow(ctx, `
-		SELECT a.name, a.role, a.created_at, a.disabled, i.name,
+		SELECT a.name, a.role, a.created_at, a.disabled,
+		       a.disabled_reason, a.disabled_at, i.name,
 		       a.password_hash IS NOT NULL, a.token_enc IS NOT NULL
 		FROM accounts a
 		LEFT JOIN accounts i ON i.id = a.invited_by
 		WHERE lower(a.name) = lower($1)`, name,
-	).Scan(&d.Name, &d.Role, &d.CreatedAt, &d.Disabled, &d.InvitedByName, &d.HasPassword, &d.HasDisplayableToken)
+	).Scan(&d.Name, &d.Role, &d.CreatedAt, &d.Disabled, &d.DisabledReason, &d.DisabledAt,
+		&d.InvitedByName, &d.HasPassword, &d.HasDisplayableToken)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

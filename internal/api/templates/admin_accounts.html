@@ -29,13 +29,16 @@
     <td class="mono">{{$a.CreatedAt.Format "2006-01-02"}}</td>
     <td class="n">{{$a.UploadCount}}</td>
     <td>{{if $a.InvitedByName}}<a href="/u/{{$a.InvitedByName}}">{{$a.InvitedByName}}</a>{{else}}<span class="hint" style="display:inline">(none)</span>{{end}}</td>
-    <td>{{if $a.Disabled}}<span class="hint" style="display:inline;color:var(--danger)">disabled</span>{{else}}active{{end}}</td>
+    <td>{{if $a.Disabled}}<span class="hint" style="display:inline;color:var(--danger)">disabled</span>{{with $a.DisabledReason}}<div class="hint" style="margin:.2rem 0 0">{{.}}</div>{{end}}{{with $a.DisabledAt}}<div class="hint" style="margin:0">{{.Format "2006-01-02"}}</div>{{end}}{{else}}active{{end}}</td>
     <td>
       <div class="inline">
       {{if $a.Disabled}}
         <form method="post" action="/admin/accounts/{{$a.Name}}/enable" style="margin:0"><button type="submit" class="quiet sm">Enable</button></form>
       {{else}}
-        <form method="post" action="/admin/accounts/{{$a.Name}}/disable" style="margin:0"><button type="submit" class="quiet sm">Disable</button></form>
+        <form method="post" action="/admin/accounts/{{$a.Name}}/disable" style="margin:0">
+          <input type="text" name="reason" maxlength="300" placeholder="why (optional)" style="width:12rem;display:inline-block;margin-right:.35rem">
+          <button type="submit" class="quiet sm">Disable</button>
+        </form>
       {{end}}
       <form method="post" action="/admin/accounts/{{$a.Name}}/purge" class="inline" style="margin:0">
         <input type="text" name="confirm" placeholder="type name to confirm" aria-label="Confirm purge of {{$a.Name}}">

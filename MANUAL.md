@@ -242,7 +242,7 @@ invite code too, on a node running `MOANSUBS_REGISTRATION=invite`.
 Every account, oldest first: id, name, active/disabled, creation time. The
 token is not shown — it is unrecoverable by construction.
 
-### `moansubs account disable <name>` / `enable <name>`
+### `moansubs account disable <name> [--reason TEXT]` / `enable <name>`
 
 Revokes or restores an account's ability to upload; the name matches
 case-insensitively. Uploads from a disabled account get `403 account
@@ -252,6 +252,16 @@ Disabling also deletes every browser session (`sessions` rows) belonging to
 the account, so a revoked account cannot stay logged in at `/me` until its
 cookie happens to expire; enabling does not recreate anything. Invite codes
 minted by a disabled account cannot be redeemed until that account is re-enabled.
+
+`--reason` records **why**, alongside the time, against the account
+(migration 0018). Optional, and worth using: this is what a ban is here, and
+a disablement with no recorded reason is the half that does not help — not
+the moderator reading it six months later, nor a second moderator asked to
+reinstate the account. It is shown by `account show` and on
+`/admin/accounts`, where the Disable button has its own reason box. An
+account disabled before this existed reads "no reason recorded", which is
+honest: none was captured, rather than none existing. Re-enabling clears
+the reason and the timestamp, since they describe a ban that is over.
 
 ### `moansubs account rotate-token <name>`
 

@@ -271,7 +271,7 @@ func TestRegisterAccount_DisabledAccountCannotUpload(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 
-	if err := st.SetAccountDisabled(t.Context(), "TROUBLEMAKER", true); err != nil {
+	if err := st.SetAccountDisabled(t.Context(), "TROUBLEMAKER", true, ""); err != nil {
 		t.Fatalf("SetAccountDisabled: %v", err)
 	}
 

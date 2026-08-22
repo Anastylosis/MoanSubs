@@ -306,7 +306,7 @@ func TestUploaderPage_Paginates(t *testing.T) {
 func TestUploaderPage_DisabledAccountIs404(t *testing.T) {
 	ts, st, token := newTestServer(t)
 	mkNamedUpload(t, ts, token, "b000000000000032", "Under A Disabled Account", "en")
-	if err := st.SetAccountDisabled(context.Background(), "uploader", true); err != nil {
+	if err := st.SetAccountDisabled(context.Background(), "uploader", true, ""); err != nil {
 		t.Fatalf("SetAccountDisabled: %v", err)
 	}
 

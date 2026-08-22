@@ -160,7 +160,7 @@ func TestStore_CreateInvitedAccount_DisabledCreator(t *testing.T) {
 	}
 
 	// Disable the inviter's account.
-	if err := s.SetAccountDisabled(ctx, "inviter", true); err != nil {
+	if err := s.SetAccountDisabled(ctx, "inviter", true, ""); err != nil {
 		t.Fatalf("SetAccountDisabled: %v", err)
 	}
 
@@ -170,7 +170,7 @@ func TestStore_CreateInvitedAccount_DisabledCreator(t *testing.T) {
 	}
 
 	// Re-enable the inviter; the code should now redeem again.
-	if err := s.SetAccountDisabled(ctx, "inviter", false); err != nil {
+	if err := s.SetAccountDisabled(ctx, "inviter", false, ""); err != nil {
 		t.Fatalf("SetAccountDisabled (re-enable): %v", err)
 	}
 

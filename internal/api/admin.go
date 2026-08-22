@@ -182,7 +182,19 @@ func (s *Server) adminSetDisabled(w http.ResponseWriter, r *http.Request, disabl
 		return
 	}
 
-	if err := s.Store.SetAccountDisabled(ctx, account.Name, disabled); err != nil {
+	// The reason is optional but asked for: a ban with no recorded why is
+	// the half that does not help whoever reads it later. Capped like every
+	// other operator-supplied string on this surface.
+	reason := ""
+	if disabled {
+		if err := r.ParseForm(); err == nil {
+			reason = strings.TrimSpace(r.FormValue("reason"))
+			if len(reason) > 300 {
+				reason = reason[:300]
+			}
+		}
+	}
+	if err := s.Store.SetAccountDisabled(ctx, account.Name, disabled, reason); err != nil {
 		log.Printf("api: SetAccountDisabled: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

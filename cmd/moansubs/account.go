@@ -162,7 +162,8 @@ func setDisabled(disabled bool, verb string) func(*cobra.Command, []string) erro
 		defer cancel()
 		defer s.Close()
 
-		if err := s.SetAccountDisabled(ctx, args[0], disabled); err != nil {
+		reason, _ := cmd.Flags().GetString("reason")
+		if err := s.SetAccountDisabled(ctx, args[0], disabled, reason); err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				return fmt.Errorf("moansubs account %s: no account named %q", verb, args[0])
 			}
@@ -184,9 +185,15 @@ func setDisabled(disabled bool, verb string) func(*cobra.Command, []string) erro
 
 var accountDisableCmd = &cobra.Command{
 	Use:   "disable <name>",
-	Short: "Revoke an account's ability to upload",
-	Args:  cobra.ExactArgs(1),
-	RunE:  setDisabled(true, "disable"),
+	Short: "Revoke an account's ability to upload or log in",
+	Long: "Revoke an account's ability to upload or log in.\n\n" +
+		"Accounts are never deleted -- uploads, votes and metadata proposals all\n" +
+		"point at them -- so this is what a ban is here. Record --reason: a\n" +
+		"disablement with no recorded why is the half that does not help whoever\n" +
+		"reads it months later, or the second moderator asked to reinstate it.\n" +
+		"Re-enabling clears the reason, since it describes a ban that is over.",
+	Args: cobra.ExactArgs(1),
+	RunE: setDisabled(true, "disable"),
 }
 
 var accountEnableCmd = &cobra.Command{
@@ -414,6 +421,14 @@ var accountShowCmd = &cobra.Command{
 		status := "active"
 		if d.Disabled {
 			status = "disabled"
+			if d.DisabledAt != nil {
+				status += " " + d.DisabledAt.UTC().Format("2006-01-02")
+			}
+			if d.DisabledReason != nil {
+				status += ": " + *d.DisabledReason
+			} else {
+				status += " (no reason recorded)"
+			}
 		}
 		invitedBy := "none"
 		if d.InvitedByName != nil {
@@ -441,6 +456,7 @@ func yesNo(b bool) string {
 
 func init() {
 	accountPurgeCmd.Flags().StringVar(&accountPurgeReason, "reason", "", "reason recorded for the withdrawal")
+	accountDisableCmd.Flags().String("reason", "", "why the account is being disabled, recorded against it")
 	accountCmd.AddCommand(accountCreateCmd, accountListCmd, accountDisableCmd, accountEnableCmd, accountRotateTokenCmd, accountPurgeCmd, accountRoleCmd, accountTrustCmd, accountUntrustCmd, accountSetPasswordCmd, accountShowCmd)
 	rootCmd.AddCommand(accountCmd)
 }
