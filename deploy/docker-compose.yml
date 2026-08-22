@@ -103,13 +103,21 @@ services:
       - server
 
   server:
-    # Pinned to a released version rather than a moving tag, so a restart
-    # can never change versions under you. Override MOANSUBS_TAG to upgrade.
+    # Set MOANSUBS_TAG in .env to pin a version. Doing so is recommended
+    # for anything you care about: `serve` applies pending migrations on
+    # startup, so the version you run is the version your schema gets, and
+    # choosing that deliberately is worth the one line.
     #
-    # No leading "v": the git tag is v0.2.1 but the image tags are
-    # 0.2.1 / 0.2 / 0 / latest, which is the usual convention for image
-    # tags and an easy mismatch to write by accident.
-    image: ghcr.io/anastylosis/moansubs:${MOANSUBS_TAG:-0.2.1}
+    # The default is a moving tag rather than a number so this file does not
+    # have to be edited on every release. That is less dangerous than it
+    # sounds: a restart policy restarts the existing container, which holds
+    # a resolved image id, so a reboot never changes versions under you.
+    # Only an explicit `docker compose pull` moves a moving tag.
+    #
+    # No leading "v" if you do pin: the git tags are v0.3.0 but the image
+    # tags are 0.3.0 / 0.3 / 0 / latest, which is the usual convention for
+    # image tags and an easy mismatch to write by accident.
+    image: ghcr.io/anastylosis/moansubs:${MOANSUBS_TAG:-latest}
     restart: unless-stopped
     logging: *default-logging
     # `serve` applies pending migrations on startup (MANUAL.md), so

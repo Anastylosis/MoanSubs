@@ -132,9 +132,11 @@ docker compose up -d
 container start leaves the schema current before the new binary accepts
 traffic. Migrations are additive and safe to re-run.
 
-The image tag is pinned in `docker-compose.yml` and `pull` will not move it
-on its own — that is the point. Bump `MOANSUBS_TAG` in `.env` to upgrade
-deliberately.
+The image tag defaults to `latest`, so `pull` moves it. Set `MOANSUBS_TAG`
+in `.env` to pin a version instead — recommended for a node you care about,
+since migrations apply on startup and the version you run is the version
+your schema gets. Either way nothing changes without an explicit `pull`: a
+restart reuses the image id the container already resolved.
 
 ## Upgrading Postgres
 

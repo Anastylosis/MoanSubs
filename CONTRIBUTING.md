@@ -9,21 +9,16 @@ published.
 
 ### Steps
 
-Bump the pinned version first — the image tag appears in three tracked files
-and a release that ships a stale one sends operators to the previous image:
-
-- `README.md` ("Status")
-- `deploy/docker-compose.yml` (`MOANSUBS_TAG` default, and the comment above it)
-- `docker-compose.example.yml`
-
-`plugin/moansubs.yml` is deliberately *not* on that list:
-`scripts/plugin-package.sh` rewrites its `version:` from the tag when it
-packages the bundle, so the tag is the single source of truth for what Stash
-shows as the installed version.
+Nothing needs bumping by hand. Every place the version used to be written
+out now derives it: the compose files track `latest` (operators pin with
+`MOANSUBS_TAG` in `.env`), the README shows the Release badge rather than a
+number, and `scripts/plugin-package.sh` rewrites `plugin/moansubs.yml`'s
+`version:` from the tag when it packages the bundle — so the tag is the
+single source of truth for what Stash reports as installed.
 
 ```bash
-git tag -a v0.2.1 -m "v0.2.1"
-git push origin v0.2.1
+git tag -a v0.3.0 -m "v0.3.0"
+git push origin v0.3.0
 ```
 
 The tag's annotation is rendered as a callout at the top of the release page,
@@ -71,7 +66,6 @@ Before clicking approve, confirm:
       CI cannot do this, and the RPC and log-envelope failure modes are silent.
 - [ ] Release notes describe the user-visible changes, and the tag annotation
       says anything the commits cannot.
-- [ ] The pinned version was bumped in the three files above.
 
 The gate is a **trust-me** check — nothing verifies that you actually ran any
 of it. Its only job is to force a pause-and-think before a release goes public.
@@ -88,8 +82,8 @@ of it. Its only job is to force a pause-and-think before a release goes public.
 Only the two Linux platforms the Dockerfile builds: moansubs is a server, and
 nobody runs it from a macOS or Windows binary.
 
-The image is tagged without the leading `v` — a `v0.2.1` git tag publishes
-`0.2.1` / `0.2` / `0` / `latest`, which is the usual convention for image tags
+The image is tagged without the leading `v` — a `v0.3.0` git tag publishes
+`0.3.0` / `0.3` / `0` / `latest`, which is the usual convention for image tags
 and an easy mismatch to write by accident.
 
 ### Upgrading a running node

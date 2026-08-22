@@ -223,8 +223,9 @@ turns the interstitial off for an operator handling it another way.
 
 ## Status
 
-Working v1, tagged `v0.2.1`, running in production at
-[moansubs.org](https://moansubs.org) against a real Stash library. Server,
+Working v1, running in production at
+[moansubs.org](https://moansubs.org) against a real Stash library. The
+current version is the Release badge above. Server,
 lookup/upload API, both plugin halves, the web catalogue, and public dumps
 for mirroring are built and tested. Each release publishes binaries, the
 container image, the plugin bundles, and the plugin package source.
