@@ -717,3 +717,93 @@ func (c *Client) doRaw(req *http.Request, out any, preferJSONError bool) error {
 	}
 	return nil
 }
+
+// MetadataEntry is one scene's name metadata, contributed without a
+// subtitle. OSHash identifies the release; the server resolves it and
+// answers "not known" rather than creating anything.
+type MetadataEntry struct {
+	OSHash     string    `json:"oshash"`
+	Title      string    `json:"title,omitempty"`
+	Date       string    `json:"date,omitempty"`
+	Studio     string    `json:"studio,omitempty"`
+	Performers []string  `json:"performers,omitempty"`
+	StashIDs   []StashID `json:"stash_ids,omitempty"`
+}
+
+// HasContent reports whether the entry says anything worth sending. A
+// scene Stash knows nothing about produces an entry the server would
+// accept and record as nothing, so the round trip is skipped instead.
+func (e MetadataEntry) HasContent() bool {
+	return e.Title != "" || e.Date != "" || e.Studio != "" ||
+		len(e.Performers) > 0 || len(e.StashIDs) > 0
+}
+
+// MetadataResult is one entry's answer, in request order.
+type MetadataResult struct {
+	ReleaseID int64  `json:"release_id"`
+	Known     bool   `json:"known"`
+	Recorded  bool   `json:"recorded"`
+	Error     string `json:"error"`
+}
+
+// MaxMetadataEntries mirrors the server's own per-request cap. Callers
+// batch to it rather than discovering the 400.
+const MaxMetadataEntries = 25
+
+// ContributeMetadata sends POST /api/v1/metadata: what these scenes are,
+// with no subtitle attached.
+//
+// Deliberately a separate authenticated request rather than something
+// riding along with a download. Downloads are anonymous by documented
+// promise, and receiving a file and telling a node what your library
+// contains are two different consents — a client that wants both makes
+// two requests, and the person doing it chose to.
+func (c *Client) ContributeMetadata(ctx context.Context, entries []MetadataEntry) ([]MetadataResult, error) {
+	if c.Token == "" {
+		return nil, fmt.Errorf("msclient: no upload token configured — contributing scene details needs an account")
+	}
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	if len(entries) > MaxMetadataEntries {
+		return nil, fmt.Errorf("msclient: %d entries exceeds the server's cap of %d", len(entries), MaxMetadataEntries)
+	}
+
+	// Same caps the upload path applies, for the same reason: reach the
+	// server's limits before the wire does.
+	capped := make([]MetadataEntry, len(entries))
+	for i, e := range entries {
+		e.Title = truncateRunes(e.Title, maxUploadTitleLen)
+		e.Studio = truncateRunes(e.Studio, maxUploadStudioLen)
+		if len(e.Performers) > maxUploadPerformers {
+			e.Performers = e.Performers[:maxUploadPerformers]
+		}
+		names := make([]string, len(e.Performers))
+		for j, p := range e.Performers {
+			names[j] = truncateRunes(p, maxUploadPerformerLen)
+		}
+		e.Performers = names
+		capped[i] = e
+	}
+
+	b, err := json.Marshal(struct {
+		Entries []MetadataEntry `json:"entries"`
+	}{capped})
+	if err != nil {
+		return nil, fmt.Errorf("msclient: marshalling metadata: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/api/v1/metadata", bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+
+	var res struct {
+		Results []MetadataResult `json:"results"`
+	}
+	if err := c.do(httpReq, &res); err != nil {
+		return nil, err
+	}
+	return res.Results, nil
+}

@@ -497,6 +497,7 @@
     }
     // The page may have moved on during the await.
     if (!panel.isConnected || panel.dataset.scene !== sceneId) return;
+    offerContribute(panel, sceneId, status);
     if (panel.querySelector(".moansubs-push")) return;
     if (!status.has_token || !status.sidecars || !status.sidecars.length) return;
 
@@ -512,6 +513,52 @@
       ") to the moansubs server";
     btn.onclick = () => push(panel, sceneId, btn);
     panel.querySelector(".moansubs-search").after(btn);
+  }
+
+  // Contributing scene details is offered whenever the server can accept
+  // them and a token exists — no disk check, because unlike a push it
+  // sends nothing but what Stash already knows about the scene.
+  function offerContribute(panel, sceneId, status) {
+    if (!status.has_token || !status.metadata_feature) return;
+    if (panel.querySelector(".moansubs-contribute")) return;
+    const btn = document.createElement("button");
+    btn.className = "btn btn-sm btn-secondary moansubs-contribute ml-2";
+    btn.textContent = "Send scene details";
+    btn.title =
+      "Tell the server what this scene is — title, date, studio, performers " +
+      "and stash-box ids. No subtitle is uploaded.";
+    btn.onclick = () => contribute(panel, sceneId, btn);
+    (panel.querySelector(".moansubs-push") || panel.querySelector(".moansubs-search")).after(btn);
+  }
+
+  async function contribute(panel, sceneId, btn) {
+    const body = panel.querySelector(".moansubs-body");
+    const note = document.createElement("div");
+    btn.disabled = true;
+    btn.textContent = "Sending\u2026";
+    try {
+      const res = await runOp({ mode: "contribute", scene_id: sceneId });
+      let text;
+      if (res.recorded) {
+        text = "Sent. The server has this scene's details on record from your account.";
+      } else if (res.unknown) {
+        text = "Sent, but this server holds no release matching your file, so there was nothing to attach the details to.";
+      } else if (res.skipped) {
+        text = "Nothing to send: Stash has no title, date, studio, performers or stash-box id for this scene.";
+      } else {
+        text = "Sent.";
+      }
+      if (res.notes && res.notes.length) text += " \u2014 " + res.notes.join("; ");
+      note.className = res.errors ? "alert alert-warning py-1 px-2" : "alert alert-success py-1 px-2";
+      note.textContent = text;
+    } catch (err) {
+      note.className = "alert alert-danger py-1 px-2";
+      note.textContent = err.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Send scene details";
+    }
+    body.prepend(note);
   }
 
   async function push(panel, sceneId, btn) {

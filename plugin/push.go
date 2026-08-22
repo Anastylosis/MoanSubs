@@ -236,6 +236,11 @@ type pushStatusResult struct {
 	SceneID  string   `json:"scene_id"`
 	Sidecars []string `json:"sidecars"` // language suffixes, in discovery order
 	HasToken bool     `json:"has_token"`
+	// MetadataFeature reports whether the server can be told what a scene
+	// is without a subtitle (GET /api/v1/version advertising "metadata").
+	// Carried here so the panel learns it in the round trip it already
+	// makes, rather than probing again per scene.
+	MetadataFeature bool `json:"metadata_feature"`
 }
 
 // pushStatus handles mode "push_status". It is deliberately read-only and
@@ -249,7 +254,13 @@ func (a *app) pushStatus(ctx context.Context, sceneID string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return sceneSidecarStatus(scene, a.ms.Token != ""), nil
+	res := sceneSidecarStatus(scene, a.ms.Token != "")
+	// Best-effort: an unreachable server means no offer, which is the
+	// same degrade every other capability check here takes.
+	if v, verr := a.serverVersion(ctx); verr == nil {
+		res.MetadataFeature = hasFeature(v.Features, "metadata")
+	}
+	return res, nil
 }
 
 // sceneSidecarStatus reports the languages pushScene would upload for this

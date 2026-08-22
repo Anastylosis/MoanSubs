@@ -54,3 +54,12 @@ tasks:
     description: Upload every sidecar subtitle in the library to the moansubs server (safe to re-run)
     defaultArgs:
       mode: push_all
+  - name: Contribute scene details (dry run)
+    description: Report which scenes' titles, dates, studios, performers and stash-box ids would be sent, without sending
+    defaultArgs:
+      mode: contribute_all
+      dry_run: true
+  - name: Contribute scene details
+    description: Tell the server what your scenes are - no subtitles uploaded, only names. Needs an upload token.
+    defaultArgs:
+      mode: contribute_all

@@ -119,6 +119,17 @@ across different people's libraries is nearly never.
   push skips them. Turn the button off entirely with the *Hide the
   per-scene push button* setting; the toggle applies to the next scene
   page you open, with no reload needed.
+- **Send scene details**: a third button, offered whenever you have an
+  upload token and the server advertises the capability. It tells the
+  server what this scene *is* — title, date, studio, performers and
+  stash-box ids, straight from Stash — and uploads no subtitle at all.
+  This is the answer to "my library is well curated but I have nothing to
+  contribute for this scene": the server may know your release only as a
+  filename, and one click fixes that. Your scene's **filename is
+  deliberately not sent**; this records what a scene is, and a filename is
+  what a file is called. Nothing is ever sent automatically — not on a
+  download, not on a search — because receiving a subtitle and telling a
+  node what your library contains are two different things to agree to.
 - **Scene cards** get a small **CC** badge when the server has subtitles
   for that scene. Badges for a whole wall resolve in one batched call; if
   the server is down they simply don't appear.
@@ -209,6 +220,30 @@ releases, not because the hashes matched.
   `stash_endpoints` allow-list (`GET /api/v1/version`) are dropped the same
   way before the push is even sent; if any are dropped, the plugin logs
   once per scene.
+
+## Telling a server what your scenes are
+
+The same thing at library scale, as two tasks:
+
+- **Contribute scene details (dry run)** — lists what would be sent,
+  sending nothing. Needs no token.
+- **Contribute scene details** — sends it, batched, for every scene Stash
+  has anything to say about. Needs an upload token.
+
+Neither uploads a subtitle. Scenes the server holds no release for come
+back "not known" and are counted, not retried — a sweep over a large
+library will legitimately name plenty of scenes a given node has never
+heard of, and that is an answer rather than a failure.
+
+Why bother: on the server, name metadata is *evidence* rather than a
+field, and what a release displays is derived from everyone's evidence.
+Contributing a scene you can identify improves what everybody else sees
+for that scene, including people pulling subtitles for a completely
+different encode of it. Entries carrying a stash-box id are worth the most:
+a node can act on those without a moderator reviewing them first.
+
+An older node without the capability refuses the whole run up front with
+one message, rather than failing per batch.
 
 ## Where task output goes
 
