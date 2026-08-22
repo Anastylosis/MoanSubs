@@ -469,6 +469,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("GET /api/v1/lookup/stash/{ehash}/{stash_id}", s.handleLookupStash)
 	mux.HandleFunc("POST /api/v1/lookup/batch", s.handleLookupBatch)
 	mux.HandleFunc("POST /api/v1/lookup/exact", s.handleLookupExact)
+	mux.HandleFunc("GET /api/v1/search", s.handleSearchAPI)
 	mux.HandleFunc("POST /api/v1/match", s.handleMatch)
 	mux.HandleFunc("GET /mod/flagged", s.page(s.handleModFlagged))
 	mux.HandleFunc("GET /mod/track/{id}", s.page(s.handleModTrack))

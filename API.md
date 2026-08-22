@@ -27,6 +27,7 @@ the full session/CSRF model.
   - [`GET /api/v1/lookup/stash/{ehash}/{stash_id}`](#get-apiv1lookupstashehashstash_id)
   - [`POST /api/v1/lookup/batch`](#post-apiv1lookupbatch)
   - [`POST /api/v1/lookup/exact`](#post-apiv1lookupexact)
+  - [`GET /api/v1/search`](#get-apiv1search)
   - [`GET /api/v1/stats`](#get-apiv1stats)
   - [`POST /api/v1/match`](#post-apiv1match)
   - [Release shape (shared by all lookups)](#release-shape-shared-by-all-lookups)
@@ -148,6 +149,37 @@ Full-hash mode, opt-in. At least one of `oshash`/`phash` required;
 `max_distance` defaults to 4, hard cap 8 (false positives climb sharply
 past that). POST deliberately, so hashes stay out of access logs. Response:
 `{"releases": [<release>...]}`.
+
+### `GET /api/v1/search`
+
+The JSON counterpart to the website's `/search`, for a client that wants
+the catalogue without scraping HTML.
+
+```
+GET /api/v1/search?q=midnight+garden&lang=en
+```
+
+`q` is required (400 `"q is required"` when absent or blank) and is
+truncated to 200 runes rather than rejected — a client pasting a whole
+filename searches on what fits. `lang`, optional, restricts to releases
+carrying a visible track in that exact stored tag. Anonymous, rate-limited
+per IP by the same search limiter the HTML page uses.
+
+GET, unlike `POST /api/v1/match`: a match query is the caller's own library
+metadata and is kept out of access logs, whereas this searches what the
+node already publishes on `/browse` — anything findable here is on a page
+anyone can load.
+
+```json
+{"releases": [{<release shape below>}], "truncated": false}
+```
+
+`releases` is always present (`[]`, never `null`) and uses the same release
+shape every lookup returns, so a client that parses a lookup parses this.
+`truncated` reports that the catalogue held more matches than were
+returned; a capped list handed back silently is indistinguishable from
+"that is all there is". A query that tokenizes to nothing (punctuation
+only) matches nothing rather than everything.
 
 ### `GET /api/v1/stats`
 
