@@ -464,6 +464,17 @@ The node's own `/upload` form (session-authenticated, MANUAL.md) runs the
 exact same validation, sanitization, and dedup logic — it is a multipart
 front end onto the same code, not a second implementation.
 
+### `GET /sitemap.xml`
+
+The catalogue roots plus every indexable release, in the sitemap protocol's
+`urlset` form. **404 on a node that does not index** (`MOANSUBS_INDEXABLE`
+unset): a sitemap is an invitation to crawl, and an enumerable catalogue in
+one request is what a blanket `Disallow: /` exists not to hand out. Listing
+follows the release page's own `X-Robots-Tag` exactly — a curated title and
+a moderator's pin — since a sitemap that were more generous would silently
+undo the header. Anonymous, capped at 50,000 URLs, and named by
+`/robots.txt` on nodes that serve it.
+
 ### `POST /api/v1/metadata` *(auth required)*
 
 Says what a scene **is**, without uploading a subtitle for it. The gap it

@@ -26,6 +26,7 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_TRUSTED_PROXY_CIDRS` | *(unset)* | Comma-separated CIDRs (e.g. `172.28.0.0/24,10.0.0.0/8`) — list **every** hop's range, not just the one directly in front of this node: if a CDN sits in front of the reference Traefik, its published ranges belong here too, alongside Traefik's own address or subnet. The rate limiters' `X-Forwarded-For` handling only trusts the header when the request's direct peer address falls inside one of these — see "Reverse proxies" below. It also gates whether `X-Forwarded-Proto: https` is believed for the session cookie's `Secure` flag. Unset means none are trusted. |
 | `MOANSUBS_SEARCH_RATE_PER_MINUTE` | `30` | Per-IP budget for `GET /search`. The only catalogue page where an anonymous visitor makes the database do real work (a GIN array-overlap query), rather than an indexed lookup by prefix or id. |
 | `MOANSUBS_DUMP_URL` | *(unset)* | Link the front page shows under "download the latest dump". Publishing a dump (WP-B2, `moansubs dump`) is an out-of-band operator choice; unset hides the link entirely. |
+| `MOANSUBS_PUBLIC_URL` | *(derived)* | This node's origin as visitors reach it, e.g. `https://moansubs.org`. Used for the absolute URLs the sitemap protocol and Open Graph link previews both require. Unset — the default — derives it per request from the `Host` header, with the scheme following the same trusted-proxy rule as the session cookie's `Secure` attribute (`MOANSUBS_TRUSTED_PROXY_CIDRS`). Set it when the node answers to more than one name and you want one canonical form. |
 | `MOANSUBS_METADATA_RATE_PER_HOUR` | `60` | Per-account budget for `POST /api/v1/metadata` (API.md), the route that says what a scene *is* without uploading a subtitle for it. Each request carries up to 25 scenes, so this is a large library in an hour; the bound exists because every entry triggers a derivation, and a grouped release derives its whole work. |
 | `MOANSUBS_VOTE_RATE_PER_HOUR` | `60` | Per-account budget for `PUT`/`DELETE /api/v1/subtitles/{id}/vote` (API.md "Votes"). Generous enough for a person triaging their own downloads in one sitting, tight enough to stop a script grinding a track's score. |
 | `MOANSUBS_TOKEN_KEY` | *(unset)* | 64 hex characters (32 bytes; generate with `openssl rand -hex 32`) — the AES-256-GCM key `/me` needs to show an account's API token again after this process restarts (it's stored encrypted, alongside the one-way hash every lookup actually uses). Unset: tokens are never re-displayable — `/me` says so and offers "Rotate" instead. An invalid value (wrong length, not hex) refuses to start rather than silently running without encryption. |
@@ -854,6 +855,32 @@ On `/mod/release/{id}`:
   page names how many proposals came from siblings and the table says
   which release each came from, so the choice is made with the facts
   rather than by a default.
+
+### Being found
+
+`GET /sitemap.xml` lists the catalogue roots plus every release a crawler
+may be pointed at, and `/robots.txt` names it — but **only on an indexing
+node**. On a node serving `Disallow: /` the sitemap 404s: it is an
+invitation to crawl, and an enumerable list of every release would hand a
+scraper the whole catalogue in one request, which is exactly what the
+blanket disallow exists not to advertise.
+
+What it lists is the strict predicate — a curated title *and* a
+moderator's pin — deliberately the same rule the release page's own
+`X-Robots-Tag` applies. A sitemap that were more generous than the header
+would quietly undo it. `lastmod` is the confirmation's timestamp rather
+than the release's, since re-pinning after a correction is the event a
+crawler should notice.
+
+Every page also carries a description, a canonical URL and Open Graph
+tags, which is what makes a link pasted into a forum or a chat render as
+something other than a bare URL — realistically a bigger source of
+discovery here than search engines, which deprioritize adult catalogues
+regardless. One rule carries over: `og:title` uses the *asserted* title
+only, never `displayTitle`'s filename fallback. A preview card is cached
+by whatever service rendered it exactly as durably as a crawled heading,
+so a release nobody has named previews as plain "moansubs" while the page
+itself still shows the reader the cleaned filename.
 
 `noindex` restrains well-behaved crawlers and nothing else — scrapers and
 archives ignore it. It sequences indexing; the structural rule above is

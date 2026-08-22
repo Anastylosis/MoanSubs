@@ -74,11 +74,15 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	// loggedIn, roleAtLeast and analytics are rebound per request in
 	// renderPage; these are the parse-time placeholders (a template
 	// function must be defined at parse time or parsing itself fails).
-	"loggedIn":    func() bool { return false },
-	"roleAtLeast": func(string) bool { return false },
-	"analytics":   func() *Analytics { return nil },
-	"theme":       func() *Theme { return defaultTheme },
-	"version":     func() string { return "" },
+	"loggedIn":        func() bool { return false },
+	"roleAtLeast":     func(string) bool { return false },
+	"analytics":       func() *Analytics { return nil },
+	"theme":           func() *Theme { return defaultTheme },
+	"version":         func() string { return "" },
+	"metaTitle":       func() string { return "" },
+	"metaDescription": func() string { return "" },
+	"canonicalURL":    func() string { return "" },
+	"siteOrigin":      func() string { return "" },
 }).ParseFS(templateFS, "templates/*.html"))
 
 // registerData is /register's data (both the form and its result). Name is
@@ -161,11 +165,17 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 		if th == nil {
 			th = defaultTheme
 		}
+		metaTitle, metaDescription := metaFor(data)
+		canonical := s.canonicalURL(r)
 		tpl = tpl.Funcs(template.FuncMap{
-			"loggedIn":    func() bool { return loggedIn },
-			"roleAtLeast": func(want string) bool { return roleRank[role] >= roleRank[want] },
-			"analytics":   func() *Analytics { return tracker },
-			"theme":       func() *Theme { return th },
+			"metaTitle":       func() string { return metaTitle },
+			"metaDescription": func() string { return metaDescription },
+			"canonicalURL":    func() string { return canonical },
+			"siteOrigin":      func() string { return s.publicBase(r) },
+			"loggedIn":        func() bool { return loggedIn },
+			"roleAtLeast":     func(want string) bool { return roleRank[role] >= roleRank[want] },
+			"analytics":       func() *Analytics { return tracker },
+			"theme":           func() *Theme { return th },
 			// The running build, so a bug report can say which one it
 			// came from without the reporter having to find /api/v1/version.
 			"version": func() string { return s.Version },

@@ -6,6 +6,18 @@
 <link rel="icon" href="/static/favicon.png" type="image/png">
 <link rel="apple-touch-icon" href="/static/icon-180.png">
 <title>{{.Title}} — moansubs</title>
+<meta name="description" content="{{metaDescription}}">
+<link rel="canonical" href="{{canonicalURL}}">
+{{/* Link previews. og:title deliberately does NOT use .Title: that falls
+     back to a cleaned filename, and a preview card is cached by whatever
+     service rendered it just as durably as a crawled heading (meta.go). */}}
+<meta property="og:site_name" content="moansubs">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{metaTitle}}">
+<meta property="og:description" content="{{metaDescription}}">
+<meta property="og:url" content="{{canonicalURL}}">
+<meta property="og:image" content="{{siteOrigin}}/static/icon-180.png">
+<meta name="twitter:card" content="summary">
 <style>
   /* Tokens. Dark is the native scheme: the site's metaphor is a paused
      frame with a burned-in subtitle, and its audience lives in Stash's dark
