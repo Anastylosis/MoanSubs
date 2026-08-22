@@ -8,14 +8,18 @@ bug bounty program.
 
 ## Security model
 
-**Subtitle uploads are attacker-controlled text rendered in browsers.**
+### Uploaded subtitles
+
+Subtitle uploads are attacker-controlled text rendered in browsers.
 The server never stores raw uploaded bytes: input is parsed (anchored on
 timestamp lines; everything unparsed is discarded), markup is stripped
 except `<i>`/`<b>`, output is re-rendered canonical SRT, and size/cue caps
 apply. Stash additionally converts captions to WebVTT before the player
 sees them.
 
-**Two credentials, two purposes.** An account can carry an API token and a
+### Two credentials, two purposes
+
+An account can carry an API token and a
 password, and they unlock different surfaces:
 
 - **The API token** is the plugin's (and any script's) credential:
@@ -37,7 +41,9 @@ password, and they unlock different surfaces:
 
 Nothing else is collected — no email, ever, from either path.
 
-**Storage.** The token is stored only as its SHA-256 (`token_hash`,
+### Credential storage
+
+The token is stored only as its SHA-256 (`token_hash`,
 compared in constant time) — that hash is the only thing any lookup ever
 touches, so it's what actually gates a Bearer call. A *second*, encrypted
 copy (`token_enc`, AES-256-GCM under the operator's own
@@ -51,8 +57,10 @@ name doesn't exist, the account has no password, or the password is simply
 wrong, so a login attempt can't be used to enumerate which names are
 registered or which have a password set.
 
-**Reset is admin-side for both, and self-service where it can be.** A
-leaked token: `moansubs account rotate-token <name>` (or `/me`'s "Rotate
+### Resetting a credential
+
+Reset is admin-side for both, and self-service where it can be.
+A leaked token: `moansubs account rotate-token <name>` (or `/me`'s "Rotate
 token" button when logged in) — the old one dies immediately, uploads keep
 their attribution. A forgotten or leaked password: `/me`'s own "Change
 password" form when you can still log in (current + new, and every *other*
@@ -62,7 +70,9 @@ is the operator's way in when you can't. Neither ever emails anyone
 anything, because nothing ever collected an email to send it to; a lost
 credential with no admin available means a new account, same as always.
 
-**Registration.** Nodes accept self-service registration by default
+### Registration
+
+Nodes accept self-service registration by default
 (`POST /api/v1/accounts`, or the `/register` form), rate-limited per IP.
 An operator's remedy for abuse is still `account disable`, not a password
 reset — disabling kills every live session and refuses the token
@@ -70,7 +80,9 @@ regardless of which credential a caller presents. Run with
 `MOANSUBS_REGISTRATION=closed` for an operator-only node, or `=invite` for
 one that requires an invite code but otherwise stays open.
 
-**First-run admin.** A node with no `admin` account gets one automatically
+### First-run admin
+
+A node with no `admin` account gets one automatically
 the first time `serve` runs migrations successfully — a random 24-character
 password and a token, printed once to stdout (never the logger) with a
 reminder to change the password at `/me`. `MOANSUBS_BOOTSTRAP_ADMIN=false`
@@ -78,7 +90,9 @@ disables this for an operator who'd rather not have credentials land in
 container logs at all and mint them by hand with `moansubs admin
 bootstrap` instead (MANUAL.md).
 
-**Invites.** An invite code is a capability token, not a secret like an
+### Invites
+
+An invite code is a capability token, not a secret like an
 account token — it is stored and shown as-is (never hashed), the same
 reasoning as the session id below: it's already unguessable, single-use
 by default, and a hash would buy nothing but a lookup cost. Treat a code
@@ -100,7 +114,9 @@ compromised or brand-new account can't mint an unbounded pool of
 registration codes, and disabling a code never refunds the mint that
 created it.
 
-**Roles.** Every account has a role (`user`, `mod`, or `admin`; default
+### Roles
+
+Every account has a role (`user`, `mod`, or `admin`; default
 `user`), set by the operator with `moansubs account role`. `admin` can
 disable someone else's invite code; `mod` and above can also reach the
 moderation pages (`/mod/flagged`, `/mod/track/{id}`, `/mod/release/{id}`,
@@ -119,7 +135,9 @@ CLI. An admin cannot disable, purge, or change the role of their own
 account (`400`) — self-lockout by misclick is refused outright rather than
 relying on an operator noticing in time.
 
-**Web pages.** The node serves HTML pages (`/`, `/register`, `/login`,
+### Web pages and CSP
+
+The node serves HTML pages (`/`, `/register`, `/login`,
 `/me`), built with `html/template` so anything reflected back into the
 form is escaped. They carry a strict `Content-Security-Policy`
 (`default-src 'none'`: nothing loads from anywhere but this node's own
@@ -137,7 +155,9 @@ policy, and the tag is emitted with `data-exclude-search="true"` so
 `/search?q=` does not carry a visitor's query off this node. Unset — the
 default — no page loads a script except `/upload`'s own fingerprinter.
 
-**Age gate.** Every human page (not the API) sits behind an 18+
+### Age gate
+
+Every human page (not the API) sits behind an 18+
 click-through by default, `MOANSUBS_AGE_GATE` (MANUAL.md): accepting sets
 `moansubs_age=1`, `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` under the
 same rule as the session cookie, valid about a year. The cookie carries no
@@ -150,17 +170,19 @@ parental-control filters can block the site without needing to inspect a
 cookie. An operator in a jurisdiction that requires real verification needs
 a dedicated third-party provider in front of this node — out of scope here.
 
-**Sessions.** `POST /login` verifies name + password (see "Two
-credentials" above — there is no token-based web login) and issues a
-session cookie (`moansubs_session`): `HttpOnly` (no JavaScript can read it), `SameSite=Lax`,
-`Path=/`, and `Secure` whenever the connection is TLS or a *trusted* proxy
-(`MOANSUBS_TRUSTED_PROXY_CIDRS`) reports `X-Forwarded-Proto: https` — an
-untrusted peer's claim is ignored, the same trust boundary the rate
-limiters use for `X-Forwarded-For`. The cookie value is a 256-bit
+### Sessions and CSRF
+
+`POST /login` verifies name + password (see "Two credentials" above — there
+is no token-based web login) and issues a session cookie
+(`moansubs_session`): `HttpOnly` (no JavaScript can read it),
+`SameSite=Lax`, `Path=/`, and `Secure` whenever the connection is TLS or a
+*trusted* proxy (`MOANSUBS_TRUSTED_PROXY_CIDRS`) reports `X-Forwarded-Proto:
+https` — an untrusted peer's claim is ignored, the same trust boundary the
+rate limiters use for `X-Forwarded-For`. The cookie value is a 256-bit
 `crypto/rand` id, stored in the `sessions` table **as-is, not hashed**
-(unlike account tokens): it is already random and non-guessable, so a
-hash would buy nothing but a lookup cost — but it does mean a database
-read exposes live sessions, the same way it exposes token hashes. Default
+(unlike account tokens): it is already random and non-guessable, so a hash
+would buy nothing but a lookup cost — but it does mean a database read
+exposes live sessions, the same way it exposes token hashes. Default
 lifetime is `MOANSUBS_SESSION_TTL` (720h); expired rows are swept on the
 next login.
 
@@ -180,7 +202,9 @@ account, so a revoked account cannot stay logged in anywhere until a
 cookie happens to expire on its own. `moansubs account enable` does not
 recreate anything — a re-enabled account logs in fresh.
 
-**Anonymous surface.** Lookups and downloads need no auth and are
+### Anonymous surface
+
+Lookups and downloads need no auth and are
 rate-limited per IP — an IPv6 caller is keyed by its `/64` rather than its
 full address, since a residential ISP hands out a whole `/64` per
 customer and a full-address key would let one customer rotate through
@@ -188,15 +212,22 @@ unlimited buckets. Bucketed lookups are designed so clients don't send
 full fingerprints by default — but see API.md for an honest statement of
 what a malicious *server operator* can still learn; pick nodes you trust.
 
-**The plugin** runs inside your Stash process's container with your
+### The plugin
+
+The plugin runs inside your Stash process's container with your
 library mounted. It writes only `<stem>.<lang>.srt` sidecar files, never
 deletes, and never overwrites an existing caption without an explicit
 overwrite request. All plugin network egress goes to the one server URL
 you configured.
 
-**Dependencies** are minimal by policy (pgx, cobra, x/text). CI runs
-`govulncheck` and image scans as informational checks; findings are
-triaged deliberately rather than auto-failing builds.
+### Dependencies
+
+Dependencies are minimal by policy: pgx/v5, cobra, x/text and yaml.v3,
+plus two in-house modules (`stash-go` for Stash transport, `subtitlematch`
+for the name scorer). Adding one is a decision, not a convenience — a
+smaller dependency graph is a smaller supply-chain surface. CI runs
+`govulncheck` and image scans as informational checks; findings are triaged
+deliberately rather than auto-failing builds.
 
 ## Supported versions
 

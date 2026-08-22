@@ -8,7 +8,8 @@ operators therefore work on **notice and takedown**.
 ## Requesting removal
 
 Email the operator of the node hosting the content. For the canonical
-instance (when public): wasylq@protonmail.com. Include:
+instance, [moansubs.org](https://moansubs.org): wasylq@protonmail.com.
+Include:
 
 1. The track URL or id (`/api/v1/subtitles/<id>`) or enough detail to
    locate it (release fingerprint, language).
