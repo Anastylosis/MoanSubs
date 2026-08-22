@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -112,5 +114,154 @@ func TestManifest_PushButtonToggleIsAnOptOutTheUIReads(t *testing.T) {
 	}
 	if !strings.Contains(string(ui), key) {
 		t.Errorf("the UI half never reads %s, so the toggle does nothing", key)
+	}
+}
+
+// argString has the same coercion job as argBool: a scene id crosses
+// JavaScript on its way here, so it arrives as either a JSON string or a
+// JSON number depending on which caller built the args.
+func TestArgString_CoercesNumbersAndStrings(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   any
+		want string
+	}{
+		{"string id", "42", "42"},
+		{"number id", float64(42), "42"},
+		{"large number id", float64(9007199254740992), "9007199254740992"},
+		{"zero", float64(0), "0"},
+		{"empty string", "", ""},
+		{"bool is not an id", true, ""},
+		{"nil", nil, ""},
+		{"array", []any{"1"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := argString(map[string]any{"scene_id": tc.in}, "scene_id"); got != tc.want {
+				t.Errorf("argString(%#v) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestArgString_MissingKeyIsEmpty(t *testing.T) {
+	if got := argString(map[string]any{}, "scene_id"); got != "" {
+		t.Errorf("argString on a missing key = %q, want empty", got)
+	}
+}
+
+// A number id must not pick up scientific notation or a decimal point on
+// the way through — "1e+06" is not a scene id Stash will resolve.
+func TestArgString_NumberIsNotFormattedExponentially(t *testing.T) {
+	if got := argString(map[string]any{"scene_id": float64(1000000)}, "scene_id"); got != "1000000" {
+		t.Errorf("argString(1e6) = %q, want 1000000", got)
+	}
+}
+
+func TestArgInt64_CoercesNumbersAndStrings(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   any
+		want int64
+	}{
+		{"number", float64(7), 7},
+		{"string", "7", 7},
+		{"string with spaces", " 7 ", 7},
+		{"negative", "-7", -7},
+		{"not a number", "seven", 0},
+		{"empty", "", 0},
+		{"bool", true, 0},
+		{"nil", nil, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := argInt64(map[string]any{"for_release": tc.in}, "for_release"); got != tc.want {
+				t.Errorf("argInt64(%#v) = %d, want %d", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// argStrings backs the badge mode, where a whole wall of scene cards is
+// resolved in one call — so the id array is the hot path, and entries that
+// are not ids must be dropped rather than turning into empty lookups.
+func TestArgStrings_MixedStringsAndNumbers(t *testing.T) {
+	got := argStrings(map[string]any{"scene_ids": []any{"1", float64(2), "3"}}, "scene_ids")
+	want := []string{"1", "2", "3"}
+	if !slices.Equal(got, want) {
+		t.Errorf("argStrings = %v, want %v", got, want)
+	}
+}
+
+func TestArgStrings_DropsUnusableEntries(t *testing.T) {
+	got := argStrings(map[string]any{"scene_ids": []any{"1", nil, true, map[string]any{}, float64(4)}}, "scene_ids")
+	want := []string{"1", "4"}
+	if !slices.Equal(got, want) {
+		t.Errorf("argStrings = %v, want %v — non-id entries must be dropped, not blanked", got, want)
+	}
+}
+
+// A missing or wrongly-typed array yields an empty, non-nil slice: badge
+// mode ranges over it directly, and callers marshal the result.
+func TestArgStrings_MissingOrWrongTypeIsEmpty(t *testing.T) {
+	for _, args := range []map[string]any{
+		{},
+		{"scene_ids": "1,2,3"},
+		{"scene_ids": nil},
+	} {
+		got := argStrings(args, "scene_ids")
+		if got == nil {
+			t.Errorf("argStrings(%#v) = nil, want an empty slice", args)
+		}
+		if len(got) != 0 {
+			t.Errorf("argStrings(%#v) = %v, want empty", args, got)
+		}
+	}
+}
+
+// dispatch validates the mode before dialling anything, so a typo'd task
+// fails with "unknown mode" rather than whatever the Stash connection
+// happens to say. The input here carries no ServerConnection at all: a
+// known mode would get past validation and fail on the dial, which is
+// exactly how these two cases are told apart.
+func TestDispatch_UnknownModeRejectedBeforeConnecting(t *testing.T) {
+	for _, mode := range []string{"", "prob", "PROBE", "download_all", "nonsense"} {
+		_, err := dispatch(context.Background(), PluginInput{Args: map[string]any{"mode": mode}})
+		if err == nil {
+			t.Fatalf("dispatch(mode=%q) = nil error, want one", mode)
+		}
+		if !strings.Contains(err.Error(), "unknown mode") {
+			t.Errorf("dispatch(mode=%q) error = %v, want it to name the unknown mode", mode, err)
+		}
+	}
+}
+
+// Every mode the manifest and the UI half can send must get past the mode
+// switch. A known mode fails later, on the missing server connection —
+// which proves validation let it through.
+func TestDispatch_KnownModesReachTheConnection(t *testing.T) {
+	for _, mode := range []string{
+		"probe", "search", "download", "vote", "badge",
+		"push", "push_status", "push_all", "contribute", "contribute_all",
+	} {
+		_, err := dispatch(context.Background(), PluginInput{Args: map[string]any{"mode": mode}})
+		if err == nil {
+			t.Fatalf("dispatch(mode=%q) = nil error, want the connection failure", mode)
+		}
+		if strings.Contains(err.Error(), "unknown mode") {
+			t.Errorf("dispatch(mode=%q) was rejected as unknown; it is a real mode", mode)
+		}
+		if !strings.Contains(err.Error(), "server_connection") {
+			t.Errorf("dispatch(mode=%q) error = %v, want the missing-connection failure", mode, err)
+		}
+	}
+}
+
+// A non-string mode is not a mode. Stash args cross JavaScript, so a caller
+// could hand over a number; it must be rejected, not coerced into a task.
+func TestDispatch_NonStringModeRejected(t *testing.T) {
+	for _, mode := range []any{float64(1), true, nil, []any{"probe"}} {
+		_, err := dispatch(context.Background(), PluginInput{Args: map[string]any{"mode": mode}})
+		if err == nil || !strings.Contains(err.Error(), "unknown mode") {
+			t.Errorf("dispatch(mode=%#v) error = %v, want an unknown-mode rejection", mode, err)
+		}
 	}
 }
