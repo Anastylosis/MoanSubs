@@ -114,6 +114,15 @@ services:
     logging: *default-logging
     # `serve` applies pending migrations on startup (MANUAL.md), so
     # `docker compose pull && up -d` is a complete upgrade on its own.
+    # Optional YAML config, mounted read-only. Copy config.example.yaml from
+    # the repository to ./config.yaml beside this file and uncomment; the
+    # environment below still wins over anything it sets, which is what
+    # lets this compose file override an image without editing the file.
+    # Keep credentials in the environment rather than in it: the server
+    # refuses to start on a config file that names database_url or
+    # token_key and is readable by anyone but its owner.
+    # volumes:
+    #   - ./config.yaml:/etc/moansubs/config.yaml:ro
     environment:
       DATABASE_URL: postgres://moansubs:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/moansubs?sslmode=disable
       MOANSUBS_LISTEN: ":8080"

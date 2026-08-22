@@ -1,0 +1,203 @@
+# moansubs configuration.
+#
+# Copy to /etc/moansubs/config.yaml, or pass --config /path/to/config.yaml.
+# Every key below is OPTIONAL and shows its built-in default, so this file
+# copied verbatim changes nothing: delete what you do not want to change.
+#
+# Precedence, lowest to highest:
+#
+#     built-in defaults  <  this file  <  MOANSUBS_* environment variables
+#
+# The environment wins so that a compose file or systemd unit can override
+# an image's baked-in config without editing it. Every key here has an
+# environment equivalent, named in its comment, and MANUAL.md documents
+# both in one table.
+#
+# If this file holds `database_url` or `token_key`, the server refuses to
+# start unless it is mode 0600 — a credential readable by other accounts on
+# the host is the one mistake worth failing loudly over.
+#
+# In a container, leave those two in the environment. The server runs as an
+# unprivileged user there, so a 0600 file owned by your host account is
+# unreadable to the process that needs it, and you trade one error message
+# for another. A config file holding no secrets needs no special mode.
+
+# ── Server ──────────────────────────────────────────────────────────────
+
+# Address to listen on. Behind a reverse proxy this stays on the container
+# network; there is no TLS here, the proxy terminates it. (MOANSUBS_LISTEN)
+listen: ":8080"
+
+# This node's origin as visitors reach it, e.g. "https://subs.example".
+# Empty derives it per request from the Host header, which is right until
+# the node answers to more than one name. Used for the absolute URLs the
+# sitemap protocol and link previews both require. (MOANSUBS_PUBLIC_URL)
+public_url: ""
+
+# Postgres connection string. Required — the server will not start without
+# one, here or in the environment. Holding it here makes this file a
+# credential: see the 0600 note above. (DATABASE_URL)
+database_url: ""
+
+# How long any single query may run before Postgres kills it. Without a
+# limit, one pathological fuzzy lookup can pin every pooled connection.
+# "0" removes the limit. A statement_timeout in the DSN itself always
+# wins over this. (MOANSUBS_STATEMENT_TIMEOUT)
+statement_timeout: "30s"
+
+# 64 hex characters (openssl rand -hex 32). Lets /me show an account's API
+# token again after a restart: the token is always stored as a one-way
+# hash for authentication, and this key encrypts a second copy that can be
+# read back. Unset means tokens are shown exactly once, when minted or
+# rotated, and /me offers "Rotate" instead — the safer default, since a
+# database dump then reveals no usable tokens. (MOANSUBS_TOKEN_KEY)
+token_key: ""
+
+# Networks whose X-Forwarded-For and X-Forwarded-Proto headers are
+# believed. Empty trusts nobody, so every request is attributed to its
+# direct peer — correct when nothing sits in front. Set this to the
+# network your reverse proxy is on and nowhere wider: anything listed here
+# can claim to be any client. (MOANSUBS_TRUSTED_PROXY_CIDRS)
+trusted_proxy_cidrs: []
+
+# ── What the public sees ────────────────────────────────────────────────
+
+# Show the "before you enter" interstitial to visitors without the
+# click-through cookie. (MOANSUBS_AGE_GATE)
+age_gate: true
+
+# Open this node to search engines. Off means /robots.txt is a blanket
+# disallow, every catalogue page sends X-Robots-Tag: noindex, and
+# /sitemap.xml 404s. On, it also lets the major crawlers past the age gate,
+# which is a real trade — MANUAL.md's "Indexing and the age gate" explains
+# it before you turn this on. Note that nothing is indexed until releases
+# are confirmed, whatever this says. (MOANSUBS_INDEXABLE)
+indexable: false
+
+# Accent colour, six hex digits. Only the hue and saturation survive: the
+# lightness is re-derived per theme until it clears WCAG AA on both the
+# page and surface backgrounds, so a colour that looked good in isolation
+# cannot make the site unreadable. (MOANSUBS_ACCENT)
+accent: "#f02460"
+
+# Link the front page at a published database dump. Empty hides the link
+# entirely — publishing a dump is an out-of-band operator choice, not
+# something this server does on its own. (MOANSUBS_DUMP_URL)
+dump_url: ""
+
+# ── Accounts ────────────────────────────────────────────────────────────
+
+# Who may create an account: "open" (anyone), "invite" (a code from an
+# existing account), or "closed" (nobody; the operator creates accounts by
+# hand). (MOANSUBS_REGISTRATION)
+registration: "open"
+
+# How long a browser session lasts before it has to log in again.
+# (MOANSUBS_SESSION_TTL)
+session_ttl: "720h"
+
+# Create an admin account on first boot when none exists, printing its
+# name, password and token to stdout exactly once. Off means you run
+# `moansubs admin bootstrap` yourself and the credentials never enter a
+# container log. (MOANSUBS_BOOTSTRAP_ADMIN)
+bootstrap_admin: true
+
+# Name for that first admin account. (MOANSUBS_ADMIN_NAME)
+admin_name: "admin"
+
+# Invite codes, when registration is "invite". An account starts with
+# `initial` codes and earns one more per `per_uploads` visible uploads,
+# never holding more than `cap` unused at once — so a compromised account
+# cannot mint an unbounded pool however much it has contributed.
+# (MOANSUBS_INVITES_INITIAL / _PER_UPLOADS / _CAP)
+invites:
+  initial: 2
+  per_uploads: 5
+  cap: 5
+
+# ── Analytics ───────────────────────────────────────────────────────────
+
+# A visitor-analytics tag on public pages only — never /me, /admin or
+# /mod. Built against Umami (self-hosted, cookieless), but any script that
+# reads data-website-id works. Both keys are required together; one alone
+# fails startup, because the tag would load and silently record nothing.
+#
+# Prefer a same-origin path ("/s/script.js") reverse-proxied to your
+# analytics host over an absolute URL: the page's CSP then names no
+# third-party origin, visitors resolve no extra hostname, and ad-blocker
+# rules matching known analytics paths do not fire.
+# (MOANSUBS_ANALYTICS_SCRIPT / _WEBSITE_ID)
+analytics:
+  script: ""
+  website_id: ""
+
+# ── Stash-box identity ──────────────────────────────────────────────────
+
+# Which stash-box GraphQL endpoints an upload's stash_ids may name. An id
+# from anywhere else is rejected — defence in depth against an uploader
+# attaching an arbitrary URL the site would then render as a link. The
+# single value "*" accepts any http(s) endpoint. These are the public
+# instances Stash itself documents; add your own private stash-box here if
+# you run one. (MOANSUBS_STASH_ENDPOINTS)
+stash_boxes:
+  accept:
+    - "https://stashdb.org/graphql"
+    - "https://fansdb.cc/graphql"
+    - "https://theporndb.net/graphql"
+    - "https://javstash.org/graphql"
+    - "https://pmvstash.org/graphql"
+
+# ── Auto-confirm ────────────────────────────────────────────────────────
+
+# Confirming a release is what opens its page to search engines, and it is
+# normally a moderator's click. That does not scale: a node holding a
+# thousand named releases lists none of them until somebody works through
+# them one at a time.
+#
+# `enabled: true` lets a release pin itself when ALL of these hold: it has
+# a derived title; some proposal for it comes from an account marked with
+# `moansubs account trust <name>`; that proposal carries a stash-box id
+# from `pin_on` below; the id does not contradict another release's
+# runtime here; and no moderator has unpinned it (which sets a permanent
+# block, so a human always outranks the rule).
+#
+# It does NOTHING until at least one account is trusted. That is the
+# failure mode to expect.
+#
+# `pin_on` is deliberately narrower than `stash_boxes.accept`: an id from
+# a broad, scraper-driven database is excellent evidence that two files are
+# the same scene, and thin evidence that a particular name is the right one
+# to publish uncorrected on a page a crawler will cache. Empty means
+# nothing pins itself. (MOANSUBS_AUTOCONFIRM / _ENDPOINTS)
+autoconfirm:
+  enabled: false
+  pin_on:
+    - "https://stashdb.org/graphql"
+    - "https://theporndb.net/graphql"
+
+# ── Rate limits ─────────────────────────────────────────────────────────
+
+# Per account, except search/register/login which are per IP.
+#
+# upload_per_hour   — the safe default assumes strangers on a public node.
+#                     Seeding your own node from a large library needs this
+#                     raised: 1,000 files at 30/h takes a day and a half.
+# vote_per_hour     — generous for a person triaging their own downloads,
+#                     tight enough to stop a script grinding a score.
+# metadata_per_hour — POST /api/v1/metadata, up to 25 scenes per request,
+#                     so a large library fits comfortably. Bounded because
+#                     each entry costs a derivation, and a grouped release
+#                     derives its whole work.
+# search_per_minute — /search is the only catalogue page where a stranger
+#                     makes the database do real work.
+# register_per_hour — low on purpose: self-registration is the one endpoint
+#                     that creates state for an anonymous caller.
+# login_per_hour    — slows password guessing without locking anyone out.
+# (MOANSUBS_UPLOAD_RATE_PER_HOUR, _VOTE_, _METADATA_, _SEARCH_, _REGISTER_, _LOGIN_)
+rate_limits:
+  upload_per_hour: 30
+  vote_per_hour: 60
+  metadata_per_hour: 60
+  search_per_minute: 30
+  register_per_hour: 5
+  login_per_hour: 20

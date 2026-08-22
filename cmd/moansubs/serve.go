@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Anastylosis/MoanSubs/internal/api"
+	"github.com/Anastylosis/MoanSubs/internal/config"
 	"github.com/Anastylosis/MoanSubs/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -57,9 +58,23 @@ var serveCmd = &cobra.Command{
 	Short: "Run the moansubs HTTP server",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
+		// The file fills in whatever the environment has not already said;
+		// see internal/config for why it feeds the env layer rather than
+		// replacing it. A path the operator named must exist; the default
+		// one is allowed to be absent, since the server has always run on
+		// environment alone.
+		path, _ := cmd.Flags().GetString("config")
+		explicit := cmd.Flags().Changed("config")
+		if path == "" {
+			path = config.DefaultPath
+		}
+		if err := config.Load(path, explicit); err != nil {
+			return fmt.Errorf("moansubs serve: %w", err)
+		}
+
 		dsn := os.Getenv("DATABASE_URL")
 		if dsn == "" {
-			return errors.New("moansubs serve: DATABASE_URL is not set")
+			return errors.New("moansubs serve: DATABASE_URL is not set (config file or environment)")
 		}
 		listen := os.Getenv("MOANSUBS_LISTEN")
 		if listen == "" {
@@ -459,6 +474,8 @@ var serveCmd = &cobra.Command{
 }
 
 func init() {
+	serveCmd.Flags().String("config", "",
+		"path to a YAML config file (default "+config.DefaultPath+"; environment variables still win over it)")
 	rootCmd.AddCommand(serveCmd)
 }
 

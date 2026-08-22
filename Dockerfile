@@ -37,6 +37,10 @@ RUN apk add --no-cache ca-certificates tzdata && \
     addgroup -S moansubs && adduser -S -G moansubs -h /home/moansubs moansubs
 
 COPY --from=builder /out/moansubs /usr/local/bin/moansubs
+# The commented settings reference, so an operator running only the deploy
+# kit can read it without the repository:
+#   docker compose exec server cat /etc/moansubs/config.example.yaml
+COPY config.example.yaml /etc/moansubs/config.example.yaml
 
 USER moansubs
 WORKDIR /home/moansubs
