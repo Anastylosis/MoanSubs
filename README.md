@@ -237,6 +237,7 @@ container image, the plugin bundles, and the plugin package source.
 | [API.md](API.md) | HTTP API and the fingerprint bucket contract |
 | [plugin/README.md](plugin/README.md) | Plugin install, settings, tasks |
 | [deploy/README.md](deploy/README.md) | Running a public node |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Cutting a release, workflows, testing |
 | [SECURITY.md](SECURITY.md) | Security model and reporting |
 | [TAKEDOWN.md](TAKEDOWN.md) | Content takedown requests |
 

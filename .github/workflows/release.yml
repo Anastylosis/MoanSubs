@@ -16,6 +16,9 @@ jobs:
   release:
     uses: Anastylosis/.github/.github/workflows/go-release.yml@v1
     permissions:
+      # contents: write to publish the release and discussions: write to open
+      # its announcement thread; the rest are for attest-build-provenance over
+      # the downloadable artifacts.
       contents: write
       discussions: write
       id-token: write
@@ -27,8 +30,20 @@ jobs:
       # Only the two platforms the Dockerfile also builds. moansubs is a
       # server: nobody runs it from a macOS or Windows binary.
       platforms: 'linux/amd64 linux/arm64'
+      # Pauses until a reviewer of the `manual-smoke-gate` environment approves,
+      # attesting they ran the release checklist against a real Stash and a
+      # real Postgres — CI runs neither. The docker and plugin jobs below
+      # inherit the gate transitively via `needs`, so one approval covers all
+      # three. See CONTRIBUTING.md → "Cutting a release".
       environment-name: manual-smoke-gate
-      environment-url: https://github.com/Anastylosis/MoanSubs/releases
+      environment-url: ${{ github.server_url }}/${{ github.repository }}/blob/master/CONTRIBUTING.md#cutting-a-release
+      pre-release-notice: >-
+        Approver attests they have run the release checklist (upgrade against a
+        real Postgres, plugin smoke test against a live Stash, release notes
+        reviewed).
+      # The category must already exist; renaming it on GitHub without changing
+      # it here fails the API call after the gate has been approved.
+      discussion-category: Announcements
       docker-image: ghcr.io/anastylosis/moansubs
       install-instructions: |
         The primary way to run moansubs is Docker:
@@ -68,11 +83,15 @@ jobs:
   # Gated behind the release job, so no image lands on GHCR unless the manual
   # approval went through.
   docker:
+    name: Build and push docker image
     needs: release
     uses: Anastylosis/.github/.github/workflows/docker-publish.yml@v1
     permissions:
       contents: read
       packages: write
+      # attest-build-provenance needs OIDC + attestation write. The attestation
+      # is stored on the workflow run, not in the registry image index, so the
+      # manifest list stays free of `unknown/unknown` entries.
       id-token: write
       attestations: write
     with:

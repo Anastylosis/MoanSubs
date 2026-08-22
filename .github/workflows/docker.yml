@@ -27,6 +27,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # attest-build-provenance needs OIDC + attestation write. The attestation
+      # is stored on the workflow run, not in the registry image index, so the
+      # manifest list stays free of `unknown/unknown` entries.
       id-token: write
       attestations: write
     with:
