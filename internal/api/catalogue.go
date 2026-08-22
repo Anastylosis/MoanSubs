@@ -52,14 +52,21 @@ type ownVote struct {
 // rather than in the template, since html/template's default formatting of
 // a pointer to a scalar prints its address, not its value.
 type catalogueRelease struct {
-	ID          int64
-	Title       string // never empty — see displayTitle
-	Studio      string // "" when unknown
-	ReleaseDate string // "" when unknown, else the stored YYYY-MM-DD
-	Duration    string // "" when unknown, else "M:SS" or "H:MM:SS"
-	Resolution  string // "" when unknown, else "WIDTHxHEIGHT"
-	Performers  []string
-	Tracks      []catalogueTrack
+	ID    int64
+	Title string // never empty — see displayTitle
+	// CuratedTitle is the title a human actually asserted, empty when
+	// nobody has. Separate from Title because Title falls back to a
+	// cleaned filename or "(untitled)": pre-filling a correction form
+	// from that would let a Send launder the server's own rendering into
+	// an asserted name, which is exactly what releaseIsIndexable exists
+	// to prevent.
+	CuratedTitle string
+	Studio       string // "" when unknown
+	ReleaseDate  string // "" when unknown, else the stored YYYY-MM-DD
+	Duration     string // "" when unknown, else "M:SS" or "H:MM:SS"
+	Resolution   string // "" when unknown, else "WIDTHxHEIGHT"
+	Performers   []string
+	Tracks       []catalogueTrack
 	// StashLinks is migration 0011's stash-box scene identities (WP-C9a),
 	// rendered as "On StashDB ↗" links — populated only by
 	// renderReleasePage (browse/search never show it, so their callers
@@ -148,7 +155,8 @@ func displayTitle(r store.Release) string {
 }
 
 // releaseIsIndexable reports whether a release's page may be offered to a
-// crawler. Only a curated title qualifies.
+// crawler. Two things must both hold: the release carries a curated title,
+// and a moderator has pinned it.
 //
 // The rule is structural rather than heuristic on purpose. A filename
 // published to an indexable page is cached beyond this server's reach
@@ -156,8 +164,15 @@ func displayTitle(r store.Release) string {
 // question is never "does this stem look safe" — it is "did a human assert
 // this name". Everything else stays readable to people and invisible to
 // crawlers.
-func releaseIsIndexable(r store.Release) bool {
-	return curatedTitle(r) != ""
+//
+// The pin is the second half of that, and it is what makes the first half
+// trustworthy: a derived title is whatever the evidence currently favours,
+// so any account can move it, and without confirmation a single proposal
+// would be enough to publish a name under this node's domain. Confirming
+// is the moderator saying so on the record — which is also why it pins
+// values rather than setting a flag (metadata_mod.go).
+func releaseIsIndexable(r store.Release, confirmed bool) bool {
+	return confirmed && curatedTitle(r) != ""
 }
 
 // stemNoise is the tail of resolution, source and codec tags that a scene
@@ -253,17 +268,18 @@ func formatResolution(width, height *int) string {
 // fetch. It suppresses the filename fallback: a listing that reaches an
 // index must carry curated names or nothing, since link text is cached as
 // surely as a heading is.
-func buildCatalogueRelease(r store.Release, tracks []store.SubtitleTrackSummary, crawlable bool) catalogueRelease {
+func buildCatalogueRelease(r store.Release, tracks []store.SubtitleTrackSummary, crawlable, confirmed bool) catalogueRelease {
 	title := displayTitle(r)
-	if crawlable && !releaseIsIndexable(r) {
+	if crawlable && !releaseIsIndexable(r, confirmed) {
 		title = "(untitled)"
 	}
 	out := catalogueRelease{
-		ID:         r.ID,
-		Title:      title,
-		Duration:   formatDuration(r.DurationMs),
-		Resolution: formatResolution(r.Width, r.Height),
-		Performers: r.Performers,
+		ID:           r.ID,
+		Title:        title,
+		CuratedTitle: curatedTitle(r),
+		Duration:     formatDuration(r.DurationMs),
+		Resolution:   formatResolution(r.Width, r.Height),
+		Performers:   r.Performers,
 	}
 	if r.Studio != nil {
 		out.Studio = *r.Studio
@@ -293,9 +309,17 @@ func (s *Server) buildCatalogueReleases(ctx context.Context, releases []store.Re
 	if err != nil {
 		return nil, err
 	}
+	// Only a crawlable listing needs the pins: everywhere else the answer
+	// cannot change what is rendered, so it is not worth a query.
+	var confirmed map[int64]bool
+	if crawlable {
+		if confirmed, err = s.Store.ConfirmedReleaseIDs(ctx, ids); err != nil {
+			return nil, err
+		}
+	}
 	out := make([]catalogueRelease, 0, len(releases))
 	for _, r := range releases {
-		out = append(out, buildCatalogueRelease(r, tracksByRelease[r.ID], crawlable))
+		out = append(out, buildCatalogueRelease(r, tracksByRelease[r.ID], crawlable, confirmed[r.ID]))
 	}
 	return out, nil
 }
@@ -356,8 +380,8 @@ func (s *Server) setCatalogueRobots(w http.ResponseWriter) {
 // Narrower than setCatalogueRobots on purpose: this is a per-release
 // decision, so it runs after the release is fetched and overrides the
 // blanket header set at the top of the handler.
-func (s *Server) setReleaseRobots(w http.ResponseWriter, r store.Release) {
-	if s.Indexable && !releaseIsIndexable(r) {
+func (s *Server) setReleaseRobots(w http.ResponseWriter, r store.Release, confirmed bool) {
+	if s.Indexable && !releaseIsIndexable(r, confirmed) {
 		w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 	}
 }
@@ -593,7 +617,17 @@ func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id in
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	s.setReleaseRobots(w, *release)
+	// A pin is what lets this page be indexed at all, so it is read before
+	// the robots header is decided rather than alongside the body.
+	confirmed := false
+	if _, cerr := s.Store.Confirmed(ctx, release.ID); cerr == nil {
+		confirmed = true
+	} else if !errors.Is(cerr, store.ErrNotFound) {
+		// Unreadable pin means "not confirmed": the failure that must never
+		// happen here is publishing a name nobody blessed.
+		log.Printf("api: Confirmed (release page): %v", cerr)
+	}
+	s.setReleaseRobots(w, *release, confirmed)
 
 	tracksByRelease, err := s.Store.TrackSummariesByReleaseIDs(ctx, []int64{release.ID})
 	if err != nil {
@@ -605,7 +639,7 @@ func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id in
 	// The release page itself is held out of the index unless the release
 	// has a curated title (see setReleaseRobots below), so a human reading
 	// it may still see the cleaned-up filename.
-	rendered := buildCatalogueRelease(*release, tracksByRelease[release.ID], false)
+	rendered := buildCatalogueRelease(*release, tracksByRelease[release.ID], false, confirmed)
 
 	stashIDsByRelease, err := s.Store.StashIDsByReleaseIDs(ctx, []int64{release.ID})
 	if err != nil {

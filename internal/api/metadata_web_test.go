@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -69,9 +70,13 @@ func TestProposeMetadata_AnyLoggedInUserCanCorrect(t *testing.T) {
 	if len(got.Performers) != 2 {
 		t.Errorf("performers = %v, want both", got.Performers)
 	}
-	// The correction is what makes the page indexable.
-	if !releaseIsIndexable(*got) {
-		t.Error("a corrected release should now be eligible for indexing")
+	// A correction is evidence, not publication: it makes the release
+	// eligible, and a moderator's pin is what actually opens the page.
+	if releaseIsIndexable(*got, false) {
+		t.Error("an unpinned correction must not open the page to crawlers")
+	}
+	if !releaseIsIndexable(*got, true) {
+		t.Error("a corrected release should be indexable once pinned")
 	}
 }
 
@@ -187,4 +192,78 @@ func TestModMetadata_PlainUserRefused(t *testing.T) {
 	if _, err := st.Confirmed(ctx, rel.ID); err == nil {
 		t.Error("a plain user managed to pin metadata")
 	}
+}
+
+// The correction form pre-fills what you are correcting, and the title it
+// pre-fills must be one a human asserted -- never displayTitle's fallback.
+// A stem-only release renders its cleaned filename as the heading, and
+// pre-filling that would mean a user opening the form to fix the studio,
+// and pressing Send without touching the title, files a proposal claiming
+// the filename IS the title. That is the filename-to-crawler leak
+// releaseIsIndexable exists to make structurally impossible, arriving
+// through the one door that bypasses it.
+func TestReleasePage_CorrectionFormNeverPreFillsAFilename(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	ctx := context.Background()
+
+	rel, err := st.GetOrCreateRelease(ctx, store.Release{
+		OSHash: mustOSHash(t, "e2e2e2e2e2e2e2e2"), DurationMs: 600000,
+		Stem: strPtrAPI("Jane Doe - SiteRip 2019"),
+	})
+	if err != nil {
+		t.Fatalf("GetOrCreateRelease: %v", err)
+	}
+	if _, err := st.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+		ReleaseID: rel.ID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+	}); err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	page := func() string {
+		t.Helper()
+		resp, err := client.Get(ts.URL + "/release/" + strconv.FormatInt(rel.ID, 10))
+		if err != nil {
+			t.Fatalf("GET release page: %v", err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("reading release page: %v", err)
+		}
+		return string(body)
+	}
+
+	body := page()
+	if !strings.Contains(body, `name="title" value=""`) {
+		t.Errorf("title input is not empty on a release nobody has named:\n%s", formInput(t, body))
+	}
+	// The heading still shows the cleaned filename -- suppressing the
+	// pre-fill must not cost a human reader the one clue they have.
+	if !strings.Contains(body, "Jane Doe SiteRip 2019") {
+		t.Error("the cleaned filename should still be readable as the heading")
+	}
+
+	// Once a human asserts a title, the form does pre-fill it: that is a
+	// value someone actually claimed, and editing it is the point.
+	resp := postSessionForm(t, client, ts, "/release/"+strconv.FormatInt(rel.ID, 10)+"/metadata", url.Values{
+		"title": {"A Real Title"},
+	})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST metadata = %d, want 303", resp.StatusCode)
+	}
+	if body := page(); !strings.Contains(body, `name="title" value="A Real Title"`) {
+		t.Errorf("an asserted title should be pre-filled for editing:\n%s", formInput(t, body))
+	}
+}
+
+// formInput extracts the title input line from a rendered page, so a
+// failure reports the markup that matters rather than the whole document.
+func formInput(t *testing.T, body string) string {
+	t.Helper()
+	for _, line := range strings.Split(body, "\n") {
+		if strings.Contains(line, `name="title"`) {
+			return strings.TrimSpace(line)
+		}
+	}
+	return "(no title input rendered)"
 }
