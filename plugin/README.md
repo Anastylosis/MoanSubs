@@ -1,12 +1,18 @@
 # moansubs Stash plugin
 
-Searches a moansubs server for subtitles matching your scenes, downloads
-them as sidecar files, and (optionally) pushes your own subtitles up.
+Finds subtitles for your Stash scenes on a [moansubs](../README.md) server,
+downloads them as sidecar files, and pushes your own subtitles back.
 
-Two halves, one directory: `moansubs-plugin` (a static Go binary Stash
-runs via its RPC plugin interface) does all the work including every
-network call to the moansubs server; `moansubs.js` is the UI layer and
+Two halves, one directory: **`moansubs-plugin`** is a static Go binary Stash
+runs over its RPC plugin interface, and does all the work — including every
+network call to the moansubs server. **`moansubs.js`** is the UI layer, and
 only ever talks to Stash's own GraphQL endpoint.
+
+- [Install](#install) · [Settings](#settings) · [What you see](#what-you-see)
+- [Tasks](#tasks) · [Finding scenes by subtitle](#finding-scenes-by-subtitle)
+  · [Subtitles from another cut](#subtitles-from-another-cut)
+- [Where task output goes](#where-task-output-goes) ·
+  [Troubleshooting](#troubleshooting)
 
 ## Install
 
@@ -14,14 +20,7 @@ The exec half is a native binary, so every install path is
 architecture-specific: pick the one matching the machine **Stash itself**
 runs on, which is not necessarily the one running the moansubs server.
 
-The index site (https://plugins.moansubs.org) is this repository's
-`gh-pages` branch: the release workflow writes the two `index.yml` files,
-and the page around them is hand-maintained. It carries no analytics
-deliberately — the tag would have to be hardcoded into a public branch,
-and the tracker's hostname is not something to publish permanently in
-git history.
-
-### From the package source (once a release is published)
+### From the package source (recommended)
 
 Stash → **Settings → Plugins → Available Plugins → Add Source**, with:
 
@@ -38,7 +37,8 @@ failing to start.
 ### From a release archive
 
 ```sh
-tar xzf moansubs-plugin-v0.2.0-linux-amd64.tar.gz -C <stash plugins dir>
+# from https://github.com/Anastylosis/MoanSubs/releases/latest
+tar xzf moansubs-plugin-<version>-linux-amd64.tar.gz -C <stash plugins dir>
 ```
 
 ### From source
@@ -52,6 +52,14 @@ run the **Probe** task — it fails loudly with the reason if anything is
 misconfigured. After install the plugin works against the public node
 (https://moansubs.org) with no configuration except an upload token if you
 want to upload or vote.
+
+> **How the index site is built** (maintainer note, not an install step.)
+> The index site (https://plugins.moansubs.org) is this repository's
+> `gh-pages` branch: the release workflow writes the two `index.yml` files,
+> and the page around them is hand-maintained. It carries no analytics
+> deliberately — the tag would have to be hardcoded into a public branch,
+> and the tracker's hostname is not something to publish permanently in
+> git history.
 
 ## Settings
 
@@ -134,6 +142,70 @@ across different people's libraries is nearly never.
   for that scene. Badges for a whole wall resolve in one batched call; if
   the server is down they simply don't appear.
 
+## Tasks
+
+Settings → Tasks → **Plugin tasks**. Every task is safe to re-run.
+
+- **Probe** — connectivity/diagnostics check; also reports the server's
+  version and feature list (`GET /api/v1/version`), so you can tell an
+  older node apart from a real connection failure. **A Probe that passes
+  logs nothing at all**: its verdict is a result the plugin's own panel
+  renders, not a log line. Only a *failing* Probe writes to the log. So an
+  empty log after running it is the success case, not a missing message —
+  do not go hunting in Settings → Logs for it.
+- **Push subtitles (dry run)** — walks the library and reports which
+  sidecar files *would* be uploaded. Needs no upload token: nothing is
+  sent, so this works before you have an account.
+- **Push subtitles** — uploads every sidecar subtitle in the library. See
+  [below](#push-subtitles).
+- **Contribute scene details (dry run)** — lists what would be sent,
+  sending nothing. Needs no token.
+- **Contribute scene details** — sends it, batched, for every scene Stash
+  has anything to say about. Needs an upload token.
+
+### Push subtitles
+
+Uploads every sidecar subtitle in the library. To push a single scene
+instead, use the *Push local subs* button on its page.
+
+Needs an upload token (Settings above), and stops immediately without one
+rather than failing file by file. Safe to re-run: the server reports a
+duplicate instead of storing a second copy. Suffix-less captions
+(`<stem>.srt`) and non-language suffixes are skipped, and the server
+additionally rejects subtitles whose timing contradicts the video.
+
+Each upload carries whatever **name metadata** Stash reports for the scene
+— title, filename stem, date, studio, performers. That is what later lets a
+scene with no phash still turn up a **Name match** on someone else's
+server; a scene missing a field simply pushes without it.
+
+The scene's **stash-box ids** (StashDB, FansDB, …) go along too when Stash
+has any, which is what lets **Exact match** rank a same-scene,
+different-encode hit ahead of ordinary phash matching. Ids are filtered
+before the push is sent: malformed ones are dropped, the list is capped at
+five (the server's limit), and so is any id whose endpoint is missing from
+the server's advertised `stash_endpoints` allow-list
+(`GET /api/v1/version`). If anything was dropped, the plugin logs it once
+for that scene.
+
+### Contribute scene details
+
+Neither contribute task uploads a subtitle — they tell the server what your
+scenes *are*, nothing more. Scenes the server holds no release for come
+back "not known" and are counted, not retried: a sweep over a large library
+will legitimately name plenty of scenes a given node has never heard of,
+and that is an answer rather than a failure.
+
+Why bother: on the server, name metadata is *evidence* rather than a field,
+and what a release displays is derived from everyone's evidence.
+Contributing a scene you can identify improves what everybody else sees for
+that scene, including people pulling subtitles for a completely different
+encode of it. Entries carrying a stash-box id are worth the most — a node
+can act on those without a moderator reviewing them first.
+
+An older node without the capability refuses the whole run up front with
+one message, rather than failing per batch.
+
 ## Finding scenes by subtitle
 
 Filtering the library by which scenes *have* subtitles is Stash's own
@@ -187,63 +259,6 @@ frames at fixed fractions of the runtime, so trimming an intro shifts every
 sample — two copies of one film can be 14 bits apart with no shared hash
 block. These candidates reach you because the server *grouped* the
 releases, not because the hashes matched.
-
-## Tasks (Settings → Tasks → Plugin tasks)
-
-- **Probe** — connectivity/diagnostics check; also reports the server's
-  version and feature list (`GET /api/v1/version`), so you can tell an
-  older node apart from a real connection failure. **A Probe that passes
-  logs nothing at all**: its verdict is a result the plugin's own panel
-  renders, not a log line. Only a *failing* Probe writes to the log. So an
-  empty log after running it is the success case, not a missing message —
-  do not go hunting in Settings → Logs for it.
-- **Push subtitles (dry run)** — walks the library and reports which
-  sidecar files *would* be uploaded. Needs no upload token: nothing is
-  sent, so this works before you have an account.
-- **Push subtitles** — uploads every sidecar subtitle in the library. To
-  push a single scene instead, use the *Push local subs* button on its
-  page (see above).
-  Needs an upload token (Settings above) and stops immediately without
-  one, rather than failing per file.
-  Safe to re-run: the server returns duplicates instead of storing copies.
-  Suffix-less captions and non-language suffixes are skipped; the server
-  additionally rejects subtitles whose timing contradicts the video. Each
-  upload carries whatever scene name metadata Stash reports (title,
-  filename stem, date, studio, performers) — this is what later lets a
-  scene with no phash still turn up a **Name match** on someone else's
-  server (see above); a scene missing a field simply pushes without it.
-  The scene's stash-box ids (StashDB, FansDB, …), when Stash reports any,
-  go along too — this is what lets **Exact match** rank a same-scene,
-  different-encode hit ahead of ordinary phash matching (see above). Invalid
-  or malformed ids are dropped, and the list is capped at five (the server's
-  push limit); ids whose endpoint isn't in the server's advertised
-  `stash_endpoints` allow-list (`GET /api/v1/version`) are dropped the same
-  way before the push is even sent; if any are dropped, the plugin logs
-  once per scene.
-
-## Telling a server what your scenes are
-
-The same thing at library scale, as two tasks:
-
-- **Contribute scene details (dry run)** — lists what would be sent,
-  sending nothing. Needs no token.
-- **Contribute scene details** — sends it, batched, for every scene Stash
-  has anything to say about. Needs an upload token.
-
-Neither uploads a subtitle. Scenes the server holds no release for come
-back "not known" and are counted, not retried — a sweep over a large
-library will legitimately name plenty of scenes a given node has never
-heard of, and that is an answer rather than a failure.
-
-Why bother: on the server, name metadata is *evidence* rather than a
-field, and what a release displays is derived from everyone's evidence.
-Contributing a scene you can identify improves what everybody else sees
-for that scene, including people pulling subtitles for a completely
-different encode of it. Entries carrying a stash-box id are worth the most:
-a node can act on those without a moderator reviewing them first.
-
-An older node without the capability refuses the whole run up front with
-one message, rather than failing per batch.
 
 ## Where task output goes
 
