@@ -188,10 +188,13 @@ func runBackfill(ctx context.Context, s *store.Store, client *stashbox.Client, o
 		switch outcome {
 		case store.LookupFingerprint:
 			st.fingerprint++
+			_, _ = fmt.Fprintf(out, "release %d: id attached by fingerprint%s\n", rel.ID, dryRunSuffix(opts.dryRun))
 		case store.LookupProposed:
 			st.proposed++
+			_, _ = fmt.Fprintf(out, "release %d: name matched, metadata proposed%s\n", rel.ID, dryRunSuffix(opts.dryRun))
 		case store.LookupNone:
 			st.none++
+			_, _ = fmt.Fprintf(out, "release %d: not found\n", rel.ID)
 		}
 		if !opts.dryRun {
 			if err := s.RecordStashBoxLookup(ctx, rel.ID, opts.endpoint, outcome); err != nil {
