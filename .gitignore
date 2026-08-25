@@ -38,6 +38,10 @@ dist-plugin/
 .vscode/
 plugin/dist/
 
+# mkdocs build output and the throwaway venv `make docs` falls back to
+site/
+.mkdocs-venv/
+
 # Local config — holds API keys and site credentials, never commit
 /config.yaml
 /config.yml

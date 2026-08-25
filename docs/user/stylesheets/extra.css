@@ -1,0 +1,17 @@
+/* moansubs docs: the site's accent (#f02460, MOANSUBS_ACCENT's own default)
+   applied through Material's documented "custom" palette hook rather than a
+   built-in color name, since #f02460 isn't one of the presets. */
+[data-md-color-primary="custom"] {
+  --md-primary-fg-color: #f02460;
+  --md-primary-fg-color--light: #f4577f;
+  --md-primary-fg-color--dark: #b81b49;
+  --md-primary-bg-color: #ffffff;
+  --md-primary-bg-color--light: #ffffffb3;
+}
+
+[data-md-color-accent="custom"] {
+  --md-accent-fg-color: #f02460;
+  --md-accent-fg-color--transparent: #f024601a;
+  --md-accent-bg-color: #ffffff;
+  --md-accent-bg-color--light: #ffffffb3;
+}

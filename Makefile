@@ -57,6 +57,18 @@ tidy: ## go mod tidy.
 clean: ## Remove built binary and test artifacts.
 	rm -f moansubs moansubs.exe coverage.out test-output.txt
 
+.PHONY: docs
+docs: ## Build the end-user docs (docs/user) with mkdocs --strict; no Python state committed.
+	@if command -v docker >/dev/null 2>&1; then \
+	  docker run --rm -v "$(PWD)":/docs squidfunk/mkdocs-material build --strict; \
+	else \
+	  echo "docker not found, falling back to a throwaway venv" >&2; \
+	  python3 -m venv .mkdocs-venv; \
+	  .mkdocs-venv/bin/pip install --quiet mkdocs-material; \
+	  .mkdocs-venv/bin/mkdocs build --strict; \
+	  rm -rf .mkdocs-venv; \
+	fi
+
 .PHONY: docker
 docker: ## Build the docker image as moansubs:dev with version metadata from git.
 	docker build \

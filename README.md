@@ -256,6 +256,7 @@ container image, the plugin bundles, and the plugin package source.
 
 | | |
 |---|---|
+| [docs.moansubs.org](https://docs.moansubs.org/) | End-user docs: the plugin, the website, kinds, reporting |
 | [MANUAL.md](MANUAL.md) | Server CLI, configuration, operations |
 | [API.md](API.md) | HTTP API and the fingerprint bucket contract |
 | [plugin/README.md](plugin/README.md) | Plugin install, settings, tasks |

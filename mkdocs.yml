@@ -1,0 +1,43 @@
+site_name: moansubs
+site_url: https://docs.moansubs.org/
+site_description: End-user documentation for the moansubs subtitle database and Stash plugin.
+docs_dir: docs/user
+strict: true
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: custom
+    accent: custom
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - What this is: index.md
+  - Stash plugin:
+      - Installing the plugin: stash/install.md
+      - Finding and downloading subtitles: stash/getting-subtitles.md
+      - Preferences and bulk tasks: stash/preferences-and-bulk.md
+      - Sharing what you have: stash/sharing.md
+  - Website:
+      - Browsing and registering: web/index.md
+      - Uploading from the browser: web/upload.md
+      - Votes and stash-box: web/votes-and-stashbox.md
+  - Subtitle kinds: kinds.md
+  - Reporting a problem: reporting.md
+  - For moderators: moderators.md
+  - FAQ: faq.md
