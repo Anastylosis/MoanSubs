@@ -125,7 +125,7 @@ func isCrawler(ua string) bool {
 // only. "//host" is scheme-relative to a browser, and "/\host" is treated
 // the same way, so both are refused despite the leading slash.
 func sanitizeNext(path string) string {
-	if strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "//") && !strings.Contains(path, "\\") {
+	if strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "//") && !strings.HasPrefix(path, "/\\") {
 		return path
 	}
 	return "/"
