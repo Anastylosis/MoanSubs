@@ -66,6 +66,9 @@ func SidecarPath(scenePath string, lang CaptionLang) string {
 // hand-made subtitle, which must never be destroyed by a plugin action
 // (same principle as stash-subs's should_write).
 //
+// The path never encodes kind: nothing on disk records which kind a
+// caption is, so the overwrite warning names the file, never the kind.
+//
 // Returns the written path and whether a metadata scan is needed: a scan is
 // only required for a genuinely new (language, extension) pair, because
 // captions are read-only in GraphQL and only discovered by scan (delivery

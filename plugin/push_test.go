@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Anastylosis/MoanSubs/plugin/msclient"
@@ -36,11 +39,16 @@ func TestDiscoverSidecars(t *testing.T) {
 		t.Fatal(err)
 	}
 	found := map[string]string{}
+	kinds := map[string]string{}
 	for _, sc := range got {
 		found[filepath.Base(sc.Path)] = sc.Lang
+		kinds[filepath.Base(sc.Path)] = sc.Kind
 	}
 	if found["My Video [1080p].en.srt"] != "en" {
 		t.Errorf("missing en sidecar: %v", found)
+	}
+	if kinds["My Video [1080p].en.srt"] != "default" {
+		t.Errorf("plain sidecar kind = %q, want default", kinds["My Video [1080p].en.srt"])
 	}
 	if found["My Video [1080p].pt.vtt"] != "pt" {
 		t.Errorf("missing pt sidecar: %v", found)
@@ -77,6 +85,60 @@ func TestDiscoverSidecars_MetacharStemIsMatchedLiterally(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Lang != "en" {
 		t.Fatalf("metachar-laden stem not matched literally: %+v", got)
+	}
+}
+
+// The filename inference table (WP-K3 spec): a Plex/Emby-style kind suffix
+// is recognized and stripped before the language is parsed, falling back to
+// "default" when there is none. "other" is never inferred — it needs a
+// free-text label a filename can't carry — and a filename with more than
+// one extra segment is an unrecognized pattern, skipped the same way an
+// unparseable language always was.
+func TestDiscoverSidecars_FilenameKindInference(t *testing.T) {
+	dir := t.TempDir()
+	scene := filepath.Join(dir, "clip.mp4")
+	names := []string{
+		"clip.mp4",
+		"clip.en.srt",
+		"clip.en.sdh.srt",
+		"clip.en.cc.srt",
+		"clip.en.forced.srt",
+		"clip.en.SDH.srt",    // case-insensitive
+		"clip.pl.other.srt",  // "other" is never inferred from a filename
+		"clip.pl.sdh.cc.srt", // more than one extra segment: unrecognized
+		"clip.de.final.srt",  // unrecognized suffix, same as before kinds existed
+	}
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := discoverSidecars(scene)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kindOf := map[string]string{}
+	for _, sc := range got {
+		kindOf[filepath.Base(sc.Path)] = sc.Kind
+	}
+
+	want := map[string]string{
+		"clip.en.srt":        "default",
+		"clip.en.sdh.srt":    "sdh",
+		"clip.en.cc.srt":     "cc",
+		"clip.en.forced.srt": "forced",
+		"clip.en.SDH.srt":    "sdh",
+	}
+	for name, wantKind := range want {
+		if got := kindOf[name]; got != wantKind {
+			t.Errorf("%s: kind = %q, want %q", name, got, wantKind)
+		}
+	}
+	for _, skipped := range []string{"clip.pl.other.srt", "clip.pl.sdh.cc.srt", "clip.de.final.srt"} {
+		if _, ok := kindOf[skipped]; ok {
+			t.Errorf("%s: want skipped (unrecognized pattern), got kind %q", skipped, kindOf[skipped])
+		}
 	}
 }
 
@@ -119,7 +181,7 @@ func TestPushAll_NoToken_FailsWithoutTouchingStash(t *testing.T) {
 
 func TestPush_NoToken_FailsBeforeSceneLookup(t *testing.T) {
 	a := &app{ms: &msclient.Client{}, stash: nil}
-	if _, err := a.push(context.Background(), "42", false); err == nil {
+	if _, err := a.push(context.Background(), "42", false, "", ""); err == nil {
 		t.Fatal("push with no token: got nil error, want a refusal")
 	}
 }
@@ -187,5 +249,125 @@ func TestDispatch_PushStatusIsAKnownMode(t *testing.T) {
 	_, err = dispatch(context.Background(), PluginInput{Args: map[string]any{"mode": "push_stats"}})
 	if err == nil || !strings.Contains(err.Error(), "unknown mode") {
 		t.Fatalf("dispatch(push_stats) = %v, want an unknown mode error", err)
+	}
+}
+
+// capturingSubtitlesUpload runs a moansubs mock that decodes each upload
+// body into *got and answers a minimal 200, so a test can assert on
+// exactly what crossed the wire.
+func capturingSubtitlesUpload(t *testing.T, got *map[string]any) *http.ServeMux {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/subtitles", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(got); err != nil {
+			t.Fatalf("decoding upload body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"track_id": 1, "release_id": 1})
+	})
+	return mux
+}
+
+// A push to a server that advertises "kinds" carries the filename-inferred
+// kind on the wire.
+func TestPushScene_SendsKindWhenServerSupportsKinds(t *testing.T) {
+	scenePath := sceneFile(t, "clip.mp4")
+	dir := filepath.Dir(scenePath)
+	if err := os.WriteFile(filepath.Join(dir, "clip.en.sdh.srt"), []byte(testSRT), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scans := 0
+	st := downloadStash(t, "1", scenePath, &scans)
+	defer st.Close()
+
+	var got map[string]any
+	mux := capturingSubtitlesUpload(t, &got)
+	var versionHits atomic.Int64
+	mux.HandleFunc("GET /api/v1/version", versionHandler(&versionHits, []string{"kinds"}))
+	ms := httptest.NewServer(mux)
+	defer ms.Close()
+
+	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "tok")}
+	if _, err := a.push(context.Background(), "1", false, "", ""); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	if got["kind"] != "sdh" {
+		t.Errorf("upload body kind = %v, want \"sdh\"", got["kind"])
+	}
+}
+
+// A push to an older server that doesn't advertise "kinds" must omit the
+// field entirely rather than send it anyway — the additive-field contract
+// every other capability check here follows.
+func TestPushScene_OmitsKindWhenServerLacksFeature(t *testing.T) {
+	scenePath := sceneFile(t, "clip.mp4")
+	dir := filepath.Dir(scenePath)
+	if err := os.WriteFile(filepath.Join(dir, "clip.en.sdh.srt"), []byte(testSRT), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scans := 0
+	st := downloadStash(t, "1", scenePath, &scans)
+	defer st.Close()
+
+	var got map[string]any
+	mux := capturingSubtitlesUpload(t, &got)
+	var versionHits atomic.Int64
+	mux.HandleFunc("GET /api/v1/version", versionHandler(&versionHits, []string{"lookup"}))
+	ms := httptest.NewServer(mux)
+	defer ms.Close()
+
+	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "tok")}
+	if _, err := a.push(context.Background(), "1", false, "", ""); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	if _, ok := got["kind"]; ok {
+		t.Errorf("upload body has a kind field %v, want it omitted for a server without \"kinds\"", got["kind"])
+	}
+}
+
+// The panel's kind select overrides every sidecar's filename-inferred kind
+// for that push — set only on the single-scene "push" mode, never push_all.
+func TestPush_KindOverrideAppliesToTheSidecar(t *testing.T) {
+	scenePath := sceneFile(t, "clip.mp4")
+	dir := filepath.Dir(scenePath)
+	if err := os.WriteFile(filepath.Join(dir, "clip.en.srt"), []byte(testSRT), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scans := 0
+	st := downloadStash(t, "1", scenePath, &scans)
+	defer st.Close()
+
+	var got map[string]any
+	mux := capturingSubtitlesUpload(t, &got)
+	var versionHits atomic.Int64
+	mux.HandleFunc("GET /api/v1/version", versionHandler(&versionHits, []string{"kinds"}))
+	ms := httptest.NewServer(mux)
+	defer ms.Close()
+
+	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "tok")}
+	if _, err := a.push(context.Background(), "1", false, "cc", ""); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	if got["kind"] != "cc" {
+		t.Errorf("upload body kind = %v, want the override \"cc\", not the filename's inferred default", got["kind"])
+	}
+}
+
+// An override must be validated before anything is dialled — the same
+// vocabulary an upload would enforce anyway, but rejected here up front
+// instead of wasting a round trip on a guaranteed 400.
+func TestPush_KindOverrideValidated(t *testing.T) {
+	a := &app{ms: &msclient.Client{Token: "tok"}, stash: nil}
+	for _, tc := range []struct {
+		name, kind, label string
+	}{
+		{"unknown kind", "bogus", ""},
+		{"other without a label", "other", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := a.push(context.Background(), "1", false, tc.kind, tc.label); err == nil {
+				t.Fatal("push with a bad kind override: got nil error, want a rejection")
+			}
+		})
 	}
 }

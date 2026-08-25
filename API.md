@@ -513,6 +513,13 @@ subtitle under a different `kind` corrects the existing track's kind in
 place (`200 duplicate: true`, below) rather than creating a second track —
 see the release shape's `kind` documentation above for why.
 
+The Stash plugin infers `kind` from the sidecar's filename suffix
+(`.en.sdh.srt`, `.en.cc.srt`, `.en.forced.srt`, the Plex/Emby convention)
+when pushing, defaulting to `default`, and only sends the field at all once
+`GET /api/v1/version` advertises `kinds` — an older node simply never sees
+it, the same field-omission compatibility every other additive field here
+relies on.
+
 `stash_ids` (migration 0011) is optional, at most 5 entries.
 `endpoint` is normalized (trimmed, scheme and host lowercased, path kept as
 given) before storage; `stash_id` is validated as a 36-character UUID shape

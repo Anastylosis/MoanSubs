@@ -61,9 +61,11 @@ type TrackSummary struct {
 	// present on every track summary in lookup responses — this is what
 	// lets the plugin panel show a candidate's tallies without a second
 	// round trip per track.
-	Downloads int64 `json:"downloads"`
-	Up        int   `json:"up"`
-	Down      int   `json:"down"`
+	Downloads int64   `json:"downloads"`
+	Up        int     `json:"up"`
+	Down      int     `json:"down"`
+	Kind      string  `json:"kind"`
+	KindLabel *string `json:"kind_label,omitempty"`
 }
 
 // StashID is one stash-box scene identity (migration 0011, WP-C9a) — sent
@@ -127,9 +129,11 @@ type Track struct {
 	// itself increments Downloads by one (API.md "Every successful (200)
 	// call here increments the track's downloads counter"), so this is a
 	// snapshot from *before* the current call, not after.
-	Downloads int64 `json:"downloads"`
-	Up        int   `json:"up"`
-	Down      int   `json:"down"`
+	Downloads int64   `json:"downloads"`
+	Up        int     `json:"up"`
+	Down      int     `json:"down"`
+	Kind      string  `json:"kind"`
+	KindLabel *string `json:"kind_label,omitempty"`
 }
 
 type batchRequest struct {
@@ -471,6 +475,10 @@ type UploadRequest struct {
 	// WP-C9a) — sent with every push so the server can attach them to the
 	// release, additive like the name metadata above.
 	StashIDs []StashID `json:"stash_ids,omitempty"`
+
+	// Omitempty: a server without the kinds feature must see no field at all.
+	Kind      string `json:"kind,omitempty"`
+	KindLabel string `json:"kind_label,omitempty"`
 }
 
 // UploadResult mirrors the server's upload response.

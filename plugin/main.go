@@ -130,7 +130,8 @@ func dispatch(ctx context.Context, input PluginInput) (any, error) {
 	case "badge":
 		return app.badge(ctx, argStrings(input.Args, "scene_ids"))
 	case "push":
-		return app.push(ctx, argString(input.Args, "scene_id"), argBool(input.Args, "dry_run"))
+		return app.push(ctx, argString(input.Args, "scene_id"), argBool(input.Args, "dry_run"),
+			argString(input.Args, "kind"), argString(input.Args, "kind_label"))
 	case "push_status":
 		return app.pushStatus(ctx, argString(input.Args, "scene_id"))
 	case "push_all":

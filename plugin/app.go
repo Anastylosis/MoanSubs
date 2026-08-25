@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
 	stash "github.com/Anastylosis/stash-go"
 
 	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/internal/subtitle"
 	"github.com/Anastylosis/MoanSubs/plugin/msclient"
 )
 
@@ -37,6 +39,12 @@ type app struct {
 	// exactMode mirrors the opt-in "exact_mode" plugin setting (full-hash
 	// lookup; PLAN.md "Lookup" — never the default).
 	exactMode bool
+	// Preferences only sort; the panel never hides a track. The two bulk
+	// flags are read by the bulk download task, never by the panel.
+	languages               []string
+	preferredKind           string
+	downloadAllLanguages    bool
+	replaceExistingCaptions bool
 	// version is the moansubs server's GET /api/v1/version answer, fetched
 	// and cached on first use by serverVersion. One process serves one
 	// task invocation, so this is at most one extra round trip per task,
@@ -77,6 +85,10 @@ func newApp(ctx context.Context, input PluginInput) (*app, error) {
 	}
 	token, _ := settings["token"].(string)
 	exact, _ := settings["exact_mode"].(bool)
+	languagesRaw, _ := settings["languages"].(string)
+	preferredKindRaw, _ := settings["preferred_kind"].(string)
+	downloadAllLanguages, _ := settings["download_all_languages"].(bool)
+	replaceExistingCaptions, _ := settings["replace_existing_captions"].(bool)
 
 	// Probed once per task process. An introspection failure reads as
 	// "no", which is the conservative answer: it only downgrades a
@@ -84,11 +96,86 @@ func newApp(ctx context.Context, input PluginInput) (*app, error) {
 	captions, _ := st.Supports(ctx, "captions")
 
 	return &app{
-		stash:            st,
-		ms:               msclient.New(serverURL, token),
-		exactMode:        exact,
-		supportsCaptions: captions,
+		stash:                   st,
+		ms:                      msclient.New(serverURL, token),
+		exactMode:               exact,
+		supportsCaptions:        captions,
+		languages:               parseLanguagePreference(languagesRaw),
+		preferredKind:           parsePreferredKind(preferredKindRaw),
+		downloadAllLanguages:    downloadAllLanguages,
+		replaceExistingCaptions: replaceExistingCaptions,
 	}, nil
+}
+
+// Comma string because Stash settings have no list type. A bad entry is
+// dropped with a log line so one typo does not disable the rest; bare base
+// subtags so "pt" matches a track stored as "pt-BR".
+func parseLanguagePreference(raw string) []string {
+	var out []string
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		base, err := subtitle.BaseLang(entry)
+		if err != nil {
+			logWarning("languages: %q is not a valid BCP-47 tag; dropped", entry)
+			continue
+		}
+		out = append(out, base)
+	}
+	return out
+}
+
+func parsePreferredKind(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if !subtitle.ValidKind(raw) {
+		logWarning("preferred_kind %q is not a recognized kind; ignoring", raw)
+		return ""
+	}
+	return raw
+}
+
+// A version-fetch failure reads as "no", like every other capability check.
+func (a *app) serverSupportsKinds(ctx context.Context) bool {
+	v, err := a.serverVersion(ctx)
+	if err != nil {
+		return false
+	}
+	return hasFeature(v.Features, "kinds")
+}
+
+// Language first, kind as the tiebreak; stable so the server's order
+// survives for tracks matching neither preference. Never drops a track.
+func sortTracksByPreference(tracks []msclient.TrackSummary, languages []string, preferredKind string) {
+	langRank := func(t msclient.TrackSummary) int {
+		base, err := subtitle.BaseLang(t.Lang)
+		if err != nil {
+			return len(languages)
+		}
+		for i, l := range languages {
+			if l == base {
+				return i
+			}
+		}
+		return len(languages)
+	}
+	kindRank := func(t msclient.TrackSummary) int {
+		if preferredKind != "" && t.Kind == preferredKind {
+			return 0
+		}
+		return 1
+	}
+	sort.SliceStable(tracks, func(i, j int) bool {
+		li, lj := langRank(tracks[i]), langRank(tracks[j])
+		if li != lj {
+			return li < lj
+		}
+		return kindRank(tracks[i]) < kindRank(tracks[j])
+	})
 }
 
 // stashHTTPClient is the transport every Stash call uses. The two-minute
@@ -425,6 +512,9 @@ func (a *app) search(ctx context.Context, sceneID string) (any, error) {
 	}
 	if res.Candidates == nil {
 		res.Candidates = []Candidate{}
+	}
+	for i := range res.Candidates {
+		sortTracksByPreference(res.Candidates[i].Release.Tracks, a.languages, a.preferredKind)
 	}
 	logInfo("search scene %s: %d candidates (%d bucket releases)", sceneID, len(res.Candidates), len(releases))
 	return res, nil

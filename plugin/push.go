@@ -9,6 +9,7 @@ import (
 
 	stash "github.com/Anastylosis/stash-go"
 
+	"github.com/Anastylosis/MoanSubs/internal/subtitle"
 	"github.com/Anastylosis/MoanSubs/plugin/msclient"
 	"golang.org/x/text/language"
 )
@@ -23,12 +24,27 @@ type sidecarFile struct {
 	// Lang is the filename's language suffix as-is (already a bare subtag
 	// on disk, since that's the only form Stash attaches).
 	Lang string
+	// From the filename suffix only; content detection is the server's job.
+	Kind string
 }
 
-// discoverSidecars finds `<stem>.<lang>.srt|.vtt` files next to a scene
-// file. Suffix-less captions (`<stem>.srt`) and unparseable language
+// "other" is unreachable from a filename: it needs a label only the panel can supply.
+func filenameKind(suffix string) (string, bool) {
+	switch s := strings.ToLower(suffix); s {
+	case subtitle.KindSDH, subtitle.KindCC, subtitle.KindForced:
+		return s, true
+	default:
+		return "", false
+	}
+}
+
+// discoverSidecars finds `<stem>.<lang>[.<kind>].srt|.vtt` files next to a
+// scene file. Suffix-less captions (`<stem>.srt`) and unparseable language
 // suffixes are skipped: without a language they can't be served usefully,
-// and Stash itself files them under the invalid "00" placeholder.
+// and Stash itself files them under the invalid "00" placeholder. A
+// trailing kind suffix (`.sdh`/`.cc`/`.forced`) is recognized and stripped
+// off before the language is parsed; anything else after the language is
+// an unrecognized pattern and the whole file is skipped, same as before.
 func discoverSidecars(scenePath string) ([]sidecarFile, error) {
 	// The scene's directory is listed and its names compared literally,
 	// rather than globbed: video filenames in real libraries are full of
@@ -52,20 +68,36 @@ func discoverSidecars(scenePath string) ([]sidecarFile, error) {
 			if e.IsDir() {
 				continue
 			}
-			// name = <stem>.<middle><capExt>; middle must be a parseable
-			// language tag.
+			// name = <stem>.<middle><capExt>; middle is either a bare
+			// language tag, or a language tag plus one recognized kind
+			// suffix.
 			middle, ok := strings.CutPrefix(e.Name(), stem+".")
 			if !ok {
 				continue
 			}
 			middle, ok = strings.CutSuffix(middle, capExt)
-			if !ok || middle == "" || strings.Contains(middle, ".") {
+			if !ok || middle == "" {
 				continue
 			}
-			if _, err := language.Parse(middle); err != nil {
+
+			lang, kind := middle, subtitle.KindDefault
+			if before, after, found := strings.Cut(middle, "."); found {
+				if strings.Contains(after, ".") {
+					continue // more than one extra segment: not recognized
+				}
+				k, ok := filenameKind(after)
+				if !ok {
+					continue
+				}
+				lang, kind = before, k
+			}
+			if lang == "" {
 				continue
 			}
-			out = append(out, sidecarFile{Path: filepath.Join(dir, e.Name()), Lang: middle})
+			if _, err := language.Parse(lang); err != nil {
+				continue
+			}
+			out = append(out, sidecarFile{Path: filepath.Join(dir, e.Name()), Lang: lang, Kind: kind})
 		}
 	}
 	return out, nil
@@ -91,8 +123,9 @@ func (st *pushStats) note(format string, args ...any) {
 	}
 }
 
-// pushScene uploads every discovered sidecar of one scene.
-func (a *app) pushScene(ctx context.Context, scene *stash.Scene, dryRun bool, st *pushStats) {
+// kindOverride comes only from the single-scene panel; push_all has no
+// per-file UI and keeps the filename inference.
+func (a *app) pushScene(ctx context.Context, scene *stash.Scene, dryRun bool, kindOverride, kindLabelOverride string, kindsSupported bool, st *pushStats) {
 	st.ScenesScanned++
 	if len(scene.Files) == 0 {
 		return
@@ -128,7 +161,11 @@ func (a *app) pushScene(ctx context.Context, scene *stash.Scene, dryRun bool, st
 			st.note("reading %s: %v", sc.Path, err)
 			continue
 		}
-		res, err := a.ms.Upload(ctx, msclient.UploadRequest{
+		kind, kindLabel := sc.Kind, ""
+		if kindOverride != "" {
+			kind, kindLabel = kindOverride, kindLabelOverride
+		}
+		req := msclient.UploadRequest{
 			OSHash:     oshashStr,
 			PHash:      fingerprint(f, "phash"),
 			MD5:        fingerprint(f, "md5"),
@@ -148,7 +185,12 @@ func (a *app) pushScene(ctx context.Context, scene *stash.Scene, dryRun bool, st
 			// the server can attach them to the release, additive like the
 			// name metadata above.
 			StashIDs: a.msclientStashIDs(ctx, scene.StashIDs, scene.ID),
-		})
+		}
+		if kindsSupported {
+			req.Kind = kind
+			req.KindLabel = kindLabel
+		}
+		res, err := a.ms.Upload(ctx, req)
 		if err != nil {
 			st.Errors++
 			st.note("uploading %s: %v", sc.Path, err)
@@ -179,13 +221,19 @@ func (a *app) requireUploadToken(dryRun bool) error {
 	return fmt.Errorf("set an upload token in the plugin settings to push (pulling, and push with dry run, need no account)")
 }
 
-// push handles mode "push": one scene's sidecars.
-func (a *app) push(ctx context.Context, sceneID string, dryRun bool) (any, error) {
+func (a *app) push(ctx context.Context, sceneID string, dryRun bool, kind, kindLabel string) (any, error) {
 	if err := a.requireUploadToken(dryRun); err != nil {
 		return nil, err
 	}
 	if sceneID == "" {
 		return nil, fmt.Errorf("push: missing scene_id")
+	}
+	if kind != "" {
+		var err error
+		kind, kindLabel, err = subtitle.NormalizeKind(kind, kindLabel)
+		if err != nil {
+			return nil, fmt.Errorf("push: %w", err)
+		}
 	}
 	scene, found, err := a.stash.FindScene(ctx, sceneID)
 	if err == nil && !found {
@@ -195,7 +243,7 @@ func (a *app) push(ctx context.Context, sceneID string, dryRun bool) (any, error
 		return nil, err
 	}
 	st := &pushStats{DryRun: dryRun}
-	a.pushScene(ctx, scene, dryRun, st)
+	a.pushScene(ctx, scene, dryRun, kind, kindLabel, a.serverSupportsKinds(ctx), st)
 	return st, nil
 }
 
@@ -210,6 +258,7 @@ func (a *app) pushAll(ctx context.Context, dryRun bool) (any, error) {
 
 	const perPage = 100
 	st := &pushStats{DryRun: dryRun}
+	kindsSupported := a.serverSupportsKinds(ctx)
 
 	for page := 1; ; page++ {
 		if err := ctx.Err(); err != nil {
@@ -227,7 +276,7 @@ func (a *app) pushAll(ctx context.Context, dryRun bool) (any, error) {
 			if err := ctx.Err(); err != nil {
 				break
 			}
-			a.pushScene(ctx, &scenes[i], dryRun, st)
+			a.pushScene(ctx, &scenes[i], dryRun, "", "", kindsSupported, st)
 		}
 		if total > 0 {
 			logProgress(float64(st.ScenesScanned) / float64(total))

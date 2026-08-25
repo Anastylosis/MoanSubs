@@ -387,6 +387,15 @@
           const ai = t.generated
             ? ' <span class="badge badge-secondary" title="Machine-generated — quality varies more than human-written subtitles.">AI</span>'
             : "";
+          // kind (WP-K1/K3) is additive: absent on an older server, and
+          // "default" is the unremarkable common case, so both render as
+          // nothing rather than a badge nobody needs to read.
+          const kindLabel =
+            t.kind === "other" && t.kind_label ? t.kind_label : t.kind;
+          const kind =
+            t.kind && t.kind !== "default"
+              ? ' <span class="badge badge-info" title="Subtitle kind">' + esc(kindLabel) + "</span>"
+              : "";
           // Counts and vote buttons are filled in by decorateTrackRows
           // once this markup is in the DOM — via createElement, not
           // string concatenation, since the note field takes free-text
@@ -395,7 +404,7 @@
             '<div class="d-flex align-items-center flex-wrap mb-1 moansubs-track-row" data-track="' +
             esc(t.id) + '" data-up="' + esc(t.up || 0) + '" data-down="' + esc(t.down || 0) +
             '" data-downloads="' + esc(t.downloads || 0) + '">' +
-            "<span>" + esc(t.lang) + "</span>" + ai +
+            "<span>" + esc(t.lang) + "</span>" + kind + ai +
             ' <span class="text-muted small ml-2">' + esc(t.license) + "</span>" +
             ' <span class="moansubs-counts text-muted small ml-2"></span>' +
             ' <span class="moansubs-vote-controls ml-2"></span>' +
@@ -512,7 +521,52 @@
       status.sidecars.join(", ") +
       ") to the moansubs server";
     btn.onclick = () => push(panel, sceneId, btn);
-    panel.querySelector(".moansubs-search").after(btn);
+    const kindPicker = buildKindPicker();
+    panel.querySelector(".moansubs-search").after(btn, kindPicker);
+  }
+
+  // The push button's kind select (WP-K3): "auto-detect" (empty value)
+  // leaves every sidecar's filename-inferred kind alone; any other choice
+  // overrides all of them for that click. A server that predates the
+  // "kinds" feature silently ignores whatever is picked here — the same
+  // additive degrade every other capability in this file takes — so the
+  // picker itself needs no server-feature check.
+  function buildKindPicker() {
+    const wrap = document.createElement("span");
+    wrap.className = "moansubs-push-kind ml-2";
+
+    const select = document.createElement("select");
+    select.className = "form-control form-control-sm d-inline-block";
+    select.style.width = "auto";
+    select.title = "Kind to push this scene's sidecars as";
+    [
+      ["", "auto-detect"],
+      ["default", "default"],
+      ["cc", "cc"],
+      ["sdh", "sdh"],
+      ["forced", "forced"],
+      ["other", "other…"],
+    ].forEach(([value, text]) => {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = text;
+      select.appendChild(opt);
+    });
+
+    const label = document.createElement("input");
+    label.type = "text";
+    label.maxLength = 40;
+    label.placeholder = "label";
+    label.className = "form-control form-control-sm d-inline-block ml-1";
+    label.style.width = "8rem";
+    label.style.display = "none";
+    select.onchange = () => {
+      label.style.display = select.value === "other" ? "" : "none";
+    };
+
+    wrap.appendChild(select);
+    wrap.appendChild(label);
+    return wrap;
   }
 
   // Contributing scene details is offered whenever the server can accept
@@ -564,10 +618,13 @@
   async function push(panel, sceneId, btn) {
     const body = panel.querySelector(".moansubs-body");
     const note = document.createElement("div");
+    const picker = panel.querySelector(".moansubs-push-kind");
+    const kind = picker ? picker.querySelector("select").value : "";
+    const kindLabel = picker ? picker.querySelector("input").value : "";
     btn.disabled = true;
     btn.textContent = "Pushing\u2026";
     try {
-      const res = await runOp({ mode: "push", scene_id: sceneId });
+      const res = await runOp({ mode: "push", scene_id: sceneId, kind: kind, kind_label: kindLabel });
       const parts = [];
       if (res.uploaded) parts.push(res.uploaded + " uploaded");
       if (res.duplicates) parts.push(res.duplicates + " already there");

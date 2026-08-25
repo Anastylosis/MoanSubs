@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -144,6 +147,203 @@ func TestProbe_DegradesOnUnreachableServer(t *testing.T) {
 	}
 	if res.ServerVersion != "" || len(res.ServerFeatures) != 0 {
 		t.Errorf("probeResult = %+v, want empty version/features on an unreachable server", res)
+	}
+}
+
+// TestParseLanguagePreference covers the "languages" setting's parsing:
+// whitespace around entries, empty entries, and unparseable tags must all
+// be handled without one bad entry disabling every preference after it.
+func TestParseLanguagePreference(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want []string
+	}{
+		{"empty", "", nil},
+		{"single", "en", []string{"en"}},
+		{"order preserved", "en,pl,de", []string{"en", "pl", "de"}},
+		{"whitespace trimmed", " en , pl ", []string{"en", "pl"}},
+		{"empty entries dropped", "en,,pl,", []string{"en", "pl"}},
+		{"only commas", ",,,", nil},
+		// A regional tag reduces to its base subtag, the same reduction
+		// the download path applies, so "pt" preference logic and "pt-BR"
+		// stored tracks agree on what "pt" means.
+		{"regional tag reduces to base", "pt-BR", []string{"pt"}},
+		{"unparseable dropped, rest kept", "en,not a lang!,pl", []string{"en", "pl"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseLanguagePreference(tt.raw)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("parseLanguagePreference(%q) = %v, want %v", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestParsePreferredKind covers the "preferred_kind" setting: empty and
+// unrecognized values both degrade to "no preference" rather than failing
+// the task outright.
+func TestParsePreferredKind(t *testing.T) {
+	tests := []struct{ raw, want string }{
+		{"", ""},
+		{"  ", ""},
+		{"sdh", "sdh"},
+		{" cc ", "cc"},
+		{"not-a-kind", ""},
+	}
+	for _, tt := range tests {
+		if got := parsePreferredKind(tt.raw); got != tt.want {
+			t.Errorf("parsePreferredKind(%q) = %q, want %q", tt.raw, got, tt.want)
+		}
+	}
+}
+
+// TestSortTracksByPreference covers the preference-ordering rule the panel
+// relies on: language first, kind as the tiebreak, ties otherwise kept in
+// their original order, and — critically — nothing ever dropped.
+func TestSortTracksByPreference(t *testing.T) {
+	t.Run("language preference reorders", func(t *testing.T) {
+		tracks := []msclient.TrackSummary{{ID: 1, Lang: "es"}, {ID: 2, Lang: "en"}, {ID: 3, Lang: "pl"}}
+		sortTracksByPreference(tracks, []string{"pl", "en"}, "")
+		var ids []int64
+		for _, t := range tracks {
+			ids = append(ids, t.ID)
+		}
+		if !slices.Equal(ids, []int64{3, 2, 1}) {
+			t.Errorf("order = %v, want [3 2 1] (pl, then en, then unmatched es)", ids)
+		}
+	})
+
+	t.Run("kind breaks a language tie", func(t *testing.T) {
+		tracks := []msclient.TrackSummary{
+			{ID: 1, Lang: "en", Kind: "default"},
+			{ID: 2, Lang: "en", Kind: "sdh"},
+		}
+		sortTracksByPreference(tracks, nil, "sdh")
+		if tracks[0].ID != 2 {
+			t.Errorf("first track = %d, want the sdh track (2) preferred", tracks[0].ID)
+		}
+	})
+
+	t.Run("no preference is a no-op (stable)", func(t *testing.T) {
+		tracks := []msclient.TrackSummary{{ID: 1, Lang: "en"}, {ID: 2, Lang: "pl"}, {ID: 3, Lang: "de"}}
+		sortTracksByPreference(tracks, nil, "")
+		if tracks[0].ID != 1 || tracks[1].ID != 2 || tracks[2].ID != 3 {
+			t.Errorf("order changed with no preference set: %+v", tracks)
+		}
+	})
+
+	t.Run("regional track matches a base-subtag preference", func(t *testing.T) {
+		tracks := []msclient.TrackSummary{{ID: 1, Lang: "en"}, {ID: 2, Lang: "pt-BR"}}
+		sortTracksByPreference(tracks, []string{"pt"}, "")
+		if tracks[0].ID != 2 {
+			t.Errorf("first track = %d, want the pt-BR track (2) to match a \"pt\" preference", tracks[0].ID)
+		}
+	})
+
+	t.Run("never drops a track", func(t *testing.T) {
+		tracks := []msclient.TrackSummary{{ID: 1, Lang: "en"}, {ID: 2, Lang: "pl"}}
+		sortTracksByPreference(tracks, []string{"pl"}, "sdh")
+		if len(tracks) != 2 {
+			t.Fatalf("len(tracks) = %d, want 2 — a preference must never hide a track", len(tracks))
+		}
+	})
+}
+
+// fakeStashSettings runs a minimal Stash GraphQL mock answering exactly the
+// two queries newApp makes: plugin settings (PluginSettings) and schema
+// introspection (Supports). settingsJSON is the raw `plugins` object body,
+// e.g. `{"moansubs":{"languages":"en,pl"}}`.
+func fakeStashSettings(t *testing.T, settingsJSON string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Query string `json:"query"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(req.Query, "plugins"):
+			_, _ = w.Write([]byte(`{"data":{"configuration":{"plugins":` + settingsJSON + `}}}`))
+		case strings.Contains(req.Query, "__type"):
+			_, _ = w.Write([]byte(`{"data":{"__type":{"fields":[]}}}`))
+		default:
+			t.Fatalf("unexpected query: %s", req.Query)
+		}
+	}))
+}
+
+// fakeStashConn turns an httptest.Server's URL into the ServerConnection
+// shape newApp expects (it rebuilds "scheme://host:port" itself rather than
+// taking a URL directly).
+func fakeStashConn(t *testing.T, ts *httptest.Server) ServerConnection {
+	t.Helper()
+	u, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ServerConnection{Scheme: u.Scheme, Host: u.Hostname(), Port: port}
+}
+
+// TestNewApp_ParsesLanguageAndKindPreferenceSettings is an end-to-end check
+// of the settings-parsing wiring: whitespace, an empty entry and an
+// unparseable tag in "languages" all get handled the same way the pure
+// parseLanguagePreference tests already cover, but here through the real
+// newApp path that reads them off Stash's plugin settings.
+func TestNewApp_ParsesLanguageAndKindPreferenceSettings(t *testing.T) {
+	st := fakeStashSettings(t, `{"moansubs":{"languages":" en , pl ,,not a lang!","preferred_kind":"sdh"}}`)
+	defer st.Close()
+
+	a, err := newApp(context.Background(), PluginInput{ServerConnection: fakeStashConn(t, st)})
+	if err != nil {
+		t.Fatalf("newApp: %v", err)
+	}
+	if want := []string{"en", "pl"}; !slices.Equal(a.languages, want) {
+		t.Errorf("languages = %v, want %v", a.languages, want)
+	}
+	if a.preferredKind != "sdh" {
+		t.Errorf("preferredKind = %q, want \"sdh\"", a.preferredKind)
+	}
+}
+
+// TestNewApp_BulkSettingsDefaultToFalse is the "bulk never overwrites by
+// default" guarantee at the settings layer: with neither bulk setting
+// present at all (a fresh install, or a user who never touched them), both
+// must come back false, not true.
+func TestNewApp_BulkSettingsDefaultToFalse(t *testing.T) {
+	st := fakeStashSettings(t, `{"moansubs":{}}`)
+	defer st.Close()
+
+	a, err := newApp(context.Background(), PluginInput{ServerConnection: fakeStashConn(t, st)})
+	if err != nil {
+		t.Fatalf("newApp: %v", err)
+	}
+	if a.downloadAllLanguages {
+		t.Error("downloadAllLanguages = true with the setting absent, want false")
+	}
+	if a.replaceExistingCaptions {
+		t.Error("replaceExistingCaptions = true with the setting absent, want false")
+	}
+}
+
+// TestNewApp_BulkSettingsHonorExplicitTrue is the flip side: ticking either
+// box must actually reach the app struct, or the setting does nothing.
+func TestNewApp_BulkSettingsHonorExplicitTrue(t *testing.T) {
+	st := fakeStashSettings(t, `{"moansubs":{"download_all_languages":true,"replace_existing_captions":true}}`)
+	defer st.Close()
+
+	a, err := newApp(context.Background(), PluginInput{ServerConnection: fakeStashConn(t, st)})
+	if err != nil {
+		t.Fatalf("newApp: %v", err)
+	}
+	if !a.downloadAllLanguages || !a.replaceExistingCaptions {
+		t.Errorf("bulk settings not honored: downloadAllLanguages=%v replaceExistingCaptions=%v, want both true",
+			a.downloadAllLanguages, a.replaceExistingCaptions)
 	}
 }
 

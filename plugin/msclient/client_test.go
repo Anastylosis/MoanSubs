@@ -182,6 +182,68 @@ func TestUpload_StashIDsPushedAndFoundByLookupStashIDs(t *testing.T) {
 	}
 }
 
+// TestUpload_KindRoundTrips is a round trip against the real server (WP-K1
+// migration 0021, consumed here by WP-K3): kind/kind_label pushed on upload
+// come back on both GetTrack (the download path) and LookupBuckets (the
+// search path), the two places the plugin reads a track's kind from.
+func TestUpload_KindRoundTrips(t *testing.T) {
+	c, s := newTestServer(t)
+	ctx := context.Background()
+
+	token := "kind-token"
+	sum := sha256.Sum256([]byte(token))
+	if _, err := s.Pool().Exec(ctx,
+		`INSERT INTO accounts (name, token_hash) VALUES ('kind-pusher', $1)`,
+		hex.EncodeToString(sum[:])); err != nil {
+		t.Fatal(err)
+	}
+	c.Token = token
+
+	req := UploadRequest{
+		OSHash:     "00000000deadfeed",
+		DurationMs: 60_000,
+		Lang:       "en",
+		Body:       "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+		Kind:       "other",
+		KindLabel:  "countdown",
+	}
+	res, err := c.Upload(ctx, req)
+	if err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+
+	track, err := c.GetTrack(ctx, res.TrackID)
+	if err != nil {
+		t.Fatalf("GetTrack: %v", err)
+	}
+	if track.Kind != "other" || track.KindLabel == nil || *track.KindLabel != "countdown" {
+		t.Errorf("GetTrack kind = %q, label = %v, want other/countdown", track.Kind, track.KindLabel)
+	}
+
+	oh, err := hash.ParseOSHash(req.OSHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releases, err := c.LookupBuckets(ctx, oh, nil)
+	if err != nil {
+		t.Fatalf("LookupBuckets: %v", err)
+	}
+	found := false
+	for _, r := range releases {
+		for _, tr := range r.Tracks {
+			if tr.ID == res.TrackID {
+				found = true
+				if tr.Kind != "other" || tr.KindLabel == nil || *tr.KindLabel != "countdown" {
+					t.Errorf("lookup track kind = %q, label = %v, want other/countdown", tr.Kind, tr.KindLabel)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("uploaded track %d not found in LookupBuckets results", res.TrackID)
+	}
+}
+
 func TestUpload_RequiresToken(t *testing.T) {
 	c := New("http://localhost:1", "")
 	_, err := c.Upload(context.Background(), UploadRequest{})

@@ -39,6 +39,22 @@ settings:
     displayName: Full-hash lookup
     description: Send full fingerprints to the server for wider fuzzy matching (reveals exact hashes to the server operator)
     type: BOOLEAN
+  languages:
+    displayName: Preferred languages
+    description: BCP-47 tags in preference order, comma-separated (e.g. "en,pl"). Sorts and preselects the per-scene panel's tracks - it never hides one. Empty means no preference.
+    type: STRING
+  preferred_kind:
+    displayName: Preferred subtitle kind
+    description: One of default, cc, sdh, forced, other. Sorts and preselects alongside the language preference. Empty means default.
+    type: STRING
+  download_all_languages:
+    displayName: Download all languages (bulk tasks)
+    description: A future bulk-download task fetches every language a release has instead of stopping at the first preference hit. No effect on the per-scene panel, which always lists everything.
+    type: BOOLEAN
+  replace_existing_captions:
+    displayName: Replace existing captions (bulk tasks)
+    description: Off by default. Governs unattended/bulk download paths only - the per-scene panel always warns and asks for a second click before replacing a caption already on disk.
+    type: BOOLEAN
 
 tasks:
   - name: Probe

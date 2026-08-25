@@ -786,7 +786,10 @@ on the host disk otherwise.
    the last carrying a short `kind_label`) rides along; re-uploading the
    identical body under a different kind corrects the existing track's
    kind rather than creating a second one, for the same reason — kind
-   never creates a duplicate.
+   never creates a duplicate. The Stash plugin infers `kind` from a
+   Plex/Emby-style filename suffix (`.en.sdh.srt`, `.en.cc.srt`,
+   `.en.forced.srt`) when pushing sidecars, never from content — the SDH
+   detector above only ever suggests (`plugin/README.md`).
 
 ## Counters (`GET /api/v1/stats`, API.md)
 

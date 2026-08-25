@@ -72,6 +72,10 @@ want to upload or vote.
 | **Stash API key** | Recommended if your Stash has auth: the session cookie Stash hands plugins expires mid-run on long tasks. |
 | **Hide the per-scene push button** | Off. Ticking it stops the *Push local subs* button from appearing on scene pages. It reads as an opt-out because a Stash checkbox cannot default to checked — an unticked box means the button is offered. |
 | **Full-hash lookup** | Off by default. Sends complete fingerprints to the server for wider fuzzy matching (Hamming ≤8 instead of ≤4) — reveals your exact hashes to the node operator. |
+| **Preferred languages** | Empty by default. BCP-47 tags in preference order, comma-separated (e.g. `en,pl`). Sorts the per-scene panel's tracks so a preferred language's tracks come first — it never hides any track, and an unparseable entry is dropped with a log line rather than disabling the rest of the list. |
+| **Preferred subtitle kind** | Empty (meaning `default`). One of `default`, `cc`, `sdh`, `forced`, `other`. Breaks a tie between same-language tracks in the sort above — e.g. prefer `sdh` over `default` when both exist for your top language. |
+| **Download all languages (bulk tasks)** | Off. For a future bulk-download task, not the per-scene panel, which always lists every language regardless. |
+| **Replace existing captions (bulk tasks)** | Off. Governs unattended/bulk download paths only — the per-scene panel always warns, names the file, and requires a second *Overwrite* click before replacing anything on disk. |
 
 **Enable phash generation in Stash** (Settings → Tasks → Generate →
 Perceptual hashes). Without phash, only byte-identical files match, which
@@ -100,7 +104,13 @@ across different people's libraries is nearly never.
   candidate, shown as "dated YYYY-MM-DD" with a disagreement flagged among
   the reasons. Tracks show their language, license, and an **AI** badge
   when the subtitle was machine-generated (auto-detected server-side, not
-  self-declared).
+  self-declared). A track also shows its **kind** — `cc`, `sdh`, `forced`,
+  or the uploader's own short label for `other` — unless it's `default`,
+  the unremarkable common case that gets no badge at all. The **Preferred
+  languages** and **Preferred subtitle kind** settings sort each
+  candidate's tracks so your preference comes first; every track still
+  shows, in every case — a preference sorts and preselects, it never hides
+  anything you came to find.
 - **Votes**: each track row shows its tallies — `↓<downloads> ▲<up>
   ▼<down>` — plus ▲/▼ buttons, shown whenever the server advertises the
   `votes` feature. ▲ casts an up-vote immediately; ▼ opens an inline
@@ -116,7 +126,14 @@ across different people's libraries is nearly never.
   region in the filename (`pt-BR` → `.pt.srt`) because Stash only attaches
   bare ISO 639 subtags — the panel tells you when this happens. An
   existing caption file is never overwritten without an explicit
-  *Overwrite* click.
+  *Overwrite* click — the panel names the file and says it will be
+  replaced, and that click is the confirmation. One language is one
+  sidecar, permanently: a caption filename can't carry a kind, so choosing
+  a second kind for a language that already has a file on disk replaces
+  it, and afterwards nothing on disk records which kind the file actually
+  is (the warning says "a caption already exists for en", never which kind
+  the existing one was). Choosing the wrong kind means clicking Overwrite
+  again with the right one.
 - **Push local subs**: a second button next to *Find subtitles*, shown
   only when this scene already has sidecar subtitles on disk **and** an
   upload token is set — the two things a push needs, so a button that
@@ -128,7 +145,13 @@ across different people's libraries is nearly never.
   yet; suffix-less captions (`<stem>.srt`) are not counted, because the
   push skips them. Turn the button off entirely with the *Hide the
   per-scene push button* setting; the toggle applies to the next scene
-  page you open, with no reload needed.
+  page you open, with no reload needed. The button carries a **kind**
+  select: left on *auto-detect*, each sidecar's kind is inferred from its
+  own filename suffix (below); choosing anything else overrides every
+  sidecar this click pushes, all at once — picking `other` reveals a
+  short label field next to it. The detector never looks at content, only
+  the filename, and a server predating the `kinds` feature simply ignores
+  whatever is picked here.
 - **Send scene details**: a third button, offered whenever you have an
   upload token and the server advertises the capability. It tells the
   server what this scene *is* — title, date, studio, performers and
@@ -175,6 +198,13 @@ rather than failing file by file. Safe to re-run: the server reports a
 duplicate instead of storing a second copy. Suffix-less captions
 (`<stem>.srt`) and non-language suffixes are skipped, and the server
 additionally rejects subtitles whose timing contradicts the video.
+
+Each file's **kind** is inferred from a Plex/Emby-style filename suffix —
+`.en.sdh.srt`, `.en.cc.srt`, `.en.forced.srt` — falling back to `default`
+when there is none. This library-wide task has no per-file UI to ask
+through, so it always infers rather than prompting; the per-scene *Push
+local subs* button's kind select is the way to override one. `other` is
+never inferred, since it needs a short label a filename can't carry.
 
 Each upload carries whatever **name metadata** Stash reports for the scene
 — title, filename stem, date, studio, performers. That is what later lets a
