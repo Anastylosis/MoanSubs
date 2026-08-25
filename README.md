@@ -213,6 +213,10 @@ See [MANUAL.md](MANUAL.md) for the upload pipeline and moderation tools.
   takedown procedure; it is a 404 until `MOANSUBS_CONTACT_EMAIL` (or
   `MOANSUBS_CONTACT=true`) is set, so an unconfigured node never serves a
   hollow page for crawlers to cache.
+- **Removal requests.** Every release page carries a per-track, anonymous
+  removal-request form — no account needed, since the rights-holder or the
+  person depicted is exactly the party least likely to have one
+  ([TAKEDOWN.md](TAKEDOWN.md)).
 
 ## Age gate
 

@@ -600,7 +600,11 @@ type releasePageData struct {
 	Release catalogueRelease
 	// LoggedIn gates the vote controls: logged out sees counts and a "log
 	// in to vote" link (WP-C5 spec), never the forms.
-	LoggedIn bool
+	LoggedIn   bool
+	ViewerName string
+	// Notice is the only trace a filed removal request leaves on the page
+	// (requests are never public), carried as ?removal=sent by the redirect.
+	Notice string
 	// Error is a failed POST /release/{id}/vote's message, re-rendered at
 	// the top of this same page (WP-C5 spec) rather than a separate error
 	// page — empty on a plain GET.
@@ -726,8 +730,12 @@ func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id in
 			ares = nil
 		}
 	}
+	if r.URL.Query().Get("removal") == "sent" {
+		data.Notice = "Removal request sent. It reaches this node's moderators directly; nothing about it is shown publicly."
+	}
 	if ares != nil {
 		data.LoggedIn = true
+		data.ViewerName = ares.Account.Name
 		data.Mine = s.viewerProposal(ctx, release.ID, ares.Account.ID)
 		if err := s.applyViewerVoteState(ctx, &data.Release, ares.Account.ID); err != nil {
 			// The page still renders without "your vote" state — an

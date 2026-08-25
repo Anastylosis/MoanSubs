@@ -1,5 +1,6 @@
 {{define "release.html"}}
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+{{if .Notice}}<div class="notice">{{.Notice}}</div>{{end}}
 <section class="cue" aria-label="Release">
   <div class="tc">{{if .Release.ReleaseDate}}<span>{{.Release.ReleaseDate}}</span>{{end}}{{if .Release.Duration}}<span>{{.Release.Duration}}</span>{{end}}{{if .Release.Resolution}}<span>{{.Release.Resolution}}</span>{{end}}</div>
   <h1 class="line" style="margin:0">{{.Release.Title}}</h1>
@@ -115,6 +116,32 @@
           <button type="submit" class="quiet sm">▼ Down</button>
         </form>
       {{end}}
+    </td>
+  </tr>
+  <tr>
+    <td colspan="5" style="padding-top:0">
+      <details>
+        <summary class="hint" style="display:inline-block;cursor:pointer">Report this subtitle / request removal</summary>
+        <p class="hint">For a claim you want a paper trail on, email is
+        still the primary route ({{if contactShown}}<a href="/contact">contact</a>{{else}}<a href="https://github.com/Anastylosis/MoanSubs/blob/master/TAKEDOWN.md" target="_blank" rel="noopener">TAKEDOWN.md</a>{{end}}) —
+        this form is the other one, and needs no account. {{if $.LoggedIn}}Filing as {{$.ViewerName}}.{{else}}Filing
+        anonymously.{{end}}</p>
+        <form method="post" action="/release/{{$.Release.ID}}/removal">
+          <input type="hidden" name="track_id" value="{{$t.ID}}">
+          <label>Reason
+            <select name="reason" aria-label="Reason" required>
+              <option value="copyright">copyright</option>
+              <option value="depicts_me">depicts me</option>
+              <option value="illegal">illegal content</option>
+              <option value="wrong_or_harmful">wrong or harmful</option>
+              <option value="other">other</option>
+            </select>
+          </label>
+          <label>Details<input type="text" name="note" maxlength="1000" placeholder="required for &quot;other&quot;" aria-label="Details"></label>
+          <label>Contact, optional<input type="text" name="contact" maxlength="200" placeholder="how to reach you, optional" aria-label="Contact"></label>
+          <button type="submit" class="quiet sm">Send removal request</button>
+        </form>
+      </details>
     </td>
   </tr>
   {{end}}

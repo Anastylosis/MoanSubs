@@ -186,6 +186,15 @@ var serveCmd = &cobra.Command{
 			voteRate = n
 		}
 
+		removalRate := api.RemovalRateLimitPerHour
+		if v := os.Getenv("MOANSUBS_REMOVAL_RATE_PER_HOUR"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_REMOVAL_RATE_PER_HOUR %q", v)
+			}
+			removalRate = n
+		}
+
 		// Per-account metadata-contribution budget: each entry costs a
 		// derivation, and a grouped release derives its whole work, so this
 		// is bounded separately from the upload budget rather than sharing
@@ -418,6 +427,7 @@ var serveCmd = &cobra.Command{
 		apiSrv.InvitesCap = invitesCap
 		apiSrv.DumpURL = dumpURL
 		apiSrv.VoteLimiter = api.NewRateLimiter(voteRate)
+		apiSrv.RemovalLimiter = api.NewRateLimiter(removalRate)
 		apiSrv.MetadataLimiter = api.NewRateLimiter(metadataRate)
 		apiSrv.PublicURL = publicURL
 		apiSrv.AutoConfirm = autoConfirm

@@ -108,6 +108,7 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_PUBLIC_URL` | *(derived)* | This node's origin as visitors reach it, e.g. `https://moansubs.org`. Used for the absolute URLs the sitemap protocol and Open Graph link previews both require. Unset — the default — derives it per request from the `Host` header, with the scheme following the same trusted-proxy rule as the session cookie's `Secure` attribute (`MOANSUBS_TRUSTED_PROXY_CIDRS`). Set it when the node answers to more than one name and you want one canonical form. |
 | `MOANSUBS_METADATA_RATE_PER_HOUR` | `60` | Per-account budget for `POST /api/v1/metadata` (API.md), the route that says what a scene *is* without uploading a subtitle for it. Each request carries up to 25 scenes, so this is a large library in an hour; the bound exists because every entry triggers a derivation, and a grouped release derives its whole work. |
 | `MOANSUBS_VOTE_RATE_PER_HOUR` | `60` | Per-account budget for `PUT`/`DELETE /api/v1/subtitles/{id}/vote` (API.md "Votes"). Generous enough for a person triaging their own downloads in one sitting, tight enough to stop a script grinding a track's score. |
+| `MOANSUBS_REMOVAL_RATE_PER_HOUR` | `5` | Per-IP budget for `POST /release/{id}/removal` (TAKEDOWN.md), same shape as `MOANSUBS_REGISTER_RATE_PER_HOUR` — a genuine filer needs this once per track, not repeatedly. |
 | `MOANSUBS_TOKEN_KEY` | *(unset)* | 64 hex characters (32 bytes; generate with `openssl rand -hex 32`) — the AES-256-GCM key `/me` needs to show an account's API token again after this process restarts (it's stored encrypted, alongside the one-way hash every lookup actually uses). Unset: tokens are never re-displayable — `/me` says so and offers "Rotate" instead. An invalid value (wrong length, not hex) refuses to start rather than silently running without encryption. |
 | `MOANSUBS_ADMIN_NAME` | `admin` | The name the first-run admin bootstrap (below) creates, when one runs at all. |
 | `MOANSUBS_BOOTSTRAP_ADMIN` | `true` | Set to `false` to disable the automatic first-run admin creation below — for an operator who'd rather keep credentials out of container logs entirely and mint the account by hand with `moansubs admin bootstrap` (via `docker compose exec`) instead. |
@@ -603,13 +604,18 @@ buttons.
 
 **Role `mod` or higher:**
 
-- `/mod/flagged` — the same list `track list --flagged` prints, as a table:
+- `/mod/flagged` — a removal-request queue above the vote-flagged one, since
+  a filed request is a stronger signal than a downvote. Each row: track
+  link, reason, note, contact, and when filed — anonymous unless the filer
+  had a session cookie, per TAKEDOWN.md. "Withdraw" (reason required,
+  ≤300 characters) runs `WithdrawTrack` on the named track and marks the
+  request handled; "Dismiss" marks it handled with no action against the
+  track. Below it, the same list `track list --flagged` prints, as a table:
   track, release, language, uploader, vote tally, top down-vote reason, and
-  the single newest note left on the track. Each row has a "Withdraw" action
-  (a reason is required, ≤300 characters — the same free text `track
-  withdraw --reason` takes) that runs `WithdrawTrack` and returns to the
-  queue. There is no "Dismiss": the queue is derived straight from votes, so
-  a withdrawn track simply stops qualifying and drops off it on its own.
+  the single newest note left on the track. Each row has its own "Withdraw"
+  action (same rules) that runs `WithdrawTrack` and returns to the queue.
+  There is no "Dismiss" on this table: it is derived straight from votes,
+  so a withdrawn track simply stops qualifying and drops off it on its own.
 - `/mod/track/{id}` — one track's full detail (uploader, language,
   generated flag, vote tally, withdrawn state) plus every vote cast on it
   with its reason/note/voter (`VotesForTrack`, the same data `track show`

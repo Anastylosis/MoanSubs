@@ -91,6 +91,8 @@ const MetadataRateLimitPerHour = 60
 // script can't grind a track's score by hammering re-votes.
 const VoteRateLimitPerHour = 60
 
+const RemovalRateLimitPerHour = 5
+
 // DefaultInvitesInitial is MOANSUBS_INVITES_INITIAL's default (WP-C7c): a
 // brand-new account can bring in a couple of people before it has
 // contributed anything.
@@ -294,7 +296,8 @@ type Server struct {
 	// VoteLimiter is the per-account limiter for PUT/DELETE
 	// /api/v1/subtitles/{id}/vote (WP-C3), also exported for the same
 	// reason as Limiter.
-	VoteLimiter *RateLimiter
+	VoteLimiter    *RateLimiter
+	RemovalLimiter *RateLimiter
 
 	// AutoConfirm lets a trusted account's stash-box-backed metadata pin
 	// itself, without a moderator (MOANSUBS_AUTOCONFIRM, MANUAL.md). Off
@@ -388,6 +391,7 @@ func NewServer(s *store.Store) *Server {
 		Version:           "dev",
 		Stats:             NewStats(s),
 		VoteLimiter:       NewRateLimiter(VoteRateLimitPerHour),
+		RemovalLimiter:    NewRateLimiter(RemovalRateLimitPerHour),
 		MetadataLimiter:   NewRateLimiter(MetadataRateLimitPerHour),
 		// Production default: an adult-focused node gates every human page
 		// behind the click-through until an operator opts out
@@ -458,6 +462,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("GET /release/{id}", s.page(s.handleReleasePage))
 	mux.HandleFunc("POST /release/{id}/vote", s.page(s.handleReleaseVote))
 	mux.HandleFunc("POST /release/{id}/metadata", s.page(s.handleReleaseProposeMetadata))
+	mux.HandleFunc("POST /release/{id}/removal", s.page(s.handleReleaseRemoval))
 	mux.HandleFunc("GET /u/{name}", s.page(s.handleUploaderPage))
 	mux.HandleFunc("POST /age", s.handleAgeConfirm)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
@@ -478,6 +483,8 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("GET /api/v1/search", s.handleSearchAPI)
 	mux.HandleFunc("POST /api/v1/match", s.handleMatch)
 	mux.HandleFunc("GET /mod/flagged", s.page(s.handleModFlagged))
+	mux.HandleFunc("POST /mod/removal/{id}/withdraw", s.page(s.handleModRemovalWithdraw))
+	mux.HandleFunc("POST /mod/removal/{id}/dismiss", s.page(s.handleModRemovalDismiss))
 	mux.HandleFunc("GET /mod/track/{id}", s.page(s.handleModTrack))
 	mux.HandleFunc("POST /mod/track/{id}/withdraw", s.page(s.handleModTrackWithdraw))
 	mux.HandleFunc("POST /mod/track/{id}/restore", s.page(s.handleModTrackRestore))

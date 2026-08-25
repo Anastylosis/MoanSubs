@@ -212,6 +212,17 @@ unlimited buckets. Bucketed lookups are designed so clients don't send
 full fingerprints by default — but see API.md for an honest statement of
 what a malicious *server operator* can still learn; pick nodes you trust.
 
+`POST /release/{id}/removal` (TAKEDOWN.md) is the other anonymous write:
+filing a removal request needs no account, by design — the rights-holder
+or the person depicted is exactly the party least likely to have one. It
+is Origin-checked like any other state-changing web route and rate-limited
+per IP (`MOANSUBS_REMOVAL_RATE_PER_HOUR`, default 5), but **the address
+itself is never stored**: the limiter reads it in memory and keeps
+nothing, the same no-IP-column rule migration 0019's download aggregate
+already holds to. The stored row carries only what the form said (reason,
+note, contact) and, only when a session cookie happened to be present at
+submission, the filer's account id — never degraded to require one.
+
 ### The plugin
 
 The plugin runs inside your Stash process's container with your

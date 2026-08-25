@@ -1,4 +1,36 @@
 {{define "mod_flagged.html"}}
+{{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+
+<h1>Removal requests</h1>
+<p class="hint" style="margin:0 0 1rem">Filed anonymously or, when a session cookie happened to be present, by an account. A stronger signal than a downvote, so it sits above that queue.</p>
+{{if not .Removals}}
+<p class="empty">No open removal requests.</p>
+{{else}}
+<table>
+  <thead><tr><th>Track</th><th>Reason</th><th>Note</th><th>Contact</th><th>Filed</th><th></th></tr></thead>
+  <tbody>
+  {{range .Removals}}
+  <tr>
+    <td><a href="/mod/track/{{.TrackID}}">#{{.TrackID}}</a>{{if .FilerName}} <span class="hint" style="display:inline">by {{.FilerName}}</span>{{end}}</td>
+    <td>{{words .Reason}}</td>
+    <td>{{.Note}}</td>
+    <td>{{.Contact}}</td>
+    <td class="mono">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+    <td>
+      <form method="post" action="/mod/removal/{{.ID}}/withdraw" class="inline">
+        <input type="text" name="reason" maxlength="300" placeholder="withdrawal reason, required" required aria-label="Withdrawal reason for removal request {{.ID}}">
+        <button type="submit" class="quiet sm">Withdraw</button>
+      </form>
+      <form method="post" action="/mod/removal/{{.ID}}/dismiss" class="inline" style="margin-top:.35rem">
+        <button type="submit" class="quiet sm">Dismiss</button>
+      </form>
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+
 <h1>Flagged tracks</h1>
 <p class="hint" style="margin:0 0 1rem">Net three or more downvotes, or any spam vote at all. There is no "Dismiss" — the queue is derived straight from votes, so withdrawing a track is what makes it leave.</p>
 

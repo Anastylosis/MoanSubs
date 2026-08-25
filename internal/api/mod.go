@@ -134,26 +134,60 @@ type modFlaggedRow struct {
 	NewestNote   string
 }
 
-type modFlaggedData struct {
-	Title string
-	Rows  []modFlaggedRow
+type modRemovalRow struct {
+	ID        int64
+	TrackID   int64
+	Reason    string
+	Note      string
+	Contact   string
+	FilerName string
+	CreatedAt time.Time
 }
 
-// handleModFlagged implements GET /mod/flagged (WP-C7b): ListFlaggedTracks
-// (WP-C3) as a table, with each row's own newest note pulled from
-// VotesForTrack — votes come back newest-updated first, so the first one
-// carrying a note is the newest note by construction. There is no
-// "Dismiss": the queue is derived straight from votes, so withdrawing a
-// track (which stops it appearing in ListFlaggedTracks) is the only way one
-// leaves it.
+func newModRemovalRow(req store.RemovalRequest) modRemovalRow {
+	row := modRemovalRow{ID: req.ID, TrackID: req.TrackID, Reason: req.Reason, CreatedAt: req.CreatedAt}
+	if req.Note != nil {
+		row.Note = *req.Note
+	}
+	if req.Contact != nil {
+		row.Contact = *req.Contact
+	}
+	if req.FilerName != nil {
+		row.FilerName = *req.FilerName
+	}
+	return row
+}
+
+type modFlaggedData struct {
+	Title    string
+	Removals []modRemovalRow
+	Rows     []modFlaggedRow
+	Error    string
+}
+
 func (s *Server) handleModFlagged(w http.ResponseWriter, r *http.Request) {
 	ares, ok := s.requireWebRole(w, r, "mod")
 	if !ok {
 		return
 	}
-	setModPageHeaders(w)
+	s.renderModFlagged(w, r, ares, http.StatusOK, "")
+}
 
+func (s *Server) renderModFlagged(w http.ResponseWriter, r *http.Request, ares *authResult, status int, formErr string) {
+	setModPageHeaders(w)
 	ctx := r.Context()
+
+	removals, err := s.Store.UnhandledRemovalRequests(ctx)
+	if err != nil {
+		log.Printf("api: UnhandledRemovalRequests: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	removalRows := make([]modRemovalRow, 0, len(removals))
+	for _, req := range removals {
+		removalRows = append(removalRows, newModRemovalRow(req))
+	}
+
 	tracks, err := s.Store.ListFlaggedTracks(ctx, FlaggedMinDown)
 	if err != nil {
 		log.Printf("api: ListFlaggedTracks: %v", err)
@@ -185,7 +219,83 @@ func (s *Server) handleModFlagged(w http.ResponseWriter, r *http.Request) {
 		rows = append(rows, row)
 	}
 
-	s.renderPage(w, withAuth(r, ares), http.StatusOK, "mod_flagged.html", modFlaggedData{Title: "Moderate — flagged tracks", Rows: rows}, true)
+	s.renderPage(w, withAuth(r, ares), status, "mod_flagged.html", modFlaggedData{
+		Title: "Moderate — flagged tracks", Removals: removalRows, Rows: rows, Error: formErr,
+	}, true)
+}
+
+func (s *Server) handleModRemovalWithdraw(w http.ResponseWriter, r *http.Request) {
+	ares, ok := s.requireWebRole(w, r, "mod")
+	if !ok {
+		return
+	}
+	if !checkOrigin(w, r) {
+		return
+	}
+
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		s.renderModFlagged(w, r, ares, http.StatusBadRequest, "could not read the submitted form")
+		return
+	}
+	reason, rerr := validateWithdrawReason(r.PostFormValue("reason"))
+	if rerr != nil {
+		s.renderModFlagged(w, r, ares, http.StatusBadRequest, rerr.Error())
+		return
+	}
+
+	req, err := s.Store.GetRemovalRequest(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		log.Printf("api: GetRemovalRequest: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := s.Store.WithdrawTrack(r.Context(), req.TrackID, reason); err != nil && !errors.Is(err, store.ErrNotFound) {
+		log.Printf("api: WithdrawTrack (removal request %d): %v", id, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := s.Store.MarkRemovalRequestHandled(r.Context(), id, ares.Account.ID, "withdraw"); err != nil && !errors.Is(err, store.ErrNotFound) {
+		log.Printf("api: MarkRemovalRequestHandled: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/mod/flagged", http.StatusSeeOther)
+}
+
+func (s *Server) handleModRemovalDismiss(w http.ResponseWriter, r *http.Request) {
+	ares, ok := s.requireWebRole(w, r, "mod")
+	if !ok {
+		return
+	}
+	if !checkOrigin(w, r) {
+		return
+	}
+
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := s.Store.MarkRemovalRequestHandled(r.Context(), id, ares.Account.ID, "dismiss"); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		log.Printf("api: MarkRemovalRequestHandled: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/mod/flagged", http.StatusSeeOther)
 }
 
 // -- GET /mod/track/{id} --------------------------------------------------

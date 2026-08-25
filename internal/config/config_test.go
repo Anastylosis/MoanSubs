@@ -169,6 +169,7 @@ func TestExampleConfig_IsValidAndStatesTheDefaults(t *testing.T) {
 		"MOANSUBS_SEARCH_RATE_PER_MINUTE": strconv.Itoa(api.SearchRateLimitPerMinute),
 		"MOANSUBS_REGISTER_RATE_PER_HOUR": strconv.Itoa(api.RegisterRateLimitPerHour),
 		"MOANSUBS_LOGIN_RATE_PER_HOUR":    strconv.Itoa(api.LoginRateLimitPerHour),
+		"MOANSUBS_REMOVAL_RATE_PER_HOUR":  strconv.Itoa(api.RemovalRateLimitPerHour),
 		"MOANSUBS_INVITES_INITIAL":        strconv.Itoa(api.DefaultInvitesInitial),
 		"MOANSUBS_INVITES_PER_UPLOADS":    strconv.Itoa(api.DefaultInvitesPerUploads),
 		"MOANSUBS_INVITES_CAP":            strconv.Itoa(api.DefaultInvitesCap),

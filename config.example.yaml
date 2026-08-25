@@ -219,7 +219,11 @@ autoconfirm:
 # register_per_hour — low on purpose: self-registration is the one endpoint
 #                     that creates state for an anonymous caller.
 # login_per_hour    — slows password guessing without locking anyone out.
-# (MOANSUBS_UPLOAD_RATE_PER_HOUR, _VOTE_, _METADATA_, _SEARCH_, _REGISTER_, _LOGIN_)
+# removal_per_hour  — per IP, like register/login: a genuine filer needs
+#                     this once per track, not repeatedly. The one other
+#                     endpoint besides register that creates state for an
+#                     anonymous caller (TAKEDOWN.md, "Requesting removal").
+# (MOANSUBS_UPLOAD_RATE_PER_HOUR, _VOTE_, _METADATA_, _SEARCH_, _REGISTER_, _LOGIN_, _REMOVAL_)
 rate_limits:
   upload_per_hour: 30
   vote_per_hour: 60
@@ -227,3 +231,4 @@ rate_limits:
   search_per_minute: 30
   register_per_hour: 5
   login_per_hour: 20
+  removal_per_hour: 5

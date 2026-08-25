@@ -17,9 +17,23 @@ Include:
 2. The work you hold rights to and your relationship to it.
 3. A statement that you believe in good faith the material is unlicensed.
 
+Email is the route to use for anything you want a paper trail on. Every
+release page also has a removal-request form under each subtitle, in a
+collapsed "Report this subtitle / request removal" section — the same
+grounds (copyright, depicts a real person without consent, illegal
+content, wrong or harmful, other) without needing an account or an email
+client. It reaches the node's moderation queue directly rather than an
+inbox, is rate-limited per IP, and stores no address — nothing about who
+filed it beyond what the form itself said, and an account id only when the
+filer happened to be logged in. A request filed this way is never public:
+no counts, no badge, no hint on the release page that one exists.
+
 Valid requests are honored by **withdrawing** the track: `moansubs track
 withdraw <id> --reason "..."` (or `moansubs release withdraw <id>` when the
-whole release needs to come down). Withdrawal is a soft delete, not a hard
+whole release needs to come down). A request filed through the web form
+lands in a moderator's `/mod/flagged` queue (MANUAL.md, "Moderating from
+the browser") for exactly this decision — withdraw, or dismiss if it
+doesn't hold up. Withdrawal is a soft delete, not a hard
 one — the row stays, so attribution and the ability to explain "why is this
 gone" later are preserved, and the operator can `track restore`/`release
 restore` it if a request turns out to be invalid. A withdrawn track stops

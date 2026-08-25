@@ -178,7 +178,9 @@ func TestReleasePage_OwnUploadShowsNoVoteForms(t *testing.T) {
 	if !strings.Contains(string(body), "your upload") {
 		t.Error("own-upload track should show \"your upload\"")
 	}
-	if strings.Contains(string(body), `name="reason"`) {
+	// out_of_sync is a downvote-only reason; the removal-request form
+	// (shown regardless of upload ownership) uses a different vocabulary.
+	if strings.Contains(string(body), `value="out_of_sync"`) {
 		t.Error("own-upload track should not show a downvote form")
 	}
 }

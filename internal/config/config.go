@@ -76,6 +76,7 @@ type RateLimits struct {
 	SearchPerMinute *int `yaml:"search_per_minute"`
 	RegisterPerHour *int `yaml:"register_per_hour"`
 	LoginPerHour    *int `yaml:"login_per_hour"`
+	RemovalPerHour  *int `yaml:"removal_per_hour"`
 }
 
 type StashBoxes struct {
@@ -152,6 +153,7 @@ func (f *File) env() map[string]string {
 	setInt("MOANSUBS_SEARCH_RATE_PER_MINUTE", f.RateLimits.SearchPerMinute)
 	setInt("MOANSUBS_REGISTER_RATE_PER_HOUR", f.RateLimits.RegisterPerHour)
 	setInt("MOANSUBS_LOGIN_RATE_PER_HOUR", f.RateLimits.LoginPerHour)
+	setInt("MOANSUBS_REMOVAL_RATE_PER_HOUR", f.RateLimits.RemovalPerHour)
 
 	setList("MOANSUBS_STASH_ENDPOINTS", f.StashBoxes.Accept)
 
