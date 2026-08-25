@@ -522,7 +522,7 @@
       ") to the moansubs server";
     const form = buildPushForm(panel, sceneId, status.files || []);
     btn.onclick = () => {
-      form.hidden = !form.hidden;
+      form.style.display = form.style.display === "none" ? "flex" : "none";
     };
     panel.querySelector(".moansubs-search").after(btn);
     panel.querySelector(".moansubs-body").before(form);
@@ -533,14 +533,18 @@
   // as. A server without the "kinds" feature ignores the kind silently.
   function buildPushForm(panel, sceneId, files) {
     const form = document.createElement("div");
-    form.className = "moansubs-push-form d-flex align-items-center flex-wrap mb-2";
-    form.hidden = true;
+    form.className = "moansubs-push-form align-items-center flex-wrap mb-2";
+    // Toggled through style.display: Bootstrap's d-flex is !important and
+    // would override the hidden attribute.
+    form.style.display = "none";
 
     const control = (el) => {
       el.className = "btn btn-sm btn-secondary mr-1";
       el.style.height = "auto";
       el.style.lineHeight = "1.5";
       el.style.textAlign = "left";
+      el.style.width = "auto";
+      el.style.maxWidth = "24rem";
       return el;
     };
     const option = (value, text) => {
@@ -560,14 +564,14 @@
     [["default", "kind: default"], ["cc", "kind: cc"], ["sdh", "kind: sdh"],
      ["forced", "kind: forced"], ["other", "kind: other…"]]
       .forEach(([v, t]) => kindSel.appendChild(option(v, t)));
-    kindSel.hidden = true;
+    kindSel.style.display = "none";
 
     const label = control(document.createElement("input"));
     label.type = "text";
     label.maxLength = 40;
     label.placeholder = "label";
     label.style.width = "8rem";
-    label.hidden = true;
+    label.style.display = "none";
 
     const go = document.createElement("button");
     go.className = "btn btn-sm btn-primary";
@@ -575,21 +579,21 @@
 
     fileSel.onchange = () => {
       const one = fileSel.value !== "";
-      kindSel.hidden = !one;
+      kindSel.style.display = one ? "" : "none";
       if (one) {
         const f = files.find((x) => x.name === fileSel.value);
         kindSel.value = f && f.kind ? f.kind : "default";
       }
-      label.hidden = !(one && kindSel.value === "other");
+      label.style.display = one && kindSel.value === "other" ? "" : "none";
     };
     kindSel.onchange = () => {
-      label.hidden = kindSel.value !== "other";
+      label.style.display = kindSel.value === "other" ? "" : "none";
     };
     go.onclick = () =>
       push(panel, sceneId, go, {
         file: fileSel.value,
         kind: fileSel.value === "" ? "" : kindSel.value,
-        kind_label: fileSel.value === "" || kindSel.hidden ? "" : label.value,
+        kind_label: fileSel.value === "" || kindSel.value !== "other" ? "" : label.value,
       });
 
     form.append(fileSel, kindSel, label, go);
