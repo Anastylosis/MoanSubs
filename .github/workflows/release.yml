@@ -31,16 +31,28 @@ jobs:
       # server: nobody runs it from a macOS or Windows binary.
       platforms: 'linux/amd64 linux/arm64'
       # Pauses until a reviewer of the `manual-smoke-gate` environment approves,
-      # attesting they ran the release checklist against a real Stash and a
-      # real Postgres — CI runs neither. The docker and plugin jobs below
-      # inherit the gate transitively via `needs`, so one approval covers all
-      # three. See CONTRIBUTING.md → "Cutting a release".
+      # attesting they ran the release checklist against a live Stash — the one
+      # thing CI cannot reach. The Postgres tests and the migration upgrade
+      # path are ci.yml's job (`migration-upgrade`), so they are deliberately
+      # not in the checklist below. The docker and plugin jobs inherit the gate
+      # transitively via `needs`, so one approval covers all three. See
+      # CONTRIBUTING.md → "Cutting a release".
       environment-name: manual-smoke-gate
       environment-url: ${{ github.server_url }}/${{ github.repository }}/blob/master/CONTRIBUTING.md#cutting-a-release
+      pre-release-checklist: |
+        - [ ] This tag's plugin bundle installs into a live Stash, and
+              **Settings → Plugins → Reload plugins** shows it without error.
+        - [ ] One subtitle fetched end to end through the plugin against that Stash.
+        - [ ] Release notes describe the user-visible changes, and the tag
+              annotation says anything the commits cannot.
+
+        The Postgres tests and the migration-upgrade path are covered by CI
+        now. If either job is red, **do not approve** — the gate does not
+        block on them.
       pre-release-notice: >-
-        Approver attests they have run the release checklist (upgrade against a
-        real Postgres, plugin smoke test against a live Stash, release notes
-        reviewed).
+        I installed this tag's plugin bundle into a live Stash, reloaded plugins,
+        and fetched a subtitle end to end. Every check passed. I reviewed the
+        release notes.
       # The category must already exist; renaming it on GitHub without changing
       # it here fails the API call after the gate has been approved.
       discussion-category: Announcements

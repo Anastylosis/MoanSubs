@@ -56,19 +56,28 @@ fails, re-run *just that job* without re-cutting the release.
 
 Before clicking approve, confirm:
 
-- [ ] `make test` passed with `DATABASE_URL` set against a real Postgres — the
-      DB-gated tests in `internal/store` and `internal/api` skip silently
-      without it, so a green run without it proves much less than it looks.
-- [ ] Any new migration was applied against a **copy of production data**, not
-      just an empty test database. Migrations run automatically on `serve`
-      startup, so a bad one is discovered by the deploy rather than by you.
-- [ ] The plugin was smoke-tested against a live Stash if either half changed —
-      CI cannot do this, and the RPC and log-envelope failure modes are silent.
+- [ ] This tag's plugin bundle installs into a live Stash, and **Settings →
+      Plugins → Reload plugins** shows it without error.
+- [ ] One subtitle fetched end to end through the plugin against that Stash —
+      the RPC and log-envelope failure modes are silent, and CI cannot reach a
+      live Stash to find them.
 - [ ] Release notes describe the user-visible changes, and the tag annotation
       says anything the commits cannot.
 
 The gate is a **trust-me** check — nothing verifies that you actually ran any
 of it. Its only job is to force a pause-and-think before a release goes public.
+So it asks only for what CI cannot do: the two claims it used to make about
+the database are now CI's job, on every push.
+
+- The DB-gated tests in `internal/store` and `internal/api` run against a real
+  `postgres:18-alpine` in the `ci / Test` job, with `DATABASE_URL` exported —
+  they no longer skip silently.
+- The `migration-upgrade` job restores the **previous release tag's** schema,
+  seeds it with releases, tracks and an account, then applies this commit's
+  migrations to it. Migrations run automatically on `serve` startup, so a bad
+  one would otherwise be discovered by the deploy rather than by you.
+
+If either job is red, **do not approve** — the gate does not block on them.
 
 ### What the release produces
 
