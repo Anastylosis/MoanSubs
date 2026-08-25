@@ -522,7 +522,10 @@
       ") to the moansubs server";
     const form = buildPushForm(panel, sceneId, status.files || []);
     btn.onclick = () => {
-      form.style.display = form.style.display === "none" ? "flex" : "none";
+      const open = form.style.display === "none";
+      form.style.display = open ? "flex" : "none";
+      // One thing at a time: opening the push form clears search results.
+      if (open) panel.querySelector(".moansubs-body").innerHTML = "";
     };
     panel.querySelector(".moansubs-search").after(btn);
     panel.querySelector(".moansubs-body").before(form);
@@ -556,7 +559,7 @@
 
     const fileSel = control(document.createElement("select"));
     fileSel.title = "Which sidecar to push";
-    fileSel.appendChild(option("", "all files (kind from filename)"));
+    fileSel.appendChild(option("", "all files (kind from .sdh/.cc/.forced suffix, else default)"));
     files.forEach((f) => fileSel.appendChild(option(f.name, f.name + " (" + f.lang + ", " + f.kind + ")")));
 
     const kindSel = control(document.createElement("select"));
@@ -708,6 +711,8 @@
 
     panel.querySelector(".moansubs-search").onclick = async function () {
       const btn = this;
+      const pushForm = panel.querySelector(".moansubs-push-form");
+      if (pushForm) pushForm.style.display = "none";
       btn.disabled = true;
       btn.textContent = "Searching…";
       try {
