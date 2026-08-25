@@ -137,10 +137,13 @@ across different people's libraries is nearly never.
 - **Push local subs**: a second button next to *Find subtitles*, shown
   only when this scene already has sidecar subtitles on disk **and** an
   upload token is set — the two things a push needs, so a button that
-  appears is a button that will do something. It uploads that one scene's
-  sidecars, with the same rules and the same name metadata as the
-  library-wide task below, and reports what happened (uploaded / already
-  there / skipped) in the panel. The disk check runs on the Stash machine,
+  appears is a button that will do something. Clicking it expands a small
+  form: which sidecar to push — *all files* (default; each with the kind
+  its filename says) or a single one, in which case a **kind** picker
+  appears (pre-set from the filename; `other…` adds a label field) — and a
+  *Push* button. It uploads with the same rules and the same name
+  metadata as the library-wide task below, and reports what happened
+  (uploaded / already there / skipped) in the panel. The disk check runs on the Stash machine,
   not in the browser, so it sees files a metadata scan hasn't picked up
   yet; suffix-less captions (`<stem>.srt`) are not counted, because the
   push skips them. Turn the button off entirely with the *Hide the
@@ -207,7 +210,7 @@ Each file's **kind** is inferred from a Plex/Emby-style filename suffix —
 `.en.sdh.srt`, `.en.cc.srt`, `.en.forced.srt` — falling back to `default`
 when there is none. This library-wide task has no per-file UI to ask
 through, so it always infers rather than prompting; the per-scene *Push
-local subs* button's kind select is the way to override one. `other` is
+local subs* form, pushing a single file, is the way to override one. `other` is
 never inferred, since it needs a short label a filename can't carry.
 
 Each upload carries whatever **name metadata** Stash reports for the scene

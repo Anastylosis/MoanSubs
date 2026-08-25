@@ -181,7 +181,7 @@ func TestPushAll_NoToken_FailsWithoutTouchingStash(t *testing.T) {
 
 func TestPush_NoToken_FailsBeforeSceneLookup(t *testing.T) {
 	a := &app{ms: &msclient.Client{}, stash: nil}
-	if _, err := a.push(context.Background(), "42", false, "", ""); err == nil {
+	if _, err := a.push(context.Background(), "42", false, "", "", ""); err == nil {
 		t.Fatal("push with no token: got nil error, want a refusal")
 	}
 }
@@ -288,7 +288,7 @@ func TestPushScene_SendsKindWhenServerSupportsKinds(t *testing.T) {
 	defer ms.Close()
 
 	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "tok")}
-	if _, err := a.push(context.Background(), "1", false, "", ""); err != nil {
+	if _, err := a.push(context.Background(), "1", false, "", "", ""); err != nil {
 		t.Fatalf("push: %v", err)
 	}
 	if got["kind"] != "sdh" {
@@ -317,7 +317,7 @@ func TestPushScene_OmitsKindWhenServerLacksFeature(t *testing.T) {
 	defer ms.Close()
 
 	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "tok")}
-	if _, err := a.push(context.Background(), "1", false, "", ""); err != nil {
+	if _, err := a.push(context.Background(), "1", false, "", "", ""); err != nil {
 		t.Fatalf("push: %v", err)
 	}
 	if _, ok := got["kind"]; ok {
@@ -345,7 +345,7 @@ func TestPush_KindOverrideAppliesToTheSidecar(t *testing.T) {
 	defer ms.Close()
 
 	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "tok")}
-	if _, err := a.push(context.Background(), "1", false, "cc", ""); err != nil {
+	if _, err := a.push(context.Background(), "1", false, "", "cc", ""); err != nil {
 		t.Fatalf("push: %v", err)
 	}
 	if got["kind"] != "cc" {
@@ -365,7 +365,7 @@ func TestPush_KindOverrideValidated(t *testing.T) {
 		{"other without a label", "other", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := a.push(context.Background(), "1", false, tc.kind, tc.label); err == nil {
+			if _, err := a.push(context.Background(), "1", false, "", tc.kind, tc.label); err == nil {
 				t.Fatal("push with a bad kind override: got nil error, want a rejection")
 			}
 		})

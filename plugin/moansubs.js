@@ -520,61 +520,80 @@
       "Upload this scene's sidecar subtitles (" +
       status.sidecars.join(", ") +
       ") to the moansubs server";
-    btn.onclick = () => push(panel, sceneId, btn);
-    const kindPicker = buildKindPicker();
-    panel.querySelector(".moansubs-search").after(btn, kindPicker);
+    const form = buildPushForm(panel, sceneId, status.files || []);
+    btn.onclick = () => {
+      form.hidden = !form.hidden;
+    };
+    panel.querySelector(".moansubs-search").after(btn);
+    panel.querySelector(".moansubs-body").before(form);
   }
 
-  // The push button's kind select (WP-K3): "auto-detect" (empty value)
-  // leaves every sidecar's filename-inferred kind alone; any other choice
-  // overrides all of them for that click. A server that predates the
-  // "kinds" feature silently ignores whatever is picked here — the same
-  // additive degrade every other capability in this file takes — so the
-  // picker itself needs no server-feature check.
-  function buildKindPicker() {
-    const wrap = document.createElement("span");
-    wrap.className = "moansubs-push-kind d-inline-flex align-items-center ml-2";
+  // Expanded by "Push local subs": which sidecar (default all, each with
+  // the kind its filename says) and, for a single file, the kind to push it
+  // as. A server without the "kinds" feature ignores the kind silently.
+  function buildPushForm(panel, sceneId, files) {
+    const form = document.createElement("div");
+    form.className = "moansubs-push-form d-flex align-items-center flex-wrap mb-2";
+    form.hidden = true;
 
-    // Stash's theme only styles form controls inside its own form groups,
-    // so a bare .form-control here renders white; dress it as a button.
     const control = (el) => {
-      el.className = "btn btn-sm btn-secondary";
+      el.className = "btn btn-sm btn-secondary mr-1";
       el.style.height = "auto";
       el.style.lineHeight = "1.5";
       el.style.textAlign = "left";
       return el;
     };
-
-    const select = control(document.createElement("select"));
-    select.title = "Kind to push this scene's sidecars as";
-    [
-      ["", "kind: auto"],
-      ["default", "default"],
-      ["cc", "cc"],
-      ["sdh", "sdh"],
-      ["forced", "forced"],
-      ["other", "other…"],
-    ].forEach(([value, text]) => {
+    const option = (value, text) => {
       const opt = document.createElement("option");
       opt.value = value;
       opt.textContent = text;
-      select.appendChild(opt);
-    });
+      return opt;
+    };
+
+    const fileSel = control(document.createElement("select"));
+    fileSel.title = "Which sidecar to push";
+    fileSel.appendChild(option("", "all files (kind from filename)"));
+    files.forEach((f) => fileSel.appendChild(option(f.name, f.name + " (" + f.lang + ", " + f.kind + ")")));
+
+    const kindSel = control(document.createElement("select"));
+    kindSel.title = "Kind to push this file as";
+    [["default", "kind: default"], ["cc", "kind: cc"], ["sdh", "kind: sdh"],
+     ["forced", "kind: forced"], ["other", "kind: other…"]]
+      .forEach(([v, t]) => kindSel.appendChild(option(v, t)));
+    kindSel.hidden = true;
 
     const label = control(document.createElement("input"));
     label.type = "text";
     label.maxLength = 40;
     label.placeholder = "label";
-    label.classList.add("ml-1");
     label.style.width = "8rem";
     label.hidden = true;
-    select.onchange = () => {
-      label.hidden = select.value !== "other";
-    };
 
-    wrap.appendChild(select);
-    wrap.appendChild(label);
-    return wrap;
+    const go = document.createElement("button");
+    go.className = "btn btn-sm btn-primary";
+    go.textContent = "Push";
+
+    fileSel.onchange = () => {
+      const one = fileSel.value !== "";
+      kindSel.hidden = !one;
+      if (one) {
+        const f = files.find((x) => x.name === fileSel.value);
+        kindSel.value = f && f.kind ? f.kind : "default";
+      }
+      label.hidden = !(one && kindSel.value === "other");
+    };
+    kindSel.onchange = () => {
+      label.hidden = kindSel.value !== "other";
+    };
+    go.onclick = () =>
+      push(panel, sceneId, go, {
+        file: fileSel.value,
+        kind: fileSel.value === "" ? "" : kindSel.value,
+        kind_label: fileSel.value === "" || kindSel.hidden ? "" : label.value,
+      });
+
+    form.append(fileSel, kindSel, label, go);
+    return form;
   }
 
   // Contributing scene details is offered whenever the server can accept
@@ -623,16 +642,16 @@
     body.prepend(note);
   }
 
-  async function push(panel, sceneId, btn) {
+  async function push(panel, sceneId, btn, choice) {
     const body = panel.querySelector(".moansubs-body");
     const note = document.createElement("div");
-    const picker = panel.querySelector(".moansubs-push-kind");
-    const kind = picker ? picker.querySelector("select").value : "";
-    const kindLabel = picker ? picker.querySelector("input").value : "";
     btn.disabled = true;
     btn.textContent = "Pushing\u2026";
     try {
-      const res = await runOp({ mode: "push", scene_id: sceneId, kind: kind, kind_label: kindLabel });
+      const res = await runOp({
+        mode: "push", scene_id: sceneId,
+        file: choice.file, kind: choice.kind, kind_label: choice.kind_label,
+      });
       const parts = [];
       if (res.uploaded) parts.push(res.uploaded + " uploaded");
       if (res.duplicates) parts.push(res.duplicates + " already there");
@@ -649,7 +668,7 @@
       note.textContent = err.message;
     } finally {
       btn.disabled = false;
-      btn.textContent = "Push local subs";
+      btn.textContent = "Push";
     }
     body.prepend(note);
   }

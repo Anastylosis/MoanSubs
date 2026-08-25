@@ -125,7 +125,8 @@ func (st *pushStats) note(format string, args ...any) {
 
 // kindOverride comes only from the single-scene panel; push_all has no
 // per-file UI and keeps the filename inference.
-func (a *app) pushScene(ctx context.Context, scene *stash.Scene, dryRun bool, kindOverride, kindLabelOverride string, kindsSupported bool, st *pushStats) {
+// only, when set, restricts the push to the sidecar with that base name.
+func (a *app) pushScene(ctx context.Context, scene *stash.Scene, dryRun bool, only, kindOverride, kindLabelOverride string, kindsSupported bool, st *pushStats) {
 	st.ScenesScanned++
 	if len(scene.Files) == 0 {
 		return
@@ -143,6 +144,9 @@ func (a *app) pushScene(ctx context.Context, scene *stash.Scene, dryRun bool, ki
 	}
 
 	for _, sc := range sidecars {
+		if only != "" && filepath.Base(sc.Path) != only {
+			continue
+		}
 		st.FilesFound++
 		info, err := os.Stat(sc.Path)
 		if err != nil || info.Size() > maxPushFileSize {
@@ -221,7 +225,7 @@ func (a *app) requireUploadToken(dryRun bool) error {
 	return fmt.Errorf("set an upload token in the plugin settings to push (pulling, and push with dry run, need no account)")
 }
 
-func (a *app) push(ctx context.Context, sceneID string, dryRun bool, kind, kindLabel string) (any, error) {
+func (a *app) push(ctx context.Context, sceneID string, dryRun bool, only, kind, kindLabel string) (any, error) {
 	if err := a.requireUploadToken(dryRun); err != nil {
 		return nil, err
 	}
@@ -243,7 +247,7 @@ func (a *app) push(ctx context.Context, sceneID string, dryRun bool, kind, kindL
 		return nil, err
 	}
 	st := &pushStats{DryRun: dryRun}
-	a.pushScene(ctx, scene, dryRun, kind, kindLabel, a.serverSupportsKinds(ctx), st)
+	a.pushScene(ctx, scene, dryRun, only, kind, kindLabel, a.serverSupportsKinds(ctx), st)
 	return st, nil
 }
 
@@ -276,7 +280,7 @@ func (a *app) pushAll(ctx context.Context, dryRun bool) (any, error) {
 			if err := ctx.Err(); err != nil {
 				break
 			}
-			a.pushScene(ctx, &scenes[i], dryRun, "", "", kindsSupported, st)
+			a.pushScene(ctx, &scenes[i], dryRun, "", "", "", kindsSupported, st)
 		}
 		if total > 0 {
 			logProgress(float64(st.ScenesScanned) / float64(total))
@@ -294,10 +298,19 @@ func (a *app) pushAll(ctx context.Context, dryRun bool) (any, error) {
 // the sidecars are on the Stash machine's disk, which the browser cannot
 // see, and Stash's own caption records are not a substitute (they exist
 // only after a metadata scan, and only for the suffixes Stash parses).
+type pushFile struct {
+	Name string `json:"name"`
+	Lang string `json:"lang"`
+	Kind string `json:"kind"`
+}
+
 type pushStatusResult struct {
 	SceneID  string   `json:"scene_id"`
 	Sidecars []string `json:"sidecars"` // language suffixes, in discovery order
-	HasToken bool     `json:"has_token"`
+	// One entry per sidecar file, so the panel can offer pushing a single
+	// file with an explicit kind.
+	Files    []pushFile `json:"files"`
+	HasToken bool       `json:"has_token"`
 	// MetadataFeature reports whether the server can be told what a scene
 	// is without a subtitle (GET /api/v1/version advertising "metadata").
 	// Carried here so the panel learns it in the round trip it already
@@ -332,7 +345,7 @@ func (a *app) pushStatus(ctx context.Context, sceneID string) (any, error) {
 // scene, applying exactly the same discovery rules so the button never
 // promises a file the push then skips.
 func sceneSidecarStatus(scene *stash.Scene, hasToken bool) pushStatusResult {
-	res := pushStatusResult{SceneID: scene.ID, Sidecars: []string{}, HasToken: hasToken}
+	res := pushStatusResult{SceneID: scene.ID, Sidecars: []string{}, Files: []pushFile{}, HasToken: hasToken}
 	if len(scene.Files) == 0 {
 		return res
 	}
@@ -343,6 +356,7 @@ func sceneSidecarStatus(scene *stash.Scene, hasToken bool) pushStatusResult {
 	}
 	for _, sc := range sidecars {
 		res.Sidecars = append(res.Sidecars, sc.Lang)
+		res.Files = append(res.Files, pushFile{Name: filepath.Base(sc.Path), Lang: sc.Lang, Kind: sc.Kind})
 	}
 	return res
 }
