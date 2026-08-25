@@ -130,11 +130,11 @@ func parseLanguagePreference(raw string) []string {
 func parsePreferredKind(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return ""
+		return subtitle.KindDefault
 	}
 	if !subtitle.ValidKind(raw) {
-		logWarning("preferred_kind %q is not a recognized kind; ignoring", raw)
-		return ""
+		logWarning("preferred_kind %q is not a recognized kind; using default", raw)
+		return subtitle.KindDefault
 	}
 	return raw
 }

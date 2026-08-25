@@ -186,11 +186,11 @@ func TestParseLanguagePreference(t *testing.T) {
 // the task outright.
 func TestParsePreferredKind(t *testing.T) {
 	tests := []struct{ raw, want string }{
-		{"", ""},
-		{"  ", ""},
+		{"", "default"},
+		{"  ", "default"},
 		{"sdh", "sdh"},
 		{" cc ", "cc"},
-		{"not-a-kind", ""},
+		{"not-a-kind", "default"},
 	}
 	for _, tt := range tests {
 		if got := parsePreferredKind(tt.raw); got != tt.want {
