@@ -1,9 +1,9 @@
 - id: moansubs
   name: moansubs
-  version: "0.2.1"
-  date: "2026-08-22 18:49:07"
-  path: https://github.com/Anastylosis/MoanSubs/releases/download/v0.2.1/moansubs-plugin-v0.2.1-linux-amd64.zip
-  sha256: 8823ca2e55ee7cfe1214d82df8488f072596d38c174f362ea4ce263fc5c0e25c
+  version: "0.3.0"
+  date: "2026-08-25 18:40:54"
+  path: https://github.com/Anastylosis/MoanSubs/releases/download/v0.3.0/moansubs-plugin-v0.3.0-linux-amd64.zip
+  sha256: 3b263f41035f756ddc0fb5fbceca7da075dea0418077d01d921020f05de5f202
   requires: []
   metadata:
     description: >-
