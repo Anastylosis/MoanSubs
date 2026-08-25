@@ -37,7 +37,7 @@ var lookupLevels = []string{"oshash", "phash", "batch", "exact", "match", "stash
 // discovering keys from whatever happens to be rendered first.
 var pageViewNames = []string{
 	"index", "browse", "search", "release", "u", "upload",
-	"login", "register", "me", "agegate", "mod", "admin",
+	"login", "register", "me", "agegate", "mod", "admin", "contact",
 }
 
 // pageViewName maps a renderPage body template to the counter it bumps. The

@@ -273,3 +273,134 @@ func TestRegisterForm_WrongOriginRejected(t *testing.T) {
 		t.Errorf("POST /register with a cross-origin Origin = %d, want 403", resp.StatusCode)
 	}
 }
+
+// Contact page (WP-N1) tests.
+
+func TestContact_Unconfigured404s(t *testing.T) {
+	ts, _ := webServer(t, true)
+
+	resp, _ := getBody(t, ts.URL+"/contact")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("GET /contact unconfigured = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestContact_EmailSetShows200(t *testing.T) {
+	t.Helper()
+	st := openTestStore(t)
+	srv := NewServer(st)
+	srv.AgeGate = false
+	srv.ContactEmail = "contact@example.com"
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	resp, body := getBody(t, ts.URL+"/contact")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /contact with email set = %d, want 200", resp.StatusCode)
+	}
+	if !strings.Contains(body, "contact@example.com") {
+		t.Error("contact page does not show the email address")
+	}
+}
+
+func TestContact_EnabledWithoutEmailShows200(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	srv.AgeGate = false
+	srv.ContactEnabled = true
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	resp, body := getBody(t, ts.URL+"/contact")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /contact with enabled=true = %d, want 200", resp.StatusCode)
+	}
+	if strings.Contains(body, "contact@") {
+		t.Error("contact page shows an address when enabled without email set")
+	}
+	if !strings.Contains(body, "notice and takedown") {
+		t.Error("contact page does not show takedown information")
+	}
+}
+
+func TestContact_NavLinkShownWhenConfigured(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	srv.AgeGate = false
+	srv.ContactEmail = "contact@example.com"
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	_, body := getBody(t, ts.URL+"/")
+	if !strings.Contains(body, `href="/contact"`) {
+		t.Error("front page does not link to /contact when configured")
+	}
+}
+
+func TestContact_NavLinkHiddenWhenUnconfigured(t *testing.T) {
+	ts, _ := webServer(t, true)
+
+	_, body := getBody(t, ts.URL+"/")
+	if strings.Contains(body, `href="/contact"`) {
+		t.Error("front page links to /contact when unconfigured")
+	}
+}
+
+func TestContact_EmailIsEscaped(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	srv.AgeGate = false
+	srv.ContactEmail = `"><script>alert(1)</script>`
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	_, body := getBody(t, ts.URL+"/contact")
+	if strings.Contains(body, "<script>alert(1)</script>") {
+		t.Fatal("email was reflected unescaped")
+	}
+	if !strings.Contains(body, "&lt;script&gt;") {
+		t.Error("expected the email escaped")
+	}
+}
+
+func TestContact_NoteIsShown(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	srv.AgeGate = false
+	srv.ContactEmail = "contact@example.com"
+	srv.ContactNote = "We review takedowns within 48 hours."
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	_, body := getBody(t, ts.URL+"/contact")
+	if !strings.Contains(body, "We review takedowns within 48 hours.") {
+		t.Error("contact page does not show the note")
+	}
+}
+
+func TestContact_SitemapIncludesContactWhenConfigured(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	srv.Indexable = true
+	srv.ContactEmail = "contact@example.com"
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	_, body := getBody(t, ts.URL+"/sitemap.xml")
+	if !strings.Contains(body, "/contact") {
+		t.Error("sitemap does not include /contact when configured")
+	}
+}
+
+func TestContact_SitemapExcludesContactWhenUnconfigured(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	srv.Indexable = true
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	_, body := getBody(t, ts.URL+"/sitemap.xml")
+	if strings.Contains(body, "/contact") {
+		t.Error("sitemap includes /contact when unconfigured")
+	}
+}

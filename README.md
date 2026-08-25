@@ -209,6 +209,10 @@ See [MANUAL.md](MANUAL.md) for the upload pipeline and moderation tools.
   matching by `oshash` and skipping what it already has, so re-running is
   always safe. A mirror inherits the same notice-and-takedown obligations
   as the node it copies ([TAKEDOWN.md](TAKEDOWN.md)).
+- **Contact.** `/contact` publishes the operator's address and the
+  takedown procedure; it is a 404 until `MOANSUBS_CONTACT_EMAIL` (or
+  `MOANSUBS_CONTACT=true`) is set, so an unconfigured node never serves a
+  hollow page for crawlers to cache.
 
 ## Age gate
 

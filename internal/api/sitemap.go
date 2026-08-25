@@ -49,6 +49,10 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
+	if s.contactShown() {
+		doc.URLs = append(doc.URLs, sitemapURL{Loc: base + "/contact"})
+	}
+
 	entries, err := s.Store.IndexableReleases(r.Context(), maxSitemapURLs-len(doc.URLs))
 	if err != nil {
 		log.Printf("api: IndexableReleases: %v", err)

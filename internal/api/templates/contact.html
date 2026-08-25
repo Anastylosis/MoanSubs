@@ -1,0 +1,27 @@
+{{define "contact.html"}}
+<h1>Contact</h1>
+<div class="prose">
+  {{if .Email}}<p>Takedown requests and anything else for the operator of this node:<br><code class="mono">{{.Email}}</code></p>{{else}}<p>This node publishes no address here; its operator handles mail elsewhere.</p>{{end}}
+
+  <h2>Requesting removal</h2>
+  <p>Subtitles are user-submitted; this node works on notice and takedown. Include:</p>
+  <ul>
+    <li>The track URL or id (<code class="mono">/api/v1/subtitles/&lt;id&gt;</code>) or enough detail to locate it (release fingerprint, language).</li>
+    <li>The work you hold rights to and your relationship to it.</li>
+    <li>A statement that you believe in good faith the material is unlicensed.</li>
+  </ul>
+
+  <h2>What happens</h2>
+  <ul>
+    <li>A valid request withdraws the track (or the whole release): it stops appearing in lookups and downloads, and dumps made afterwards exclude it.</li>
+    <li>Withdrawal is a soft delete: the record stays, so the removal can be explained later and reversed if a request turns out to be invalid.</li>
+    <li>Accounts that repeatedly infringe are disabled.</li>
+  </ul>
+  <ul>
+    <li>Nothing is hard-deleted, and a dump or mirror taken before a withdrawal still holds the content until its own operator acts on it.</li>
+  </ul>
+
+  {{if .Note}}<h2>From the operator</h2>
+  <p>{{.Note}}</p>{{end}}
+</div>
+{{end}}

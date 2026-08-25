@@ -372,6 +372,17 @@ var serveCmd = &cobra.Command{
 			stashEndpoints = parsed
 		}
 
+		contactEmail := os.Getenv("MOANSUBS_CONTACT_EMAIL")
+		contactEnabled := false
+		if v := os.Getenv("MOANSUBS_CONTACT"); v != "" {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_CONTACT %q", v)
+			}
+			contactEnabled = b
+		}
+		contactNote := os.Getenv("MOANSUBS_CONTACT_NOTE")
+
 		// Cancelled on SIGINT/SIGTERM, which also starts the graceful
 		// shutdown below.
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
@@ -422,6 +433,9 @@ var serveCmd = &cobra.Command{
 		apiSrv.Analytics = analytics
 		apiSrv.Indexable = indexable
 		apiSrv.Theme = theme
+		apiSrv.ContactEmail = contactEmail
+		apiSrv.ContactEnabled = contactEnabled
+		apiSrv.ContactNote = contactNote
 		srv := &http.Server{
 			Addr:    listen,
 			Handler: api.NewMux(apiSrv),

@@ -187,6 +187,7 @@
     <nav aria-label="Site">
       <a href="/browse">Browse</a>
       <a href="/search">Search</a>
+      {{if contactShown}}<a href="/contact">Contact</a>{{end}}
       {{if loggedIn}}<a href="/upload">Upload</a>
       <a href="/me">Account</a>{{if roleAtLeast "mod"}}<a href="/mod/flagged">Moderate</a>{{end}}{{if roleAtLeast "admin"}}<a href="/admin">Admin</a>{{end}}
       <form method="post" action="/logout" class="navform"><button type="submit">Log out</button></form>{{else}}<a href="/login">Log in</a>{{end}}

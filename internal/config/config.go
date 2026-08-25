@@ -55,6 +55,7 @@ type File struct {
 	RateLimits  RateLimits  `yaml:"rate_limits"`
 	StashBoxes  StashBoxes  `yaml:"stash_boxes"`
 	AutoConfirm AutoConfirm `yaml:"autoconfirm"`
+	Contact     Contact     `yaml:"contact"`
 }
 
 type Analytics struct {
@@ -84,6 +85,12 @@ type StashBoxes struct {
 type AutoConfirm struct {
 	Enabled *bool    `yaml:"enabled"`
 	PinOn   []string `yaml:"pin_on"`
+}
+
+type Contact struct {
+	Email   *string `yaml:"email"`
+	Enabled *bool   `yaml:"enabled"`
+	Note    *string `yaml:"note"`
 }
 
 // env lists every setting this file can supply, paired with the
@@ -150,6 +157,10 @@ func (f *File) env() map[string]string {
 
 	setBool("MOANSUBS_AUTOCONFIRM", f.AutoConfirm.Enabled)
 	setList("MOANSUBS_AUTOCONFIRM_ENDPOINTS", f.AutoConfirm.PinOn)
+
+	set("MOANSUBS_CONTACT_EMAIL", f.Contact.Email)
+	setBool("MOANSUBS_CONTACT", f.Contact.Enabled)
+	set("MOANSUBS_CONTACT_NOTE", f.Contact.Note)
 
 	return out
 }

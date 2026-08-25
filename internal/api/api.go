@@ -361,6 +361,11 @@ type Server struct {
 	// adult catalogue belongs in a search index depends on an operator's
 	// jurisdiction and appetite, so it is not a default this server picks.
 	Indexable bool
+	// /contact exists only when an address is set or the page is
+	// explicitly enabled; a hollow page would be cached by crawlers.
+	ContactEmail   string
+	ContactEnabled bool
+	ContactNote    string
 }
 
 // NewServer builds a Server backed by s, with its own rate limiters.
@@ -424,6 +429,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("GET /register", s.page(s.handleRegisterForm))
 	mux.HandleFunc("POST /register", s.page(s.handleRegisterSubmit))
 	mux.HandleFunc("GET /login", s.page(s.handleLoginForm))
+	mux.HandleFunc("GET /contact", s.page(s.handleContact))
 	mux.HandleFunc("POST /login", s.page(s.handleLogin))
 	mux.HandleFunc("POST /logout", s.page(s.handleLogout))
 	mux.HandleFunc("GET /me", s.page(s.handleMe))

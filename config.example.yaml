@@ -94,6 +94,23 @@ accent: "#f02460"
 # something this server does on its own. (MOANSUBS_DUMP_URL)
 dump_url: ""
 
+# ── Contact ─────────────────────────────────────────────────────────────
+
+# A contact page is shown when `email` is set or `enabled` is true. It
+# publishes the address, takedown information, and the node's policy.
+#
+# `email` — the contact email address. When set, the page shows it.
+#   (MOANSUBS_CONTACT_EMAIL)
+# `enabled` — show the page even without an address, for nodes that handle
+#   mail elsewhere. The page shows the note and takedown text but no email.
+#   (MOANSUBS_CONTACT)
+# `note` — optional site policy or instructions, rendered below the takedown
+#   info. (MOANSUBS_CONTACT_NOTE)
+contact:
+  email: ""
+  enabled: false
+  note: ""
+
 # ── Accounts ────────────────────────────────────────────────────────────
 
 # Who may create an account: "open" (anyone), "invite" (a code from an

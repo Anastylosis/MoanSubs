@@ -8,7 +8,8 @@ operators therefore work on **notice and takedown**.
 ## Requesting removal
 
 Email the operator of the node hosting the content. For the canonical
-instance, [moansubs.org](https://moansubs.org): wasylq@protonmail.com.
+instance, [moansubs.org](https://moansubs.org): wasylq@protonmail.com. A
+node that has an address configured also shows it at `/contact`.
 Include:
 
 1. The track URL or id (`/api/v1/subtitles/<id>`) or enough detail to
@@ -35,8 +36,8 @@ id they attached to a release, then disables the account).
 ## For self-hosters
 
 If you operate a node, you are the recipient of notices for it. Publish a
-reachable contact (this file in your fork, an email on the instance —
-anything findable) and honor valid requests. If you mirror a node, you
+reachable contact (set `MOANSUBS_CONTACT_EMAIL` and the node serves
+`/contact`; or this file in your fork — anything findable) and honor valid requests. If you mirror a node, you
 inherit the obligation to process takedowns against your copy too — a
 mirror taken before an upstream withdrawal will still have the content
 until its own operator withdraws it.

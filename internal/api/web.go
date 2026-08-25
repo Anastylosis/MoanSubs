@@ -86,6 +86,7 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	"metaDescription": func() string { return "" },
 	"canonicalURL":    func() string { return "" },
 	"siteOrigin":      func() string { return "" },
+	"contactShown":    func() bool { return false },
 }).ParseFS(templateFS, "templates/*.html"))
 
 // registerData is /register's data (both the form and its result). Name is
@@ -181,7 +182,8 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 			"theme":           func() *Theme { return th },
 			// The running build, so a bug report can say which one it
 			// came from without the reporter having to find /api/v1/version.
-			"version": func() string { return s.Version },
+			"version":      func() string { return s.Version },
+			"contactShown": s.contactShown,
 		})
 	}
 	if err == nil {
@@ -407,4 +409,22 @@ func (s *Server) handleRegisterSubmit(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, r, http.StatusOK, "register.html", registerData{
 		Title: "Account created", Open: true, Name: got.Name, Token: got.Token,
 	}, true)
+}
+
+type contactPageData struct {
+	Title string
+	Email string
+	Note  string
+}
+
+func (s *Server) contactShown() bool { return s.ContactEmail != "" || s.ContactEnabled }
+
+func (s *Server) handleContact(w http.ResponseWriter, r *http.Request) {
+	if !s.contactShown() {
+		http.NotFound(w, r)
+		return
+	}
+	s.renderPage(w, r, http.StatusOK, "contact.html", contactPageData{
+		Title: "Contact", Email: s.ContactEmail, Note: s.ContactNote,
+	}, false)
 }
