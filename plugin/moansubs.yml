@@ -8,7 +8,7 @@
 # manifest-baked connect-src, and no csp block is needed here at all.
 name: moansubs
 description: Search and download subtitles for scenes from a moansubs server.
-version: 0.2.0
+version: 0.3.0
 exec:
   - moansubs-plugin
 interface: rpc
