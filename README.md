@@ -212,7 +212,8 @@ See [MANUAL.md](MANUAL.md) for the upload pipeline and moderation tools.
   page fills in title/date/studio/performers/id from a stash-box you have
   a personal key for — set on `/me`, one endpoint at a time; the node
   never holds a key of its own (SECURITY.md). Results are shown for
-  review, never saved silently.
+  review, never saved silently. An operator can catch a whole corpus up
+  with `moansubs stashbox backfill`, using their own key for that one run.
 - **Works.** Releases that are the same video cut differently can be
   grouped, so each offers the others' subtitles with the timing shift
   needed to fit — the case fingerprinting cannot see, because a trimmed

@@ -86,6 +86,17 @@ session-authenticated, Origin-checked, and rate-limited per account
 `429` means the box itself is asking for less traffic, and neither is
 ever retried automatically.
 
+`moansubs stashbox backfill` (MANUAL.md) looks like the exception to "the
+node never holds a stash-box key", and is not one. The key it uses comes
+from a flag or an environment variable of the operator's shell, lives in
+that one process, and is never written to the database, the config, or a
+log — the node is no more in possession of it than it is of the operator's
+shell history. What the sweep *does* write is bounded the same way any
+upload is: a fingerprint match attaches an id idempotently, a name-only
+match is only a metadata proposal from the trusted account named by
+`--as`, subject to the auto-confirm rules like every other proposal. It
+reads from every box and writes to none.
+
 ### Resetting a credential
 
 Reset is admin-side for both, and self-service where it can be.

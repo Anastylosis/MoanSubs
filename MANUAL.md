@@ -528,6 +528,44 @@ prints how many tracks were withdrawn. Use this for a leaked or clearly
 abusive account, where taking down its whole contribution by hand (finding
 every track id and stash id by hand) would be impractical.
 
+### `moansubs stashbox backfill [--endpoint URL] [--limit N] [--delay 1s] [--dry-run] [--as NAME]`
+
+Walks every active release that has no stash-box id yet and asks a
+stash-box about it, so a corpus seeded before ids were first-class (or from
+a Stash that never had them) catches up. Two confidence levels, two very
+different consequences:
+
+- **Fingerprint hit** (`findSceneByFingerprint` on the release's oshash,
+  then its phash): attached as an id straight away, idempotently, exactly
+  as an upload carrying that id would have done.
+- **Title + date hit** (`searchScene` on the derived title, kept only when
+  the box's date equals the release's): **never attached.** It becomes a
+  metadata proposal from the `--as` account, which must be one you have
+  `moansubs account trust`ed, carrying the id as evidence — so the same
+  auto-confirm rules that govern every other observation ("Auto-confirming"
+  below) decide whether it ever pins a name. Without `--as`, name-only hits
+  are skipped altogether. `MOANSUBS_AUTOCONFIRM` / `MOANSUBS_AUTOCONFIRM_ENDPOINTS`
+  are read the same way `serve` reads them.
+
+**The key is yours, not the node's.** `--key` (or `MOANSUBS_STASHBOX_KEY`)
+is used for this one run and written nowhere — not to the database, not to
+a log. This is the same rule as "the node never holds a stash-box key" in
+SECURITY.md, not an exception to it: the key belongs to the operator typing
+the command, who is bound by that box's terms, and the node has nothing to
+show for it once the process exits.
+
+Only endpoints in `MOANSUBS_STASH_ENDPOINTS` can be swept — all of them by
+default, one with `--endpoint` (required when the list is `*`). The sweep is
+deliberately slow (one request per `--delay`) and resumable: each
+`(release, endpoint)` pair it has answered is recorded in
+`release_stashbox_lookups` with its outcome, and a later run skips
+everything but earlier errors — a miss is not re-asked nightly forever. A
+`429` backs off (the delay doubles, three retries) and then **stops**, with
+the untried release left untried; a `401` stops at once, because a rejected
+key only gets a limiter's attention by being retried. `--dry-run` still
+queries the box but writes to neither table; `--limit` caps the releases
+per endpoint. Read-only against every box, on every path.
+
 ### `moansubs work`
 
 Groups releases that are the same video cut or encoded differently, so each
