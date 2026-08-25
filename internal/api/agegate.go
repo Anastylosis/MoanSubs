@@ -121,12 +121,11 @@ func isCrawler(ua string) bool {
 	return false
 }
 
-// sanitizeNext is WP-C10's open-redirect guard for the gate's "next"
-// field: a same-node absolute path only. "//host/path" is rejected too —
-// browsers treat a leading "//" as scheme-relative, so it would still leave
-// this node despite starting with "/".
+// Open-redirect guard for the gate's "next": a same-node absolute path
+// only. "//host" is scheme-relative to a browser, and "/\host" is treated
+// the same way, so both are refused despite the leading slash.
 func sanitizeNext(path string) string {
-	if strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "//") {
+	if strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "//") && !strings.Contains(path, "\\") {
 		return path
 	}
 	return "/"

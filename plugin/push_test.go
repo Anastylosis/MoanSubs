@@ -103,7 +103,7 @@ func TestDiscoverSidecars_FilenameKindInference(t *testing.T) {
 		"clip.en.sdh.srt",
 		"clip.en.cc.srt",
 		"clip.en.forced.srt",
-		"clip.en.SDH.srt",    // case-insensitive
+		"clip.fr.SDH.srt",    // suffix case-insensitive; a different language so case-folding filesystems keep it distinct
 		"clip.pl.other.srt",  // "other" is never inferred from a filename
 		"clip.pl.sdh.cc.srt", // more than one extra segment: unrecognized
 		"clip.de.final.srt",  // unrecognized suffix, same as before kinds existed
@@ -128,7 +128,7 @@ func TestDiscoverSidecars_FilenameKindInference(t *testing.T) {
 		"clip.en.sdh.srt":    "sdh",
 		"clip.en.cc.srt":     "cc",
 		"clip.en.forced.srt": "forced",
-		"clip.en.SDH.srt":    "sdh",
+		"clip.fr.SDH.srt":    "sdh",
 	}
 	for name, wantKind := range want {
 		if got := kindOf[name]; got != wantKind {

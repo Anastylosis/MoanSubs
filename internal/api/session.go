@@ -191,7 +191,10 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 			log.Printf("api: DeleteSession: %v", err)
 		}
 	}
-	http.SetCookie(w, &http.Cookie{Name: sessionCookieName, Value: "", Path: "/", MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{
+		Name: sessionCookieName, Value: "", Path: "/", MaxAge: -1,
+		HttpOnly: true, Secure: s.secureCookie(r), SameSite: http.SameSiteLaxMode,
+	})
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
