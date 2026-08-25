@@ -88,3 +88,15 @@ func TestSignedSeconds(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildCatalogueRelease_BylineCollapsesSoloCreator(t *testing.T) {
+	studio := "Reagan Foxx"
+	r := store.Release{Studio: &studio, Performers: []string{"reagan foxx"}}
+	if got := buildCatalogueRelease(r, nil, false, false).Byline; got != "Reagan Foxx" {
+		t.Errorf("solo creator byline = %q, want the name once", got)
+	}
+	r.Performers = []string{"Reagan Foxx", "Someone Else"}
+	if got := buildCatalogueRelease(r, nil, false, false).Byline; got != "Reagan Foxx · Reagan Foxx, Someone Else" {
+		t.Errorf("byline = %q", got)
+	}
+}

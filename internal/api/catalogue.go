@@ -62,6 +62,7 @@ type catalogueRelease struct {
 	// crawlable listing's link text — have to tell the two apart (meta.go).
 	CuratedTitle string
 	Studio       string // "" when unknown
+	Byline       string // studio · performers, collapsed when they are the same name
 	ReleaseDate  string // "" when unknown, else the stored YYYY-MM-DD
 	Duration     string // "" when unknown, else "M:SS" or "H:MM:SS"
 	Resolution   string // "" when unknown, else "WIDTHxHEIGHT"
@@ -307,6 +308,20 @@ func buildCatalogueRelease(r store.Release, tracks []store.SubtitleTrackSummary,
 	}
 	if r.Studio != nil {
 		out.Studio = *r.Studio
+		// A solo creator's studio is their own name; once is enough.
+		if len(r.Performers) == 1 && strings.EqualFold(*r.Studio, r.Performers[0]) {
+			out.Byline = out.Studio
+		}
+	}
+	if out.Byline == "" {
+		parts := []string{}
+		if out.Studio != "" {
+			parts = append(parts, out.Studio)
+		}
+		if len(r.Performers) > 0 {
+			parts = append(parts, strings.Join(r.Performers, ", "))
+		}
+		out.Byline = strings.Join(parts, " · ")
 	}
 	if r.ReleaseDate != nil {
 		out.ReleaseDate = *r.ReleaseDate

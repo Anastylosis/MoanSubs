@@ -4,7 +4,7 @@
 <section class="cue" aria-label="Release">
   <div class="tc">{{if .Release.ReleaseDate}}<span>{{.Release.ReleaseDate}}</span>{{end}}{{if .Release.Duration}}<span>{{.Release.Duration}}</span>{{end}}{{if .Release.Resolution}}<span>{{.Release.Resolution}}</span>{{end}}</div>
   <h1 class="line" style="margin:0">{{.Release.Title}}</h1>
-  {{if or .Release.Studio .Release.Performers}}<div class="line sm y" style="margin-top:.35rem;font-weight:600">{{.Release.Studio}}{{if and .Release.Studio .Release.Performers}} · {{end}}{{range $i, $p := .Release.Performers}}{{if $i}}, {{end}}{{$p}}{{end}}</div>{{end}}
+  {{if .Release.Byline}}<div class="line sm y" style="margin-top:.35rem;font-weight:600">{{.Release.Byline}}</div>{{end}}
   {{if .Release.StashLinks}}<div class="line sm" style="margin-top:.35rem">{{range $i, $l := .Release.StashLinks}}{{if $i}} · {{end}}<a href="{{$l.URL}}" target="_blank" rel="noopener">On {{$l.Label}} ↗</a>{{end}}</div>{{end}}
 </section>
 
