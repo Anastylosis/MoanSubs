@@ -78,6 +78,20 @@ if (typeof document !== 'undefined') {
     const stemField = document.getElementById('stem');
     const statusEl = document.getElementById('video-status');
 
+    const kindSelect = document.getElementById('kind');
+    const kindLabelField = document.getElementById('kind_label');
+    if (kindSelect && kindLabelField) {
+      const updateKindLabelVisibility = () => {
+        kindLabelField.style.display = kindSelect.value === 'other' ? 'block' : 'none';
+        const hint = kindLabelField.parentElement.querySelector('.hint');
+        if (hint) {
+          hint.style.display = kindSelect.value === 'other' ? 'block' : 'none';
+        }
+      };
+      kindSelect.addEventListener('change', updateKindLabelVisibility);
+      updateKindLabelVisibility();
+    }
+
     const setStatus = (msg) => {
       if (statusEl) {
         statusEl.textContent = msg;

@@ -204,7 +204,10 @@ See [MANUAL.md](MANUAL.md) for the upload pipeline and moderation tools.
   read in full, since oshash only needs its first and last 64 KiB. If the
   browser can decode the container it also approximates the phash the way
   Stash does; expect a few bits of drift from ffmpeg's value, which is
-  well inside what matching tolerates.
+  well inside what matching tolerates. A kind dropdown lets you label the
+  subtitle — `default`, `cc`, `sdh`, `forced`, or `other` with a custom
+  label — and the server suggests `sdh` if it detects bracketed sound cues,
+  musical notes, or speaker labels, a choice you can override.
 - **Works.** Releases that are the same video cut differently can be
   grouped, so each offers the others' subtitles with the timing shift
   needed to fit — the case fingerprinting cannot see, because a trimmed

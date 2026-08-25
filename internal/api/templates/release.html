@@ -80,7 +80,7 @@
   <tbody>
   {{range $t := .Release.Tracks}}
   <tr>
-    <td><span class="tag{{if $t.Generated}} auto{{end}}">{{$t.Lang}}</span>{{if $t.Generated}} <span class="hint" style="display:inline">machine-generated</span>{{end}}</td>
+    <td><span class="tag{{if $t.Generated}} auto{{end}}">{{$t.Lang}}</span>{{if ne $t.Kind "default"}}<span class="tag">{{if eq $t.Kind "other"}}{{$t.KindLabel}}{{else}}{{$t.Kind}}{{end}}</span>{{end}}{{if $t.Generated}} <span class="hint" style="display:inline">machine-generated</span>{{end}}</td>
     <td><a href="/api/v1/subtitles/{{$t.ID}}?format=srt">Download .srt</a></td>
     <td class="n">{{$t.Downloads}}</td>
     <td class="n"><span class="tally"><span class="up">▲{{$t.Up}}</span> <span class="down">▼{{$t.Down}}</span></span></td>

@@ -164,7 +164,8 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 		SELECT id, release_id, lang, generated, license, provenance IS NOT NULL, created_at, downloads, up, down, kind, kind_label
 		FROM subtitle_tracks
 		WHERE release_id = ANY($1) AND withdrawn_at IS NULL
-		ORDER BY release_id, generated ASC, (up - down) DESC, downloads DESC, id ASC`, releaseIDs)
+		ORDER BY release_id, generated ASC, (up - down) DESC, downloads DESC,
+			array_position(ARRAY['default','cc','sdh','forced','other'], kind), id ASC`, releaseIDs)
 	if err != nil {
 		return nil, fmt.Errorf("store: TrackSummariesByReleaseIDs: %w", err)
 	}

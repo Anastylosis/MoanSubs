@@ -202,8 +202,17 @@ func TestUploadForm_StashEndpointSelectMatchesAllowList(t *testing.T) {
 		!strings.Contains(bodyStr, `value="https://fansdb.cc/graphql"`) {
 		t.Error("upload form is missing the default allow-list's endpoints")
 	}
-	if strings.Contains(bodyStr, `value="other"`) {
-		t.Error("upload form offers \"other\" even though the node's allow-list isn't the wildcard")
+	// Check specifically for "other" in stash_endpoint select (WP-K2 added a
+	// kind select that also has an "other" option, so we need to be specific).
+	if strings.Contains(bodyStr, `name="stash_endpoint"`) {
+		stashSelectStart := strings.Index(bodyStr, `name="stash_endpoint"`)
+		stashSelectEnd := strings.Index(bodyStr[stashSelectStart:], `</select>`)
+		if stashSelectEnd > 0 {
+			stashSelectPart := bodyStr[stashSelectStart : stashSelectStart+stashSelectEnd+10]
+			if strings.Contains(stashSelectPart, `value="other"`) {
+				t.Error("upload form offers \"other\" for stash_endpoint even though the node's allow-list isn't the wildcard")
+			}
+		}
 	}
 }
 

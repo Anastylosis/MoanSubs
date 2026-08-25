@@ -27,8 +27,10 @@ type catalogueTrack struct {
 	Downloads int64
 	// Up/Down are migration 0008's vote counts (WP-C3), shown on the
 	// release page next to each track.
-	Up   int
-	Down int
+	Up        int
+	Down      int
+	Kind      string
+	KindLabel *string
 	// IsOwn and MyVote are the release page's per-track viewer state
 	// (WP-C5): populated only by renderReleasePage, for a logged-in
 	// viewer, after buildCatalogueRelease returns — browse and search
@@ -314,6 +316,7 @@ func buildCatalogueRelease(r store.Release, tracks []store.SubtitleTrackSummary,
 		out.Tracks = append(out.Tracks, catalogueTrack{
 			ID: t.ID, Lang: t.Lang, Generated: t.Generated, Downloads: t.Downloads,
 			Up: t.Up, Down: t.Down,
+			Kind: t.Kind, KindLabel: t.KindLabel,
 		})
 	}
 	return out

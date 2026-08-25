@@ -68,7 +68,28 @@
       </div>
     </div>
 
-    <h3>4. About the scene <span class="hint" style="display:inline;font-weight:400">optional, but this is what makes it browsable</span></h3>
+    <h3>4. Kind of subtitle <span class="hint" style="display:inline;font-weight:400">optional</span></h3>
+    <div class="two">
+      <div>
+        <label for="kind">Type</label>
+        <select id="kind" name="kind">
+          {{$kind := .Values.Kind}}{{if eq $kind ""}}{{$kind = .DetectedKind}}{{end}}
+          <option value="default"{{if or (eq $kind "") (eq $kind "default")}} selected{{end}}>default</option>
+          <option value="cc"{{if eq $kind "cc"}} selected{{end}}>cc</option>
+          <option value="sdh"{{if eq $kind "sdh"}} selected{{end}}>sdh</option>
+          <option value="forced"{{if eq $kind "forced"}} selected{{end}}>forced</option>
+          <option value="other"{{if eq $kind "other"}} selected{{end}}>other</option>
+        </select>
+        <p class="hint">Plain dialogue is <em>default</em>. Both CC and SDH add sound cues and speaker names for deaf viewers — "(door slams)", "JOHN:" — CC being the broadcast-style transcription of the spoken language, SDH the same in subtitle form (often a translation). <em>forced</em> only covers foreign lines. Pick <em>other</em> for a variant such as a countdown edit and say what it is.</p>
+      </div>
+      <div>
+        <label for="kind_label">Label for "other" kind</label>
+        <input type="text" id="kind_label" name="kind_label" value="{{.Values.KindLabel}}" maxlength="40" placeholder="e.g., countdown, no credits" style="display:{{if eq .Values.Kind "other"}}block{{else}}none{{end}}">
+        <p class="hint" style="display:{{if eq .Values.Kind "other"}}block{{else}}none{{end}};margin:0">Short description of this subtitle variant, shown on the release page.</p>
+      </div>
+    </div>
+
+    <h3>5. About the scene <span class="hint" style="display:inline;font-weight:400">optional, but this is what makes it browsable</span></h3>
     <p class="hint" style="margin:0">Without a title or filename the subtitle is still found by fingerprint from Stash, but it has no catalogue page. These only take effect the first time a release is seen.</p>
     <div class="two">
       <div>

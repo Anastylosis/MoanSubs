@@ -181,7 +181,9 @@ keyset-paginated and optionally filtered by `lang`; `/search`'s `q` is
 capped at `MaxSearchQueryLen` (200 runes) and at most `MaxSearchQueryTokens`
 (16) tokens/codes — silently truncated, not rejected, so a person pasting a
 whole filename still gets a search on what fits rather than a 400), `/release/{id}` (one
-release's tracks, each linking to its `format=srt` download — a logged-in
+release's tracks, each linking to its `format=srt` download, showing each
+track's language tag plus a kind badge when the kind is not `default`
+— `cc`, `sdh`, `forced`, or the custom label for `other` — a logged-in
 visitor also gets up/down-vote forms per track, `POST /release/{id}/vote`,
 the same validation and rules as the API's `PUT`/`DELETE
 /api/v1/subtitles/{id}/vote`), and `/u/{name}` (an uploader's credited
@@ -236,6 +238,13 @@ unchanged. The upload page says the same in its own words.
 A pasted value is never overwritten. A file too small to fingerprint, or a
 container the browser can't decode, leaves the field for the uploader to
 type — same as with JavaScript disabled, which leaves every field plain.
+"Kind of subtitle" carries a `kind` dropdown (`default`, `cc`, `sdh`,
+`forced`, `other`) and an optional `kind_label` text field that's only
+shown and required when `other` is selected. The server suggests `sdh` if
+it detects bracketed sound cues like "(door slams)", musical-note glyphs,
+or all-caps speaker labels: a suggestion you can accept or override. The
+form explains the difference between CC and SDH since they're routinely
+conflated.
 "About the scene" also carries a `stash_id` text field and a
 `stash_endpoint` select — migration 0011's stash-box scene id, one
 per submission (the JSON API accepts up to 5; the form is for a person
