@@ -31,6 +31,16 @@ jobs:
       # Postgres tables in test setup, so their test binaries must run one at
       # a time, not in parallel (see the Makefile).
       test-flags: '-p 1 -race -count=1'
+      # plugin/sidecar.go's writeFileAtomic renames a temp file onto an
+      # existing caption when overwrite is set; that rename-over-existing
+      # semantics differs on Windows, and Stash itself runs on any OS even
+      # though today's plugin binary only ships for linux.
+      platform-tests: true
+      # internal/store and internal/api skip without DATABASE_URL, so this
+      # run exercises the parser (internal/subtitle) and plugin packages with
+      # no network reachable — a scorer or parser test that quietly depends
+      # on a live host would pass the main job and fail here.
+      offline-isolation: true
       check-dockerfile-go-version: true
 
 # NOTE: the shared workflow exports DATABASE_URL with generic ci/ci/ci_test
