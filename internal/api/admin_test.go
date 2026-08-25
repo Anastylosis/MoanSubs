@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -355,4 +356,44 @@ func modFixtureFor(t *testing.T, st *store.Store, name, oshash string) (releaseI
 		t.Fatalf("CreateSubtitleTrack: %v", err)
 	}
 	return releaseID, trackID
+}
+
+// The list must render every account, including a disabled one with a
+// reason — a template that dies on the first such row truncated the page
+// after one entry.
+func TestAdminAccountsPage_ListsEveryAccountWithDisableReason(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	if err := st.SetAccountRole(context.Background(), "webuser", "admin"); err != nil {
+		t.Fatalf("SetAccountRole: %v", err)
+	}
+	createWebAccount(t, ts, "list-active")
+	createWebAccount(t, ts, "list-disabled")
+
+	form := url.Values{"reason": {"spam bot"}}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/admin/accounts/list-disabled/disable", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", ts.URL)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST disable: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	resp, err = client.Get(ts.URL + "/admin/accounts")
+	if err != nil {
+		t.Fatalf("GET /admin/accounts: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /admin/accounts = %d, want 200", resp.StatusCode)
+	}
+	for _, want := range []string{`href="/u/webuser"`, `href="/u/list-active"`, `href="/u/list-disabled"`, "spam bot"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("accounts page is missing %q", want)
+		}
+	}
 }

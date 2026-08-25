@@ -91,12 +91,14 @@ func (s *Server) handleAdminIndex(w http.ResponseWriter, r *http.Request) {
 // adminAccountRowView is AdminAccountRow with its optional field resolved
 // to a plain string — same reasoning as mod.go's modFlaggedRow.
 type adminAccountRowView struct {
-	Name          string
-	Role          string
-	CreatedAt     time.Time
-	Disabled      bool
-	UploadCount   int
-	InvitedByName string
+	Name           string
+	Role           string
+	CreatedAt      time.Time
+	Disabled       bool
+	DisabledReason string
+	DisabledAt     *time.Time
+	UploadCount    int
+	InvitedByName  string
 }
 
 type adminAccountsData struct {
@@ -127,9 +129,12 @@ func (s *Server) handleAdminAccounts(w http.ResponseWriter, r *http.Request) {
 
 	rows := make([]adminAccountRowView, 0, len(accounts))
 	for _, a := range accounts {
-		row := adminAccountRowView{Name: a.Name, Role: a.Role, CreatedAt: a.CreatedAt, Disabled: a.Disabled, UploadCount: a.UploadCount}
+		row := adminAccountRowView{Name: a.Name, Role: a.Role, CreatedAt: a.CreatedAt, Disabled: a.Disabled, DisabledAt: a.DisabledAt, UploadCount: a.UploadCount}
 		if a.InvitedByName != nil {
 			row.InvitedByName = *a.InvitedByName
+		}
+		if a.DisabledReason != nil {
+			row.DisabledReason = *a.DisabledReason
 		}
 		rows = append(rows, row)
 	}

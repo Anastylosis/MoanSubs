@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"embed"
 	"html/template"
 	"log"
@@ -208,14 +209,17 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 	if noStore {
 		w.Header().Set("Cache-Control", "no-store")
 	}
-	w.WriteHeader(status)
-
-	s.Stats.recordView(body)
-
-	if err := tpl.ExecuteTemplate(w, "page", data); err != nil {
-		// Too late for a status code — the header is already out.
+	// Rendered into memory first: a template error halfway through would
+	// otherwise leave a truncated page behind a 200 that looks like data.
+	var buf bytes.Buffer
+	if err := tpl.ExecuteTemplate(&buf, "page", data); err != nil {
 		log.Printf("api: rendering %q: %v", body, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
+	w.WriteHeader(status)
+	s.Stats.recordView(body)
+	_, _ = buf.WriteTo(w)
 }
 
 // csp is the Content-Security-Policy for one rendered page. /upload is the
