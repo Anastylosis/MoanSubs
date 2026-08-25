@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -123,6 +124,21 @@ var stashboxBackfillCmd = &cobra.Command{
 	},
 }
 
+func releaseLabel(rel store.Release) string {
+	if rel.Title != nil && *rel.Title != "" {
+		return fmt.Sprintf("release %d %q", rel.ID, *rel.Title)
+	}
+	return fmt.Sprintf("release %d (untitled)", rel.ID)
+}
+
+// boxLabel is the endpoint's host: "stashdb.org", not the GraphQL URL.
+func boxLabel(endpoint string) string {
+	if u, err := url.Parse(endpoint); err == nil && u.Host != "" {
+		return u.Host
+	}
+	return endpoint
+}
+
 func dryRunSuffix(dry bool) string {
 	if dry {
 		return " (dry run, nothing written)"
@@ -168,7 +184,7 @@ func runBackfill(ctx context.Context, s *store.Store, client *stashbox.Client, o
 				return st, err
 			}
 		}
-		outcome, err := backfillOne(ctx, s, client, rel, opts)
+		outcome, matched, err := backfillOne(ctx, s, client, rel, opts)
 		switch {
 		case errors.Is(err, stashbox.ErrUnauthorized):
 			// A rejected key stays rejected; stop before a limiter notices it.
@@ -188,13 +204,13 @@ func runBackfill(ctx context.Context, s *store.Store, client *stashbox.Client, o
 		switch outcome {
 		case store.LookupFingerprint:
 			st.fingerprint++
-			_, _ = fmt.Fprintf(out, "release %d: id attached by fingerprint%s\n", rel.ID, dryRunSuffix(opts.dryRun))
+			_, _ = fmt.Fprintf(out, "matched fingerprint of %s to %q - %s - %s%s\n", releaseLabel(rel), matched.Title, boxLabel(opts.endpoint), matched.ID, dryRunSuffix(opts.dryRun))
 		case store.LookupProposed:
 			st.proposed++
-			_, _ = fmt.Fprintf(out, "release %d: name matched, metadata proposed%s\n", rel.ID, dryRunSuffix(opts.dryRun))
+			_, _ = fmt.Fprintf(out, "matched name of %s to %q - %s - %s, proposed%s\n", releaseLabel(rel), matched.Title, boxLabel(opts.endpoint), matched.ID, dryRunSuffix(opts.dryRun))
 		case store.LookupNone:
 			st.none++
-			_, _ = fmt.Fprintf(out, "release %d: not found\n", rel.ID)
+			_, _ = fmt.Fprintf(out, "no match for %s\n", releaseLabel(rel))
 		}
 		if !opts.dryRun {
 			if err := s.RecordStashBoxLookup(ctx, rel.ID, opts.endpoint, outcome); err != nil {
@@ -220,33 +236,35 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	}
 }
 
-func backfillOne(ctx context.Context, s *store.Store, client *stashbox.Client, rel store.Release, opts backfillOptions) (string, error) {
+// Returns the matched scene alongside the outcome so the caller can say
+// what was matched to what.
+func backfillOne(ctx context.Context, s *store.Store, client *stashbox.Client, rel store.Release, opts backfillOptions) (string, *stashbox.Scene, error) {
 	scene, err := findByFingerprint(ctx, client, rel)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if scene != nil {
 		if opts.dryRun {
-			return store.LookupFingerprint, nil
+			return store.LookupFingerprint, scene, nil
 		}
 		ids := []store.ReleaseStashID{{Endpoint: opts.endpoint, EHash: hash.EndpointHash(opts.endpoint), StashID: scene.ID}}
 		if err := s.AddReleaseStashIDs(ctx, rel.ID, ids, opts.proposer); err != nil {
-			return "", err
+			return "", nil, err
 		}
 		if opts.proposer != nil {
 			if err := propose(ctx, s, rel.ID, *scene, opts); err != nil {
-				return "", err
+				return "", nil, err
 			}
 		}
-		return store.LookupFingerprint, nil
+		return store.LookupFingerprint, scene, nil
 	}
 
 	if opts.proposer == nil || rel.Title == nil || rel.ReleaseDate == nil || *rel.Title == "" || *rel.ReleaseDate == "" {
-		return store.LookupNone, nil
+		return store.LookupNone, nil, nil
 	}
 	scenes, err := client.SearchScene(ctx, *rel.Title)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	for _, sc := range scenes {
 		if sc.ID == "" || sc.Date != *rel.ReleaseDate {
@@ -254,12 +272,12 @@ func backfillOne(ctx context.Context, s *store.Store, client *stashbox.Client, r
 		}
 		if !opts.dryRun {
 			if err := propose(ctx, s, rel.ID, sc, opts); err != nil {
-				return "", err
+				return "", nil, err
 			}
 		}
-		return store.LookupProposed, nil
+		return store.LookupProposed, &sc, nil
 	}
-	return store.LookupNone, nil
+	return store.LookupNone, nil, nil
 }
 
 func findByFingerprint(ctx context.Context, client *stashbox.Client, rel store.Release) (*stashbox.Scene, error) {
