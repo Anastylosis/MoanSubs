@@ -30,36 +30,45 @@ type sidecarFile struct {
 // suffixes are skipped: without a language they can't be served usefully,
 // and Stash itself files them under the invalid "00" placeholder.
 func discoverSidecars(scenePath string) ([]sidecarFile, error) {
-	ext := filepath.Ext(scenePath)
-	stem := strings.TrimSuffix(scenePath, ext)
+	// The scene's directory is listed and its names compared literally,
+	// rather than globbed: video filenames in real libraries are full of
+	// `[`, `]`, `*` and `?`, and there is no portable way to escape those
+	// for filepath.Glob — on Windows `\` is a path separator, not an
+	// escape, so a `\[`-escaped stem is a syntax error in a pattern
+	// rather than a literal bracket. A directory listing has no pattern
+	// language to fight with.
+	dir := filepath.Dir(scenePath)
+	base := filepath.Base(scenePath)
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
 
 	var out []sidecarFile
 	for _, capExt := range []string{".srt", ".vtt"} {
-		matches, err := filepath.Glob(escapeGlob(stem) + ".*" + capExt)
-		if err != nil {
-			return nil, err
-		}
-		for _, m := range matches {
-			// m = <stem>.<middle><capExt>; middle must be a parseable
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			// name = <stem>.<middle><capExt>; middle must be a parseable
 			// language tag.
-			middle := strings.TrimSuffix(strings.TrimPrefix(m, stem+"."), capExt)
-			if middle == "" || strings.Contains(middle, ".") {
+			middle, ok := strings.CutPrefix(e.Name(), stem+".")
+			if !ok {
+				continue
+			}
+			middle, ok = strings.CutSuffix(middle, capExt)
+			if !ok || middle == "" || strings.Contains(middle, ".") {
 				continue
 			}
 			if _, err := language.Parse(middle); err != nil {
 				continue
 			}
-			out = append(out, sidecarFile{Path: m, Lang: middle})
+			out = append(out, sidecarFile{Path: filepath.Join(dir, e.Name()), Lang: middle})
 		}
 	}
 	return out, nil
-}
-
-// escapeGlob neutralizes glob metacharacters in a literal path prefix —
-// video filenames in real libraries contain brackets constantly.
-func escapeGlob(s string) string {
-	r := strings.NewReplacer(`*`, `\*`, `?`, `\?`, `[`, `\[`, `]`, `\]`)
-	return r.Replace(s)
 }
 
 // pushStats is the push task's output.

@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -127,6 +128,9 @@ func TestWriteSidecar_RejectsOversizedBody(t *testing.T) {
 // name (which the never-overwrite guard would then protect forever) nor a
 // stray temp file behind.
 func TestWriteSidecar_FailureLeavesNoFileOrTemp(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX-only: Windows does not enforce a 0555 directory, so the create still succeeds and there is no failure to observe")
+	}
 	dir := t.TempDir()
 	scene := filepath.Join(dir, "video.mp4")
 	if err := os.WriteFile(scene, []byte("x"), 0o644); err != nil {

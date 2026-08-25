@@ -31,13 +31,10 @@ jobs:
       # Postgres tables in test setup, so their test binaries must run one at
       # a time, not in parallel (see the Makefile).
       test-flags: '-p 1 -race -count=1'
-      # platform-tests is OFF for now: the first Windows run (2026-08-25,
-      # run 32815927806) found six real failures — path quoting in the phash
-      # node driver, POSIX mode-bit checks in internal/config, `*`/`?` in
-      # plugin test fixture names, read-only-directory semantics. Fix those,
-      # then enable it: plugin/sidecar.go's rename-over-existing behaviour is
-      # exactly what the job exists to exercise.
-      platform-tests: false
+      # plugin/sidecar.go finishes every caption write by renaming a temp
+      # file over the existing one, and only a Windows run proves that
+      # still replaces rather than fails.
+      platform-tests: true
       # internal/store and internal/api skip without DATABASE_URL, so this
       # run exercises the parser (internal/subtitle) and plugin packages with
       # no network reachable — a scorer or parser test that quietly depends

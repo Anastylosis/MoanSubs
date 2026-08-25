@@ -21,6 +21,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -210,6 +211,14 @@ func checkPermissions(path string, vars map[string]string) error {
 		}
 	}
 	if len(carries) == 0 {
+		return nil
+	}
+	// Windows has no POSIX mode bits: os.Stat there synthesizes 0666 (or
+	// 0444 for a read-only file) from the archive attribute, so every
+	// config would look world-readable and no chmod could ever satisfy
+	// this check. Access there is an ACL question Go cannot ask, so the
+	// check does not fire rather than fire wrongly.
+	if runtime.GOOS == "windows" {
 		return nil
 	}
 	info, err := os.Stat(path)

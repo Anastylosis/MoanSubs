@@ -5,19 +5,22 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
 
 // nodePhashJSDriver runs static/phash.js's phashOfPixels over raw RGBA
-// files (width and height given alongside) and prints one hash per line —
-// the Node side of TestPhashJS_MatchesGoimagehash.
+// files and prints one hash per line — the Node side of
+// TestPhashJS_MatchesGoimagehash. Each sprite is three separate argv
+// entries (path, width, height) rather than one colon-joined string: a
+// Windows path starts "C:\\", so any colon-splitting scheme truncates it.
 const nodePhashJSDriver = `
 const fs = require('fs');
 const { phashOfPixels } = require(process.argv[2]);
 const lines = [];
-for (const spec of process.argv.slice(3)) {
-  const [path, w, h] = spec.split(':');
+for (let i = 3; i < process.argv.length; i += 3) {
+  const [path, w, h] = process.argv.slice(i, i + 3);
   const buf = fs.readFileSync(path);
   const rgba = new Uint8ClampedArray(buf.buffer, buf.byteOffset, buf.byteLength);
   lines.push(phashOfPixels(rgba, Number(w), Number(h)));
@@ -96,7 +99,7 @@ func TestPhashJS_MatchesGoimagehash(t *testing.T) {
 		if err := os.WriteFile(path, phashSprite(c.w, c.h, c.seed), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		args = append(args, fmt.Sprintf("%s:%d:%d", path, c.w, c.h))
+		args = append(args, path, strconv.Itoa(c.w), strconv.Itoa(c.h))
 	}
 
 	out, err := exec.Command(nodePath, args...).CombinedOutput()

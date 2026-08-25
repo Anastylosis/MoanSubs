@@ -88,7 +88,10 @@ func TestManifest_PushButtonToggleIsAnOptOutTheUIReads(t *testing.T) {
 		t.Fatalf("reading manifest: %v", err)
 	}
 	// The setting's own block: its indented lines, up to the next key.
-	lines := strings.Split(string(manifest), "\n")
+	// CRLF is stripped first: a Windows checkout hands this file back with
+	// \r on every line, which would make each exact line comparison below
+	// miss.
+	lines := strings.Split(strings.ReplaceAll(string(manifest), "\r\n", "\n"), "\n")
 	var block []string
 	for i, ln := range lines {
 		if ln != "  "+key+":" {

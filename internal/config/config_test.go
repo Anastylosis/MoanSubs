@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -83,6 +84,9 @@ func TestLoad_ExplicitFalseIsNotAbsent(t *testing.T) {
 // A credential readable by other accounts on the host is the one mistake
 // worth failing loudly over.
 func TestLoad_RefusesALooseFileHoldingASecret(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX-only: Windows has no mode bits for the loader to refuse, so the check does not fire there")
+	}
 	path := write(t, "database_url: \"postgres://u:p@h/db\"\n", 0o644)
 	err := Load(path, true)
 	if err == nil || !strings.Contains(err.Error(), "chmod 600") {

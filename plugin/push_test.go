@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -59,7 +60,12 @@ func TestDiscoverSidecars(t *testing.T) {
 	t.Logf("zz suffix handling: included=%v", func() bool { _, ok := found["My Video [1080p].zz.srt"]; return ok }())
 }
 
-func TestEscapeGlob(t *testing.T) {
+// A stem full of glob metacharacters must be matched literally, not as a
+// pattern — bracketed release tags are everywhere in real libraries.
+func TestDiscoverSidecars_MetacharStemIsMatchedLiterally(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX-only: `*` and `?` are illegal in Windows filenames, so the fixture cannot be created there")
+	}
 	dir := t.TempDir()
 	scene := filepath.Join(dir, "a[b]c*d?e.mp4")
 	if err := os.WriteFile(filepath.Join(dir, "a[b]c*d?e.en.srt"), []byte("x"), 0o644); err != nil {
