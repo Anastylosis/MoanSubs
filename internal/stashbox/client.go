@@ -169,14 +169,13 @@ func (w sceneWire) flatten() Scene {
 // algorithm is one of "OSHASH", "PHASH", "MD5". Uses
 // findScenesBySceneFingerprints, the query Stash itself sends: the older
 // findScenesByFingerprint is absent on ThePornDB's compatible API.
-func (c *Client) FindSceneByFingerprint(ctx context.Context, algorithm, hash string, durationMs int) ([]Scene, error) {
+func (c *Client) FindSceneByFingerprint(ctx context.Context, algorithm, hash string, _ int) ([]Scene, error) {
 	const query = `query($fingerprints: [[FingerprintQueryInput!]!]!) {
 		findScenesBySceneFingerprints(fingerprints: $fingerprints) { ` + sceneFragment + ` }
 	}`
+	// No duration in the input: ThePornDB's FingerprintQueryInput lacks the
+	// field, and a hash hit is strong evidence on its own.
 	fingerprint := map[string]any{"hash": hash, "algorithm": algorithm}
-	if durationMs > 0 {
-		fingerprint["duration"] = durationMs / 1000
-	}
 	var wire [][]sceneWire
 	if err := c.do(ctx, query, map[string]any{"fingerprints": [][]map[string]any{{fingerprint}}}, "findScenesBySceneFingerprints", &wire); err != nil {
 		return nil, err
