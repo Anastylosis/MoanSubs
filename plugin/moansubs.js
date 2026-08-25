@@ -533,14 +533,22 @@
   // picker itself needs no server-feature check.
   function buildKindPicker() {
     const wrap = document.createElement("span");
-    wrap.className = "moansubs-push-kind ml-2";
+    wrap.className = "moansubs-push-kind d-inline-flex align-items-center ml-2";
 
-    const select = document.createElement("select");
-    select.className = "form-control form-control-sm d-inline-block";
-    select.style.width = "auto";
+    // Stash's theme only styles form controls inside its own form groups,
+    // so a bare .form-control here renders white; dress it as a button.
+    const control = (el) => {
+      el.className = "btn btn-sm btn-secondary";
+      el.style.height = "auto";
+      el.style.lineHeight = "1.5";
+      el.style.textAlign = "left";
+      return el;
+    };
+
+    const select = control(document.createElement("select"));
     select.title = "Kind to push this scene's sidecars as";
     [
-      ["", "auto-detect"],
+      ["", "kind: auto"],
       ["default", "default"],
       ["cc", "cc"],
       ["sdh", "sdh"],
@@ -553,15 +561,15 @@
       select.appendChild(opt);
     });
 
-    const label = document.createElement("input");
+    const label = control(document.createElement("input"));
     label.type = "text";
     label.maxLength = 40;
     label.placeholder = "label";
-    label.className = "form-control form-control-sm d-inline-block ml-1";
+    label.classList.add("ml-1");
     label.style.width = "8rem";
-    label.style.display = "none";
+    label.hidden = true;
     select.onchange = () => {
-      label.style.display = select.value === "other" ? "" : "none";
+      label.hidden = select.value !== "other";
     };
 
     wrap.appendChild(select);
