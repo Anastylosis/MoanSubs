@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"sort"
+	"strings"
 	"time"
 
 	stash "github.com/Anastylosis/stash-go"
@@ -111,6 +113,26 @@ pageLoop:
 		st.note("captions are read-only in GraphQL and only attach via a metadata scan — run one (Settings → Tasks → Scan) to pick up what was written")
 	}
 	logProgress(1)
+	// Stash discards a task's return value, so the log is the only place a
+	// run's outcome can be read.
+	for _, n := range st.Notes {
+		logInfo("download_all: %s", n)
+	}
+	perLang := make([]string, 0, len(st.Downloaded))
+	for lang, n := range st.Downloaded {
+		perLang = append(perLang, fmt.Sprintf("%s=%d", lang, n))
+	}
+	sort.Strings(perLang)
+	verb := "wrote"
+	if dryRun {
+		verb = "would write"
+	}
+	written := strings.Join(perLang, " ")
+	if written == "" {
+		written = "nothing"
+	}
+	logInfo("download_all done: %d scenes scanned, %s %s, %d skipped (caption exists), %d no match, %d errors",
+		st.ScenesScanned, verb, written, st.Skipped, st.NoMatch, st.Errors)
 	return st, nil
 }
 
