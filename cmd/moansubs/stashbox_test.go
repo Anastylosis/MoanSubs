@@ -46,8 +46,8 @@ func (f *fakeBox) serve(t *testing.T) *httptest.Server {
 		var field string
 		var payload any
 		switch {
-		case strings.Contains(req.Query, "findScenesByFingerprint"):
-			field, payload = "findScenesByFingerprint", f.byFinger
+		case strings.Contains(req.Query, "findScenesBySceneFingerprints"):
+			field, payload = "findScenesBySceneFingerprints", []any{f.byFinger}
 		case strings.Contains(req.Query, "searchScene"):
 			field, payload = "searchScene", f.bySearch
 		default:

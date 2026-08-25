@@ -20,7 +20,7 @@ type fakeBox struct {
 	// body, when set, is written verbatim instead of the query-shaped reply
 	// below -- used for the 401/429 cases, which stash-box answers with a
 	// plain body rather than a GraphQL error envelope.
-	scenes json.RawMessage // canned findScenesByFingerprint/searchScene result
+	scenes json.RawMessage // canned scene list for fingerprint/searchScene results
 	scene  json.RawMessage // canned findScene result ("null" for not-found)
 	gqlErr string
 }
@@ -51,8 +51,9 @@ func (f *fakeBox) handler(t *testing.T) http.HandlerFunc {
 		var field string
 		var payload json.RawMessage
 		switch {
-		case strings.Contains(req.Query, "findScenesByFingerprint"):
-			field, payload = "findScenesByFingerprint", f.scenes
+		case strings.Contains(req.Query, "findScenesBySceneFingerprints"):
+			// One inner list per queried fingerprint; the client sends one.
+			field, payload = "findScenesBySceneFingerprints", json.RawMessage("["+string(f.scenes)+"]")
 		case strings.Contains(req.Query, "findScene("):
 			field, payload = "findScene", f.scene
 		case strings.Contains(req.Query, "searchScene"):

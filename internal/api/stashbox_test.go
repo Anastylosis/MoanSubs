@@ -201,8 +201,8 @@ func fakeStashBoxServer(t *testing.T, status int) *httptest.Server {
 			Query string `json:"query"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		field := "findScenesByFingerprint"
-		scene := `[{"id":"c72cba4a-1e2b-4f0e-8f3a-1234567890ab","title":"A Scene","date":"2024-01-02","studio":{"name":"A Studio"},"performers":[{"performer":{"name":"Alice"}}]}]`
+		field := "findScenesBySceneFingerprints"
+		scene := `[[{"id":"c72cba4a-1e2b-4f0e-8f3a-1234567890ab","title":"A Scene","date":"2024-01-02","studio":{"name":"A Studio"},"performers":[{"performer":{"name":"Alice"}}]}]]`
 		if strings.Contains(req.Query, "findScene(") {
 			field = "findScene"
 			scene = `{"id":"c72cba4a-1e2b-4f0e-8f3a-1234567890ab","title":"A Scene","date":"2024-01-02","studio":{"name":"A Studio"},"performers":[{"performer":{"name":"Alice"}}]}`

@@ -165,23 +165,27 @@ func (w sceneWire) flatten() Scene {
 	return s
 }
 
-// FindSceneByFingerprint looks up scenes by a single fingerprint --
-// algorithm is one of "OSHASH", "PHASH", "MD5" (stash-box's
+// FindSceneByFingerprint looks up scenes by a single fingerprint;
+// algorithm is one of "OSHASH", "PHASH", "MD5". Uses
+// findScenesBySceneFingerprints, the query Stash itself sends: the older
+// findScenesByFingerprint is absent on ThePornDB's compatible API.
 func (c *Client) FindSceneByFingerprint(ctx context.Context, algorithm, hash string, durationMs int) ([]Scene, error) {
-	const query = `query($fingerprint: FingerprintQueryInput!) {
-		findScenesByFingerprint(fingerprint: $fingerprint) { ` + sceneFragment + ` }
+	const query = `query($fingerprints: [[FingerprintQueryInput!]!]!) {
+		findScenesBySceneFingerprints(fingerprints: $fingerprints) { ` + sceneFragment + ` }
 	}`
 	fingerprint := map[string]any{"hash": hash, "algorithm": algorithm}
 	if durationMs > 0 {
 		fingerprint["duration"] = durationMs / 1000
 	}
-	var wire []sceneWire
-	if err := c.do(ctx, query, map[string]any{"fingerprint": fingerprint}, "findScenesByFingerprint", &wire); err != nil {
+	var wire [][]sceneWire
+	if err := c.do(ctx, query, map[string]any{"fingerprints": [][]map[string]any{{fingerprint}}}, "findScenesBySceneFingerprints", &wire); err != nil {
 		return nil, err
 	}
-	out := make([]Scene, len(wire))
-	for i, w := range wire {
-		out[i] = w.flatten()
+	var out []Scene
+	for _, group := range wire {
+		for _, w := range group {
+			out = append(out, w.flatten())
+		}
 	}
 	return out, nil
 }
