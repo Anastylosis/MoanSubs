@@ -332,6 +332,99 @@ func TestModTrackWithdraw_EmptyReasonRejected(t *testing.T) {
 	}
 }
 
+// -- kind correction (migration 0021, WP-K1) --------------------------------
+
+func TestModTrackKind_CorrectsExistingRow(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	_, trackID := modFixture(t, st, "d6d6d6d6d6d6d6d6")
+	if err := st.SetAccountRole(context.Background(), "webuser", "mod"); err != nil {
+		t.Fatalf("SetAccountRole: %v", err)
+	}
+
+	form := url.Values{"kind": {"sdh"}}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/mod/track/"+strconv.FormatInt(trackID, 10)+"/kind",
+		strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", ts.URL)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST kind: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST kind = %d, want 303", resp.StatusCode)
+	}
+
+	detail, err := st.GetTrackDetail(context.Background(), trackID)
+	if err != nil {
+		t.Fatalf("GetTrackDetail: %v", err)
+	}
+	if detail.Kind != "sdh" {
+		t.Errorf("detail.Kind = %q, want sdh", detail.Kind)
+	}
+}
+
+func TestModTrackKind_RejectsUnknownKind(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	_, trackID := modFixture(t, st, "d7d7d7d7d7d7d7d7")
+	if err := st.SetAccountRole(context.Background(), "webuser", "mod"); err != nil {
+		t.Fatalf("SetAccountRole: %v", err)
+	}
+
+	form := url.Values{"kind": {"subbed"}}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/mod/track/"+strconv.FormatInt(trackID, 10)+"/kind",
+		strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", ts.URL)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST kind: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("POST kind with an unknown value = %d, want 400", resp.StatusCode)
+	}
+
+	detail, err := st.GetTrackDetail(context.Background(), trackID)
+	if err != nil {
+		t.Fatalf("GetTrackDetail: %v", err)
+	}
+	if detail.Kind != "default" {
+		t.Errorf("detail.Kind = %q, want unchanged default", detail.Kind)
+	}
+}
+
+func TestModTrackKind_WrongOriginRejected(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	_, trackID := modFixture(t, st, "d8d8d8d8d8d8d8d8")
+	if err := st.SetAccountRole(context.Background(), "webuser", "mod"); err != nil {
+		t.Fatalf("SetAccountRole: %v", err)
+	}
+
+	form := url.Values{"kind": {"sdh"}}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/mod/track/"+strconv.FormatInt(trackID, 10)+"/kind",
+		strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "https://evil.example")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST kind: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("cross-origin kind correction = %d, want 403", resp.StatusCode)
+	}
+}
+
 // -- /mod/release/{id} ------------------------------------------------------
 
 func TestModReleaseWithdraw_CascadesToTracks(t *testing.T) {

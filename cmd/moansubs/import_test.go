@@ -308,6 +308,82 @@ func TestImport_SkipsUnparseableTrack(t *testing.T) {
 	}
 }
 
+// A dump line predating migration 0021 carries no subtitle_kind field at
+// all; import must default it to "default" rather than fail or leave it
+// empty (which the kind CHECK constraint would reject).
+func TestImport_OlderDumpMissingSubtitleKindDefaults(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	path := filepath.Join(t.TempDir(), "dump.jsonl.gz")
+	handWrittenDump(t, path,
+		`{"kind":"meta","format":1,"generated_at":"2026-01-01T00:00:00Z","node":"test"}`,
+		`{"kind":"release","id":1,"oshash":"f300000000000001","phash":null,"duration_ms":1,"width":null,"height":null,"video_codec":null}`,
+		`{"kind":"track","id":1,"release_id":1,"lang":"en","generated":false,"license":"CC0","uploader":null,"created_at":"2026-01-01T00:00:00Z","body":"1\n00:00:01,000 --> 00:00:03,000\nhello\n\n"}`,
+	)
+
+	out := runImportFile(t, path)
+	if !strings.Contains(out, "1 imported") {
+		t.Fatalf("output = %q, want 1 imported", out)
+	}
+
+	release, err := s.GetReleaseByOshash(ctx, mustOSHash(t, "f300000000000001"))
+	if err != nil {
+		t.Fatalf("GetReleaseByOshash: %v", err)
+	}
+	tracks, err := s.TrackSummariesByReleaseIDs(ctx, []int64{release.ID})
+	if err != nil {
+		t.Fatalf("TrackSummariesByReleaseIDs: %v", err)
+	}
+	if len(tracks[release.ID]) != 1 || tracks[release.ID][0].Kind != "default" {
+		t.Errorf("imported track kind = %+v, want exactly one track with kind default", tracks[release.ID])
+	}
+}
+
+// dump -> import must carry kind/kind_label through intact, and a
+// re-import of the same dump must correct the kind on the existing row
+// rather than duplicate it.
+func TestDumpImportRoundTrip_CarriesKind(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	release, err := s.CreateRelease(ctx, store.Release{OSHash: mustOSHash(t, "f400000000000001"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	label := "countdown"
+	if _, err := s.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+		ReleaseID: release, Lang: "en", Body: canonicalBody, Kind: "other", KindLabel: &label,
+	}); err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	path := filepath.Join(t.TempDir(), "dump.jsonl.gz")
+	runDumpToFile(t, path)
+
+	s = openTestStore(t)
+	runImportFile(t, path)
+	// Re-importing the same dump must correct kind on the existing row
+	// rather than fail or duplicate it.
+	runImportFile(t, path)
+
+	imported, err := s.GetReleaseByOshash(ctx, mustOSHash(t, "f400000000000001"))
+	if err != nil {
+		t.Fatalf("GetReleaseByOshash: %v", err)
+	}
+	tracks, err := s.TrackSummariesByReleaseIDs(ctx, []int64{imported.ID})
+	if err != nil {
+		t.Fatalf("TrackSummariesByReleaseIDs: %v", err)
+	}
+	if len(tracks[imported.ID]) != 1 {
+		t.Fatalf("imported release has %d track(s), want 1", len(tracks[imported.ID]))
+	}
+	got := tracks[imported.ID][0]
+	if got.Kind != "other" || got.KindLabel == nil || *got.KindLabel != label {
+		t.Errorf("imported track Kind/KindLabel = %q/%v, want other/%q", got.Kind, got.KindLabel, label)
+	}
+}
+
 func TestImport_UnknownReleaseReference(t *testing.T) {
 	openTestStore(t)
 

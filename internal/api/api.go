@@ -488,6 +488,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("GET /mod/track/{id}", s.page(s.handleModTrack))
 	mux.HandleFunc("POST /mod/track/{id}/withdraw", s.page(s.handleModTrackWithdraw))
 	mux.HandleFunc("POST /mod/track/{id}/restore", s.page(s.handleModTrackRestore))
+	mux.HandleFunc("POST /mod/track/{id}/kind", s.page(s.handleModTrackKind))
 	mux.HandleFunc("GET /mod/release/{id}", s.page(s.handleModRelease))
 	mux.HandleFunc("POST /mod/release/{id}/withdraw", s.page(s.handleModReleaseWithdraw))
 	mux.HandleFunc("POST /mod/release/{id}/restore", s.page(s.handleModReleaseRestore))

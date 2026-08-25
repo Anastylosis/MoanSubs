@@ -382,3 +382,183 @@ func TestStore_UpdateSubtitleTrackBody_NotFound(t *testing.T) {
 		t.Errorf("UpdateSubtitleTrackBody(999999): got %v, want ErrNotFound", err)
 	}
 }
+
+// -- Kind (migration 0021, WP-K1) --------------------------------------
+
+// An empty Kind on insert must default to "default", the same convention
+// CreateSubtitleTrack already applies to License.
+func TestStore_CreateSubtitleTrack_KindDefaults(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7070707070707070"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	got, err := s.GetSubtitleTrack(ctx, id)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if got.Kind != "default" {
+		t.Errorf("got.Kind = %q, want %q", got.Kind, "default")
+	}
+	if got.KindLabel != nil {
+		t.Errorf("got.KindLabel = %v, want nil", got.KindLabel)
+	}
+}
+
+func TestStore_CreateSubtitleTrack_KindOtherWithLabel(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7171717171717171"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	label := "countdown"
+	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+		Kind: "other", KindLabel: &label,
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	got, err := s.GetSubtitleTrack(ctx, id)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if got.Kind != "other" {
+		t.Errorf("got.Kind = %q, want other", got.Kind)
+	}
+	if got.KindLabel == nil || *got.KindLabel != label {
+		t.Errorf("got.KindLabel = %v, want %q", got.KindLabel, label)
+	}
+}
+
+// The migration's CHECK constraints are the last line of defense against a
+// bad kind/kind_label pair reaching the database, independent of the API
+// layer's own validation.
+func TestStore_SubtitleTracksKindCheckConstraints(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7272727272727272"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	_, err = s.pool.Exec(ctx, `INSERT INTO subtitle_tracks (release_id, lang, body, kind) VALUES ($1, 'en', 'x', 'subbed')`, releaseID)
+	if err == nil {
+		t.Error("insert with kind = 'subbed' succeeded, want the kind CHECK to reject it")
+	}
+
+	_, err = s.pool.Exec(ctx, `INSERT INTO subtitle_tracks (release_id, lang, body, kind, kind_label) VALUES ($1, 'en', 'x', 'default', 'nope')`, releaseID)
+	if err == nil {
+		t.Error("insert with kind = 'default' and a kind_label succeeded, want the kind_label CHECK to reject it")
+	}
+}
+
+func TestStore_UpdateSubtitleTrackKind(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7373737373737373"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	if err := s.UpdateSubtitleTrackKind(ctx, id, "sdh", nil); err != nil {
+		t.Fatalf("UpdateSubtitleTrackKind: %v", err)
+	}
+
+	got, err := s.GetSubtitleTrack(ctx, id)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if got.Kind != "sdh" {
+		t.Errorf("got.Kind = %q, want sdh", got.Kind)
+	}
+	// Nothing else should have moved.
+	if got.Lang != "en" || got.Body == "" {
+		t.Errorf("UpdateSubtitleTrackKind changed more than kind: got %+v", got)
+	}
+}
+
+func TestStore_UpdateSubtitleTrackKind_NotFound(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if err := s.UpdateSubtitleTrackKind(ctx, 999999, "sdh", nil); !errors.Is(err, ErrNotFound) {
+		t.Errorf("UpdateSubtitleTrackKind(999999): got %v, want ErrNotFound", err)
+	}
+}
+
+// TrackSummariesByReleaseIDs and GetTrackDetail must both carry Kind/
+// KindLabel through — the lookup endpoints and /mod/track/{id} both read
+// through them.
+func TestStore_TrackSummariesByReleaseIDs_CarriesKind(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7474747474747474"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	label := "countdown"
+	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+		Kind: "other", KindLabel: &label,
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	got, err := s.TrackSummariesByReleaseIDs(ctx, []int64{releaseID})
+	if err != nil {
+		t.Fatalf("TrackSummariesByReleaseIDs: %v", err)
+	}
+	if len(got[releaseID]) != 1 || got[releaseID][0].ID != id {
+		t.Fatalf("got[releaseID] = %+v, want exactly track %d", got[releaseID], id)
+	}
+	if got[releaseID][0].Kind != "other" || got[releaseID][0].KindLabel == nil || *got[releaseID][0].KindLabel != label {
+		t.Errorf("track summary Kind/KindLabel = %q/%v, want other/%q", got[releaseID][0].Kind, got[releaseID][0].KindLabel, label)
+	}
+}
+
+func TestStore_GetTrackDetail_CarriesKind(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7575757575757575"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n", Kind: "forced",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	detail, err := s.GetTrackDetail(ctx, id)
+	if err != nil {
+		t.Fatalf("GetTrackDetail: %v", err)
+	}
+	if detail.Kind != "forced" {
+		t.Errorf("detail.Kind = %q, want forced", detail.Kind)
+	}
+}

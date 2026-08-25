@@ -43,6 +43,11 @@ type uploadRequest struct {
 	// WP-C9a) — additive on the release, like name metadata never removed,
 	// only ever added to. Capped at maxUploadStashIDs per request.
 	StashIDs []stashIDInput `json:"stash_ids"`
+
+	// Kind/KindLabel: migration 0021 (WP-K1). Validated by
+	// subtitle.NormalizeKind.
+	Kind      string `json:"kind"`
+	KindLabel string `json:"kind_label"`
 }
 
 // stashIDInput is one entry of uploadRequest.StashIDs.
@@ -79,6 +84,13 @@ func optString(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func samePtrString(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 // parseUploadStashIDs validates and normalizes an upload's stash_ids
@@ -336,6 +348,34 @@ func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status, resp)
 }
 
+// FindIdenticalTrack finds withdrawn tracks too, so a takedown cannot be
+// undone by re-uploading the same bytes. A re-upload that states a kind
+// corrects the row instead of duplicating it; one that omits kind leaves
+// the stored kind alone, so bulk re-seeding never downgrades an SDH track.
+func (s *Server) duplicateTrackResponse(ctx context.Context, existingID, releaseID int64, kind, kindLabel string, kindGiven, generated bool) (*uploadResponse, *apiError) {
+	existing, err := s.Store.GetSubtitleTrack(ctx, existingID)
+	if err != nil {
+		log.Printf("api: GetSubtitleTrack (duplicate check): %v", err)
+		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+	}
+	if existing.WithdrawnAt != nil {
+		return nil, &apiError{http.StatusGone, "track withdrawn"}
+	}
+	newLabel := optString(kindLabel)
+	if kindGiven && (kind != existing.Kind || !samePtrString(newLabel, existing.KindLabel)) {
+		if err := s.Store.UpdateSubtitleTrackKind(ctx, existingID, kind, newLabel); err != nil {
+			log.Printf("api: UpdateSubtitleTrackKind: %v", err)
+			return nil, &apiError{http.StatusInternalServerError, "internal error"}
+		}
+	}
+	return &uploadResponse{
+		TrackID:   existingID,
+		ReleaseID: releaseID,
+		Generated: generated,
+		Duplicate: true,
+	}, nil
+}
+
 // ingest is handleUploadSubtitle's and the web upload form's (WP-D1,
 // POST /upload) shared core: rate limit -> validate -> parse/re-render/
 // sanitize -> detect provenance on the raw bytes -> runtime sanity check ->
@@ -389,6 +429,10 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	}
 	if req.Body == "" {
 		return nil, &apiError{http.StatusBadRequest, "body is required"}
+	}
+	kind, kindLabel, err := subtitle.NormalizeKind(req.Kind, req.KindLabel)
+	if err != nil {
+		return nil, &apiError{http.StatusBadRequest, err.Error()}
 	}
 
 	rawBody := []byte(req.Body)
@@ -477,24 +521,7 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 		log.Printf("api: FindIdenticalTrack: %v", err)
 		return nil, &apiError{http.StatusInternalServerError, "internal error"}
 	} else if existingID != 0 {
-		// FindIdenticalTrack deliberately finds withdrawn tracks too (WP-A1):
-		// a takedown must not be silently undone by re-uploading the same
-		// bytes, so check the existing track's own withdrawn state before
-		// treating this as an ordinary duplicate.
-		existing, err := s.Store.GetSubtitleTrack(ctx, existingID)
-		if err != nil {
-			log.Printf("api: GetSubtitleTrack (duplicate check): %v", err)
-			return nil, &apiError{http.StatusInternalServerError, "internal error"}
-		}
-		if existing.WithdrawnAt != nil {
-			return nil, &apiError{http.StatusGone, "track withdrawn"}
-		}
-		return &uploadResponse{
-			TrackID:   existingID,
-			ReleaseID: release.ID,
-			Generated: generated,
-			Duplicate: true,
-		}, nil
+		return s.duplicateTrackResponse(ctx, existingID, release.ID, kind, kindLabel, req.Kind != "", generated)
 	}
 
 	accountID := account.ID
@@ -506,6 +533,8 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 		Provenance: provenanceJSON,
 		License:    "CC0", // PLAN.md "Settled decisions": CC0 declared on normal uploads.
 		UploaderID: &accountID,
+		Kind:       kind,
+		KindLabel:  optString(kindLabel),
 	})
 	if err != nil {
 		log.Printf("api: CreateSubtitleTrack: %v", err)
@@ -537,6 +566,9 @@ type getSubtitleResponse struct {
 	// Up/Down are migration 0008's vote counts (WP-C3), also additive.
 	Up   int `json:"up"`
 	Down int `json:"down"`
+	// Kind/KindLabel: migration 0021 (WP-K1), additive.
+	Kind      string  `json:"kind"`
+	KindLabel *string `json:"kind_label,omitempty"`
 	// OffsetMs is the shift applied to this body because the caller asked
 	// for it timed against another release (for_release). Zero means none
 	// was applied — either the caller did not ask, or no sync is recorded
@@ -669,6 +701,8 @@ func (s *Server) handleGetSubtitle(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:  track.CreatedAt,
 		Up:         track.Up,
 		Down:       track.Down,
+		Kind:       track.Kind,
+		KindLabel:  track.KindLabel,
 		OffsetMs:   appliedOffset,
 		OffsetFrom: offsetSource,
 	})

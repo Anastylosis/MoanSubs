@@ -620,7 +620,12 @@ buttons.
   generated flag, vote tally, withdrawn state) plus every vote cast on it
   with its reason/note/voter (`VotesForTrack`, the same data `track show`
   prints), a preview of its first 20 cues, and a Withdraw or Restore button
-  depending on its current state.
+  depending on its current state. Also carries a kind-correction form
+  (migration 0021): `default`/`cc`/`sdh`/`forced`/`other` plus a label for
+  `other`, run through the same `POST /mod/track/{id}/kind` a script would
+  hit directly. Mislabelling is the expected failure mode here, not a rare
+  one — the parser only ever *suggests* a kind, it never overrides an
+  uploader.
 - `/mod/release/{id}` — a minimal page for withdrawing or restoring a whole
   release (`WithdrawRelease`/`RestoreRelease`, cascading to every one of its
   active tracks exactly like `release withdraw`/`release restore`).
@@ -776,7 +781,12 @@ on the host disk otherwise.
    and `en-US` tracks respectively.
 6. Deduplicates: a byte-identical track for the same release and
    (canonical) language returns the existing track (`duplicate: true`)
-   instead of inserting. Bulk pushes are therefore safe to re-run.
+   instead of inserting. Bulk pushes are therefore safe to re-run. An
+   optional `kind` (migration 0021: `default`/`cc`/`sdh`/`forced`/`other`,
+   the last carrying a short `kind_label`) rides along; re-uploading the
+   identical body under a different kind corrects the existing track's
+   kind rather than creating a second one, for the same reason — kind
+   never creates a duplicate.
 
 ## Counters (`GET /api/v1/stats`, API.md)
 

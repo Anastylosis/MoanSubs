@@ -35,6 +35,9 @@ type lookupTrackSummary struct {
 	// Up/Down are migration 0008's vote counts (WP-C3), also additive.
 	Up   int `json:"up"`
 	Down int `json:"down"`
+	// Kind/KindLabel: migration 0021 (WP-K1), additive.
+	Kind      string  `json:"kind"`
+	KindLabel *string `json:"kind_label,omitempty"`
 }
 
 // lookupStashID is one stash-box scene identity as echoed on a release
@@ -130,6 +133,8 @@ func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) (
 				Downloads:     t.Downloads,
 				Up:            t.Up,
 				Down:          t.Down,
+				Kind:          t.Kind,
+				KindLabel:     t.KindLabel,
 			})
 		}
 

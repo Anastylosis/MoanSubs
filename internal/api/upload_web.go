@@ -41,6 +41,9 @@ type uploadFormValues struct {
 	StashID            string
 	StashEndpoint      string
 	StashEndpointOther string
+	// Kind/KindLabel: WP-K1, plumbed for WP-K2's <select>.
+	Kind      string
+	KindLabel string
 }
 
 // stashEndpointDefaults is the same well-known stash-boxes API.md
@@ -242,6 +245,8 @@ func formValuesFromRequest(r *http.Request) uploadFormValues {
 		StashID:            r.PostFormValue("stash_id"),
 		StashEndpoint:      r.PostFormValue("stash_endpoint"),
 		StashEndpointOther: r.PostFormValue("stash_endpoint_other"),
+		Kind:               r.PostFormValue("kind"),
+		KindLabel:          r.PostFormValue("kind_label"),
 	}
 }
 
@@ -295,6 +300,8 @@ func uploadRequestFromForm(r *http.Request, body string) (uploadRequest, *apiErr
 		Studio:     r.PostFormValue("studio"),
 		Performers: performers,
 		StashIDs:   stashIDs,
+		Kind:       strings.TrimSpace(r.PostFormValue("kind")),
+		KindLabel:  r.PostFormValue("kind_label"),
 	}, nil
 }
 

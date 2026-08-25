@@ -23,6 +23,13 @@
 </form>
 {{end}}
 
+<form method="post" action="/mod/track/{{.Detail.ID}}/kind" class="stack" style="margin:0 0 2rem">
+  <label for="kind">Kind{{if .Detail.KindLabel}} (currently {{.Detail.Kind}}: {{.Detail.KindLabel}}){{else}} (currently {{.Detail.Kind}}){{end}}</label>
+  <select id="kind" name="kind">{{range .Kinds}}<option value="{{.}}"{{if eq . $.Detail.Kind}} selected{{end}}>{{.}}</option>{{end}}</select>
+  <input type="text" name="kind_label" maxlength="40" value="{{.Detail.KindLabel}}" placeholder="label, only for &quot;other&quot;" aria-label="Kind label">
+  <button type="submit" class="quiet">Correct kind</button>
+</form>
+
 <h2 style="margin-top:0">Votes</h2>
 {{if not .Votes}}
 <p class="empty">No votes yet.</p>

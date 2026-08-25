@@ -276,11 +276,23 @@ func importTrack(ctx context.Context, s *store.Store, out io.Writer, releaseID i
 	}
 	rendered := subtitle.RenderSRT(cues)
 
+	// A dump predating migration 0021 carries no subtitle_kind at all;
+	// default it the same way CreateSubtitleTrack defaults an empty Kind.
+	kind := tl.SubtitleKind
+	if kind == "" {
+		kind = subtitle.KindDefault
+	}
+
 	existingID, err := s.FindIdenticalTrack(ctx, releaseID, tl.Lang, rendered)
 	if err != nil {
 		return 0, fmt.Errorf("track %d: %w", tl.ID, err)
 	}
 	if existingID != 0 {
+		// Kind never creates a duplicate (kinds-intro.md): re-running
+		// import corrects it on the existing row, same as a re-upload.
+		if err := s.UpdateSubtitleTrackKind(ctx, existingID, kind, tl.SubtitleKindLabel); err != nil {
+			return 0, fmt.Errorf("track %d: %w", tl.ID, err)
+		}
 		return trackDuplicate, nil
 	}
 
@@ -297,6 +309,8 @@ func importTrack(ctx context.Context, s *store.Store, out io.Writer, releaseID i
 		Provenance: []byte(tl.Provenance),
 		License:    tl.License,
 		Source:     &source,
+		Kind:       kind,
+		KindLabel:  tl.SubtitleKindLabel,
 	}); err != nil {
 		return 0, fmt.Errorf("track %d: %w", tl.ID, err)
 	}

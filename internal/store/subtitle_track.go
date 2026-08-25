@@ -43,9 +43,13 @@ type SubtitleTrack struct {
 	// UpsertVote/RetractVote. Never set on insert — always start at 0.
 	Up   int
 	Down int
+	// Kind/KindLabel: migration 0021 (WP-K1), declared not enforced. Empty
+	// Kind on insert defaults like License does.
+	Kind      string
+	KindLabel *string
 }
 
-const subtitleTrackColumns = `id, release_id, lang, body, generated, provenance, license, source, uploader_id, created_at, withdrawn_at, withdrawn_reason, downloads, up, down`
+const subtitleTrackColumns = `id, release_id, lang, body, generated, provenance, license, source, uploader_id, created_at, withdrawn_at, withdrawn_reason, downloads, up, down, kind, kind_label`
 
 // CreateSubtitleTrack inserts t and returns its assigned id.
 // FindIdenticalTrack returns the id of an existing track with the same
@@ -72,6 +76,10 @@ func (s *Store) CreateSubtitleTrack(ctx context.Context, t SubtitleTrack) (int64
 	if license == "" {
 		license = "CC0"
 	}
+	kind := t.Kind
+	if kind == "" {
+		kind = "default"
+	}
 
 	var provenance *string
 	if t.Provenance != nil {
@@ -81,10 +89,10 @@ func (s *Store) CreateSubtitleTrack(ctx context.Context, t SubtitleTrack) (int64
 
 	var id int64
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO subtitle_tracks (release_id, lang, body, generated, provenance, license, source, uploader_id)
-		VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8)
+		INSERT INTO subtitle_tracks (release_id, lang, body, generated, provenance, license, source, uploader_id, kind, kind_label)
+		VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10)
 		RETURNING id`,
-		t.ReleaseID, t.Lang, t.Body, t.Generated, provenance, license, t.Source, t.UploaderID,
+		t.ReleaseID, t.Lang, t.Body, t.Generated, provenance, license, t.Source, t.UploaderID, kind, t.KindLabel,
 	).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("store: CreateSubtitleTrack: %w", err)
@@ -129,6 +137,9 @@ type SubtitleTrackSummary struct {
 	// additive on the wire.
 	Up   int
 	Down int
+	// Kind/KindLabel: migration 0021 (WP-K1), additive on the wire.
+	Kind      string
+	KindLabel *string
 }
 
 // TrackSummariesByReleaseIDs returns every subtitle track for the given
@@ -150,7 +161,7 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, release_id, lang, generated, license, provenance IS NOT NULL, created_at, downloads, up, down
+		SELECT id, release_id, lang, generated, license, provenance IS NOT NULL, created_at, downloads, up, down, kind, kind_label
 		FROM subtitle_tracks
 		WHERE release_id = ANY($1) AND withdrawn_at IS NULL
 		ORDER BY release_id, generated ASC, (up - down) DESC, downloads DESC, id ASC`, releaseIDs)
@@ -165,7 +176,7 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 			releaseID int64
 		)
 		if err := rows.Scan(&t.ID, &releaseID, &t.Lang, &t.Generated, &t.License, &t.HasProvenance, &t.CreatedAt,
-			&t.Downloads, &t.Up, &t.Down); err != nil {
+			&t.Downloads, &t.Up, &t.Down, &t.Kind, &t.KindLabel); err != nil {
 			return nil, fmt.Errorf("store: TrackSummariesByReleaseIDs: scanning: %w", err)
 		}
 		out[releaseID] = append(out[releaseID], t)
@@ -252,9 +263,11 @@ func scanSubtitleTrack(row rowScanner) (*SubtitleTrack, error) {
 		downloads       int64
 		up              int
 		down            int
+		kind            string
+		kindLabel       *string
 	)
 	if err := row.Scan(&id, &releaseID, &lang, &body, &generated, &provenance, &license, &source, &uploaderID, &createdAt,
-		&withdrawnAt, &withdrawnReason, &downloads, &up, &down); err != nil {
+		&withdrawnAt, &withdrawnReason, &downloads, &up, &down, &kind, &kindLabel); err != nil {
 		return nil, err
 	}
 	return &SubtitleTrack{
@@ -273,7 +286,23 @@ func scanSubtitleTrack(row rowScanner) (*SubtitleTrack, error) {
 		Up:              up,
 		Down:            down,
 		Downloads:       downloads,
+		Kind:            kind,
+		KindLabel:       kindLabel,
 	}, nil
+}
+
+// UpdateSubtitleTrackKind corrects kind/kind_label in place: the re-upload
+// idempotency path and /mod/track/{id}/kind both use it. Returns
+// ErrNotFound when no such track exists.
+func (s *Store) UpdateSubtitleTrackKind(ctx context.Context, id int64, kind string, kindLabel *string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE subtitle_tracks SET kind = $1, kind_label = $2 WHERE id = $3`, kind, kindLabel, id)
+	if err != nil {
+		return fmt.Errorf("store: UpdateSubtitleTrackKind: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // WithdrawTrack marks track id withdrawn with reason, hiding it from every
@@ -348,6 +377,9 @@ type TrackDetail struct {
 	// `moansubs track show` alongside the votes themselves.
 	Up   int
 	Down int
+	// Kind/KindLabel: migration 0021 (WP-K1).
+	Kind      string
+	KindLabel *string
 }
 
 // GetTrackDetail returns id's TrackDetail, or ErrNotFound. Deliberately
@@ -356,14 +388,14 @@ type TrackDetail struct {
 // hidden.
 func (s *Store) GetTrackDetail(ctx context.Context, id int64) (*TrackDetail, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT t.id, t.release_id, t.lang, t.generated, a.name, t.created_at, t.withdrawn_at, t.withdrawn_reason, t.up, t.down
+		SELECT t.id, t.release_id, t.lang, t.generated, a.name, t.created_at, t.withdrawn_at, t.withdrawn_reason, t.up, t.down, t.kind, t.kind_label
 		FROM subtitle_tracks t
 		LEFT JOIN accounts a ON a.id = t.uploader_id
 		WHERE t.id = $1`, id)
 
 	var d TrackDetail
 	err := row.Scan(&d.ID, &d.ReleaseID, &d.Lang, &d.Generated, &d.UploaderName, &d.CreatedAt,
-		&d.WithdrawnAt, &d.WithdrawnReason, &d.Up, &d.Down)
+		&d.WithdrawnAt, &d.WithdrawnReason, &d.Up, &d.Down, &d.Kind, &d.KindLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

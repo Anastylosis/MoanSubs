@@ -69,21 +69,25 @@ type dumpStashID struct {
 // origin's counts, informational for a mirror — import starts its own
 // downloads at zero and never imports votes at all (WP-C3: a mirror has no
 // accounts of its own to have cast them).
+// SubtitleKind/SubtitleKindLabel (migration 0021, WP-K1) use that name, not
+// "kind", to avoid colliding with this line's own Kind discriminator field.
 type dumpTrackLine struct {
-	Kind       string          `json:"kind"`
-	ID         int64           `json:"id"`
-	ReleaseID  int64           `json:"release_id"`
-	Lang       string          `json:"lang"`
-	Generated  bool            `json:"generated"`
-	Provenance json.RawMessage `json:"provenance,omitempty"`
-	License    string          `json:"license"`
-	Source     *string         `json:"source,omitempty"`
-	Uploader   *string         `json:"uploader"`
-	CreatedAt  time.Time       `json:"created_at"`
-	Downloads  int64           `json:"downloads"`
-	Up         int             `json:"up"`
-	Down       int             `json:"down"`
-	Body       string          `json:"body"`
+	Kind              string          `json:"kind"`
+	ID                int64           `json:"id"`
+	ReleaseID         int64           `json:"release_id"`
+	Lang              string          `json:"lang"`
+	Generated         bool            `json:"generated"`
+	Provenance        json.RawMessage `json:"provenance,omitempty"`
+	License           string          `json:"license"`
+	Source            *string         `json:"source,omitempty"`
+	Uploader          *string         `json:"uploader"`
+	CreatedAt         time.Time       `json:"created_at"`
+	Downloads         int64           `json:"downloads"`
+	Up                int             `json:"up"`
+	Down              int             `json:"down"`
+	Body              string          `json:"body"`
+	SubtitleKind      string          `json:"subtitle_kind"`
+	SubtitleKindLabel *string         `json:"subtitle_kind_label,omitempty"`
 }
 
 var dumpOutputPath string
@@ -243,20 +247,22 @@ func dumpReleaseFrom(r store.Release, stashIDs []store.ReleaseStashID) dumpRelea
 
 func dumpTrackFrom(t store.DumpTrack) dumpTrackLine {
 	return dumpTrackLine{
-		Kind:       "track",
-		ID:         t.ID,
-		ReleaseID:  t.ReleaseID,
-		Lang:       t.Lang,
-		Generated:  t.Generated,
-		Provenance: json.RawMessage(t.Provenance),
-		License:    t.License,
-		Source:     t.Source,
-		Uploader:   t.UploaderName,
-		CreatedAt:  t.CreatedAt,
-		Downloads:  t.Downloads,
-		Up:         t.Up,
-		Down:       t.Down,
-		Body:       t.Body,
+		Kind:              "track",
+		ID:                t.ID,
+		ReleaseID:         t.ReleaseID,
+		Lang:              t.Lang,
+		Generated:         t.Generated,
+		Provenance:        json.RawMessage(t.Provenance),
+		License:           t.License,
+		Source:            t.Source,
+		Uploader:          t.UploaderName,
+		CreatedAt:         t.CreatedAt,
+		Downloads:         t.Downloads,
+		Up:                t.Up,
+		Down:              t.Down,
+		Body:              t.Body,
+		SubtitleKind:      t.Kind,
+		SubtitleKindLabel: t.KindLabel,
 	}
 }
 

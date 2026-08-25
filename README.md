@@ -178,6 +178,11 @@ restore drill.
   and labels the track accordingly no matter what the uploader claimed.
 - **Timing is sanity-checked** against the release's duration; a subtitle
   whose cues contradict the video is rejected.
+- **Tracks carry a kind** — `default`, `cc`, `sdh`, `forced`, or `other`
+  with a short label — naming what a track *is*, not how good it is.
+  Declared, not enforced: trusted from the uploader (or corrected by a
+  moderator) the same way license is, never forced from detection the way
+  the AI flag above is.
 - **Quality is settled by voting, not curation.** Any account can up- or
   down-vote a track it didn't upload; a down-vote must pick a reason (out
   of sync, wrong content, wrong language, low quality, spam). The resulting

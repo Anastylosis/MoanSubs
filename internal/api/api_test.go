@@ -992,3 +992,145 @@ func TestUpload_StashIDs_AdditiveAcrossUploads(t *testing.T) {
 		t.Fatalf("got = %+v, want 1 release with 2 stash ids", got)
 	}
 }
+
+// -- kind (migration 0021, WP-K1) ------------------------------------------
+
+func TestUpload_Kind_DefaultsToDefault(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "f0f0f0f0f0f0f0f0", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+	created := decodeJSON[uploadResponse](t, resp)
+
+	getResp, err := http.Get(ts.URL + "/api/v1/subtitles/" + strconv.FormatInt(created.TrackID, 10))
+	if err != nil {
+		t.Fatalf("GET subtitle: %v", err)
+	}
+	defer func() { _ = getResp.Body.Close() }()
+	got := decodeJSON[getSubtitleResponse](t, getResp)
+	if got.Kind != "default" {
+		t.Errorf("Kind = %q, want default", got.Kind)
+	}
+}
+
+func TestUpload_Kind_RejectsUnknownKind(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "f1f1f1f1f1f1f1f1", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"kind": "subbed",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestUpload_Kind_OtherRequiresLabel(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "f2f2f2f2f2f2f2f2", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"kind": "other",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestUpload_Kind_LabelRejectedForNonOther(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "f3f3f3f3f3f3f3f3", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"kind": "sdh", "kind_label": "not allowed",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestUpload_Kind_OtherWithLabelStored(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "f4f4f4f4f4f4f4f4", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"kind": "other", "kind_label": "countdown",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+	created := decodeJSON[uploadResponse](t, resp)
+
+	getResp, err := http.Get(ts.URL + "/api/v1/subtitles/" + strconv.FormatInt(created.TrackID, 10))
+	if err != nil {
+		t.Fatalf("GET subtitle: %v", err)
+	}
+	defer func() { _ = getResp.Body.Close() }()
+	got := decodeJSON[getSubtitleResponse](t, getResp)
+	if got.Kind != "other" {
+		t.Errorf("Kind = %q, want other", got.Kind)
+	}
+	if got.KindLabel == nil || *got.KindLabel != "countdown" {
+		t.Errorf("KindLabel = %v, want countdown", got.KindLabel)
+	}
+}
+
+// A re-upload of identical bytes under a different kind corrects the
+// existing row rather than creating a second track (kinds-intro.md: "kind
+// never creates a duplicate").
+func TestUpload_Kind_ReuploadWithDifferentKindUpdatesExisting(t *testing.T) {
+	ts, st, token := newTestServer(t)
+	first := doUpload(t, ts, token, map[string]any{
+		"oshash": "f5f5f5f5f5f5f5f5", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+	})
+	if first.StatusCode != http.StatusCreated {
+		t.Fatalf("first upload status = %d, want 201", first.StatusCode)
+	}
+	firstTrack := decodeJSON[uploadResponse](t, first)
+
+	second := doUpload(t, ts, token, map[string]any{
+		"oshash": "f5f5f5f5f5f5f5f5", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"kind": "sdh",
+	})
+	if second.StatusCode != http.StatusOK {
+		t.Fatalf("second upload status = %d, want 200", second.StatusCode)
+	}
+	secondTrack := decodeJSON[uploadResponse](t, second)
+	if !secondTrack.Duplicate {
+		t.Error("Duplicate = false, want true")
+	}
+	if secondTrack.TrackID != firstTrack.TrackID {
+		t.Fatalf("TrackID = %d, want %d (same track, not a new one)", secondTrack.TrackID, firstTrack.TrackID)
+	}
+
+	track, err := st.GetSubtitleTrack(context.Background(), firstTrack.TrackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if track.Kind != "sdh" {
+		t.Errorf("track.Kind = %q, want sdh (corrected by the re-upload)", track.Kind)
+	}
+}
+
+func TestLookup_Kind_AppearsOnTrackSummary(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "f6f6f6f6f6f6f6f6", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"kind": "cc",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+
+	lookupResp, err := http.Get(ts.URL + "/api/v1/lookup/oshash/f6f6f")
+	if err != nil {
+		t.Fatalf("GET lookup: %v", err)
+	}
+	defer func() { _ = lookupResp.Body.Close() }()
+	got := decodeJSON[[]lookupRelease](t, lookupResp)
+	if len(got) != 1 || len(got[0].Tracks) != 1 {
+		t.Fatalf("got = %+v, want 1 release with 1 track", got)
+	}
+	if got[0].Tracks[0].Kind != "cc" {
+		t.Errorf("Tracks[0].Kind = %q, want cc", got[0].Tracks[0].Kind)
+	}
+}

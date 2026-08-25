@@ -312,18 +312,25 @@ type modTrackDetailView struct {
 	Withdrawn       bool
 	WithdrawnReason string
 	Up, Down        int
+	// Kind/KindLabel: migration 0021 (WP-K1), correctable below.
+	Kind      string
+	KindLabel string
 }
 
 func newModTrackDetailView(d *store.TrackDetail) modTrackDetailView {
 	v := modTrackDetailView{
 		ID: d.ID, ReleaseID: d.ReleaseID, Lang: d.Lang, Generated: d.Generated,
 		CreatedAt: d.CreatedAt, Up: d.Up, Down: d.Down, Withdrawn: d.WithdrawnAt != nil,
+		Kind: d.Kind,
 	}
 	if d.UploaderName != nil {
 		v.UploaderName = *d.UploaderName
 	}
 	if d.WithdrawnReason != nil {
 		v.WithdrawnReason = *d.WithdrawnReason
+	}
+	if d.KindLabel != nil {
+		v.KindLabel = *d.KindLabel
 	}
 	return v
 }
@@ -344,6 +351,8 @@ type modTrackData struct {
 	Votes   []modVoteRow
 	Preview string
 	Error   string
+	// Kinds: subtitle.ValidKinds, for the correction form's <select>.
+	Kinds []string
 }
 
 // handleModTrack implements GET /mod/track/{id} (WP-C7b).
@@ -409,7 +418,47 @@ func (s *Server) renderModTrack(w http.ResponseWriter, r *http.Request, ares *au
 		Votes:   voteRows,
 		Preview: preview,
 		Error:   formErr,
+		Kinds:   subtitle.ValidKinds,
 	}, true)
+}
+
+// handleModTrackKind implements POST /mod/track/{id}/kind (WP-K1).
+func (s *Server) handleModTrackKind(w http.ResponseWriter, r *http.Request) {
+	ares, ok := s.requireWebRole(w, r, "mod")
+	if !ok {
+		return
+	}
+	if !checkOrigin(w, r) {
+		return
+	}
+
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		s.renderModTrack(w, r, ares, id, http.StatusBadRequest, "could not read the submitted form")
+		return
+	}
+
+	kind, kindLabel, nerr := subtitle.NormalizeKind(r.PostFormValue("kind"), r.PostFormValue("kind_label"))
+	if nerr != nil {
+		s.renderModTrack(w, r, ares, id, http.StatusBadRequest, nerr.Error())
+		return
+	}
+
+	if err := s.Store.UpdateSubtitleTrackKind(r.Context(), id, kind, optString(kindLabel)); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		log.Printf("api: UpdateSubtitleTrackKind: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("api: mod %q set kind of track %d to %s", ares.Account.Name, id, kind)
+	http.Redirect(w, r, modRedirectTarget(r, id), http.StatusSeeOther)
 }
 
 // handleModTrackWithdraw implements POST /mod/track/{id}/withdraw
