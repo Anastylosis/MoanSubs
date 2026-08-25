@@ -42,6 +42,125 @@ jobs:
       offline-isolation: true
       check-dockerfile-go-version: true
 
+  # The upgrade path a release actually takes: a node's database at the
+  # previous release tag's schema, with rows already in it, meeting this
+  # commit's migrations. Nothing else in CI covers that — `go test` only ever
+  # migrates an empty, current-tree database, so a migration that is fine on
+  # a fresh schema and wrong on a populated one passes everything else.
+  #
+  # This is the job that replaced the release gate's "new migrations applied
+  # against real data" claim (CONTRIBUTING.md, "Approver checklist").
+  #
+  # A normal job here rather than an input to go-ci.yml: it is specific to
+  # this repo's `moansubs migrate` subcommand and dump format, and no sibling
+  # repo has migrations at all.
+  migration-upgrade:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          # The previous release tag has to be reachable and named, so the
+          # full history and all tags, not the default single commit.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # Same pattern as go-ci.yml's "Start Postgres" step, including the
+      # fixed throwaway credentials: this container is reachable only from
+      # this runner and is destroyed with it.
+      - name: Start Postgres
+        run: |
+          docker run -d --name ci-postgres \
+            -e POSTGRES_USER=ci -e POSTGRES_PASSWORD=ci -e POSTGRES_DB=ci_test \
+            -p 5432:5432 \
+            postgres:18-alpine
+
+          for _ in $(seq 1 30); do
+            if docker exec ci-postgres pg_isready -U ci -d ci_test >/dev/null 2>&1; then
+              echo "Postgres is ready"
+              echo "DATABASE_URL=postgres://ci:ci@localhost:5432/ci_test?sslmode=disable" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Postgres did not become ready in 60s"
+          docker logs ci-postgres
+          exit 1
+
+      # Written outside the working tree so it survives the checkouts below.
+      # A `moansubs dump` file (gzip JSONL, cmd/moansubs/dump.go) rather than
+      # raw SQL: `moansubs import` replays it through the same
+      # GetOrCreateRelease / CreateSubtitleTrack path an upload takes, so the
+      # seeded rows are shaped like real ones and the fixture does not have to
+      # be rewritten every time a column moves.
+      - name: Write the seed dump
+        run: |
+          cat > "$RUNNER_TEMP/seed.jsonl" <<'EOF'
+          {"kind":"meta","format":1,"generated_at":"2020-01-01T00:00:00Z","node":"ci-migration-upgrade"}
+          {"kind":"release","id":1,"oshash":"0123456789abcdef","phash":null,"duration_ms":1800000,"width":1920,"height":1080,"video_codec":"h264","title":"Upgrade Fixture One","stem":"upgrade.fixture.one","studio":"CI"}
+          {"kind":"release","id":2,"oshash":"fedcba9876543210","phash":null,"duration_ms":2400000,"width":1280,"height":720,"video_codec":"h264","title":"Upgrade Fixture Two","stem":"upgrade.fixture.two","studio":"CI"}
+          {"kind":"track","id":10,"release_id":1,"lang":"en","generated":false,"license":"CC0","uploader":"ci-seed","created_at":"2020-01-01T00:00:00Z","downloads":7,"up":1,"down":0,"body":"1\n00:00:01,000 --> 00:00:03,000\nHello.\n\n2\n00:00:04,000 --> 00:00:06,000\nWorld.\n"}
+          {"kind":"track","id":11,"release_id":2,"lang":"de","generated":true,"license":"CC0","uploader":"ci-seed","created_at":"2020-01-01T00:00:00Z","downloads":3,"up":0,"down":0,"body":"1\n00:00:02,000 --> 00:00:05,000\nHallo.\n"}
+          EOF
+          gzip -f "$RUNNER_TEMP/seed.jsonl"
+
+      - name: Migrate at the previous release tag and seed it
+        run: |
+          set -euo pipefail
+          SHA="$(git rev-parse HEAD)"
+          PREV_TAG="$(git describe --tags --abbrev=0 HEAD)"
+          # If HEAD is itself the tagged commit, upgrade from the one before it.
+          if [ "$(git rev-parse "${PREV_TAG}^{commit}")" = "$SHA" ]; then
+            PREV_TAG="$(git describe --tags --abbrev=0 'HEAD^')"
+          fi
+          echo "upgrading from $PREV_TAG to $SHA"
+          echo "PREV_TAG=$PREV_TAG" >> "$GITHUB_ENV"
+          echo "CURRENT_SHA=$SHA" >> "$GITHUB_ENV"
+
+          git checkout --detach "$PREV_TAG"
+          go run ./cmd/moansubs migrate
+          # The token this prints is for a database thrown away with the
+          # runner, but there is no reason to put one in a public log.
+          go run ./cmd/moansubs account create ci-seed >/dev/null
+          go run ./cmd/moansubs import "$RUNNER_TEMP/seed.jsonl.gz"
+
+      - name: Migrate this commit against the same database
+        run: |
+          set -euo pipefail
+          git checkout --detach "$CURRENT_SHA"
+          go run ./cmd/moansubs migrate
+          # Twice: store.Migrate runs on every process start, so a migration
+          # that is not idempotent breaks the next restart, not this one.
+          go run ./cmd/moansubs migrate
+
+      - name: Assert the upgraded database
+        run: |
+          set -euo pipefail
+          want="$(ls internal/store/migrations/*.sql | wc -l | tr -d '[:space:]')"
+          got="$(docker exec ci-postgres psql -U ci -d ci_test -tAc \
+            'SELECT count(*) FROM schema_migrations' | tr -d '[:space:]')"
+          if [ "$want" != "$got" ]; then
+            echo "::error::schema_migrations has $got rows, expected $want (upgraded from $PREV_TAG)"
+            exit 1
+          fi
+
+          # The seeded rows have to still be there: a migration that drops or
+          # fails to backfill an existing table is exactly what this job is for.
+          rows="$(docker exec ci-postgres psql -U ci -d ci_test -tAc \
+            "SELECT (SELECT count(*) FROM releases) || ' ' ||
+                    (SELECT count(*) FROM subtitle_tracks) || ' ' ||
+                    (SELECT count(*) FROM accounts)" | tr -d '\r')"
+          if [ "$rows" != "2 2 1" ]; then
+            echo "::error::seeded rows after upgrade: '$rows', expected '2 2 1'"
+            exit 1
+          fi
+          echo "$want migrations applied, seeded rows intact (upgraded from $PREV_TAG)"
+
 # NOTE: the shared workflow exports DATABASE_URL with generic ci/ci/ci_test
 # credentials rather than moansubs/moansubs/moansubs_test. internal/store's
 # tests read DATABASE_URL and skip when unset, so nothing needs to change —
