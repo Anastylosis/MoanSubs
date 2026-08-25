@@ -47,10 +47,13 @@ const defaultCSP = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline
 // uploadCSP is /upload's policy: script-src 'self' allows static/upload.js
 // (served from this node, not inlined — CSP has no clean way to allow an
 // inline <script> without a nonce, and a nonce per request would mean this
-// page can never be cached), and media-src blob: allows the detached
-// <video> element upload.js creates to probe duration from
-// URL.createObjectURL(file).
-const uploadCSP = "default-src 'none'; script-src 'self'; img-src 'self'; style-src 'unsafe-inline'; media-src blob:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+// page can never be cached), media-src blob: allows the detached <video>
+// element upload.js creates to probe duration from
+// URL.createObjectURL(file), and connect-src 'self' is the "Find on
+// stash-box" action (WP-C9b): under default-src 'none' a same-origin
+// fetch() is blocked exactly like a cross-origin one unless connect-src
+// says otherwise.
+const uploadCSP = "default-src 'none'; script-src 'self'; img-src 'self'; style-src 'unsafe-inline'; media-src blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
 // tokenCSP is the policy for the two pages that display an API token and
 // therefore load static/copy.js. Deliberately not uploadCSP: these pages

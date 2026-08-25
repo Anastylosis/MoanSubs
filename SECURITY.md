@@ -57,6 +57,35 @@ name doesn't exist, the account has no password, or the password is simply
 wrong, so a login attempt can't be used to enumerate which names are
 registered or which have a password set.
 
+### Third-party credential storage (stash-box keys)
+
+An account may also set a personal stash-box API key on `/me`, one per
+endpoint in `MOANSUBS_STASH_ENDPOINTS` — used to look a scene up on that
+box ("Find on stash-box", MANUAL.md) and never for anything else. **The
+node never holds a stash-box key of its own.** A shared, node-wide key
+would mean every visitor's lookups ride on one account's standing with
+that box: stash-box terms of service bind the key holder, not the person
+whose click triggered a request, so a shared key is both a terms-of-service
+problem and a ban risk one account would be carrying on everyone else's
+behalf. Keeping keys personal means a compromised or abusive account can
+only ever spend its own standing, never the node's.
+
+A stash-box key has no plaintext hash to authenticate against the way an
+account token does — it is encrypted (`account_stashbox_keys.key_enc`,
+AES-256-GCM, the same cipher and the same `MOANSUBS_TOKEN_KEY` as
+`token_enc`) and that ciphertext is the *only* copy that will ever exist.
+Consequently `/me` refuses to save one at all when no
+`MOANSUBS_TOKEN_KEY` is configured, rather than writing a key nobody could
+ever decrypt again; and a key set before the node's `MOANSUBS_TOKEN_KEY`
+was rotated fails closed afterward; the same as `DecryptToken` already
+does for the account token, `/me` can only say "set a fresh one" rather
+than recover it. Both lookup actions
+(`POST /api/v1/stashbox/lookup`, `POST /release/{id}/stashbox/find`) are
+session-authenticated, Origin-checked, and rate-limited per account
+(30/hour) — a `401` from the box means the stored key was rejected, a
+`429` means the box itself is asking for less traffic, and neither is
+ever retried automatically.
+
 ### Resetting a credential
 
 Reset is admin-side for both, and self-service where it can be.

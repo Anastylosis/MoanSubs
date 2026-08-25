@@ -77,6 +77,13 @@ type meData struct {
 	// InviteError is a same-page failure from POST /me/invites (cap
 	// reached, or nothing earned yet) to show above the invites section.
 	InviteError string
+	// StashBoxKeys is one row per endpoint this node accepts (WP-C9b),
+	// each saying whether this account has a personal key stored for it.
+	// The node never holds its own key — MANUAL.md explains why.
+	StashBoxKeys []stashBoxKeyRow
+	// StashBoxNotice confirms a just-succeeded set/clear, the same
+	// one-render-only shape as PasswordChanged.
+	StashBoxNotice string
 }
 
 // inviteBudgetData is meData's rendering of store.InviteBudget's five
@@ -267,6 +274,10 @@ func (s *Server) meDataFor(ctx context.Context, account *store.Account, rotatedT
 	if err != nil {
 		return meData{}, err
 	}
+	stashBoxKeys, err := s.stashBoxKeyRows(ctx, account.ID)
+	if err != nil {
+		return meData{}, err
+	}
 
 	// A freshly rotated/registered token is already known plaintext — no
 	// need to decrypt token_enc for it. Otherwise, try to recover the
@@ -291,6 +302,7 @@ func (s *Server) meDataFor(ctx context.Context, account *store.Account, rotatedT
 		DisplayToken:   displayToken,
 		Invites:        invites,
 		InvitedMembers: members,
+		StashBoxKeys:   stashBoxKeys,
 		InviteBudget: inviteBudgetData{
 			Uploads:      uploads,
 			Earned:       earned,

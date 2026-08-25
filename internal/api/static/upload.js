@@ -179,6 +179,91 @@ if (typeof document !== 'undefined') {
   });
 }
 
+// -- "Find on stash-box" (WP-C9b) -------------------------------------
+//
+// A separate DOMContentLoaded listener, not folded into the one above:
+// that one bails out entirely when there's no #video input, and this
+// control works from a hand-typed oshash just as well as a picked file.
+if (typeof document !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', () => {
+    const select = document.getElementById('stash_endpoint');
+    const findBtn = document.getElementById('stashbox-find');
+    const statusEl = document.getElementById('stashbox-status');
+    if (!select || !findBtn) {
+      return;
+    }
+    const hintEl = document.getElementById('stashbox-hint');
+    const defaultHint = hintEl ? hintEl.textContent : '';
+
+    const setSbStatus = (msg) => {
+      if (statusEl) {
+        statusEl.textContent = msg;
+      }
+    };
+
+    // Greys the button out (and says why) whenever the selected endpoint
+    // has no personal key — set server-side, per option, as data-has-key,
+    // so this never has to guess or ask.
+    const refreshButton = () => {
+      const opt = select.options[select.selectedIndex];
+      const hasKey = opt && opt.dataset.hasKey === 'true';
+      findBtn.disabled = !hasKey;
+      if (hintEl) {
+        hintEl.textContent = hasKey ? defaultHint : 'No personal key set for this stash-box — add one on /me first.';
+      }
+    };
+    select.addEventListener('change', refreshButton);
+    refreshButton();
+
+    findBtn.addEventListener('click', () => {
+      setSbStatus('looking up…');
+      findBtn.disabled = true;
+
+      const body = {
+        endpoint: select.value,
+        stash_id: document.getElementById('stash_id').value.trim(),
+        oshash: document.getElementById('oshash').value.trim(),
+        phash: document.getElementById('phash').value.trim(),
+        duration_ms: parseInt(document.getElementById('duration_ms').value, 10) || 0,
+      };
+
+      fetch('/api/v1/stashbox/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then((resp) => resp.json().then((data) => ({ ok: resp.ok, data }))).then(({ ok, data }) => {
+        if (!ok) {
+          setSbStatus(data.error || 'lookup failed');
+          return;
+        }
+        const scenes = data.scenes || [];
+        if (scenes.length === 0) {
+          setSbStatus('no match found');
+          return;
+        }
+        // Never written silently: this only fills the form fields the
+        // uploader can see and edit before pressing Upload.
+        const scene = scenes[0];
+        if (scene.title) document.getElementById('title').value = scene.title;
+        if (scene.date) document.getElementById('date').value = scene.date;
+        if (scene.studio) document.getElementById('studio').value = scene.studio;
+        if (scene.performers && scene.performers.length) {
+          document.getElementById('performers').value = scene.performers.join(', ');
+        }
+        if (scene.stash_id) document.getElementById('stash_id').value = scene.stash_id;
+        setSbStatus(scenes.length > 1
+          ? `found ${scenes.length} matches — filled in the first; paste a specific scene id above to narrow it down`
+          : 'filled in above — review before uploading');
+      }).catch((err) => {
+        setSbStatus('lookup failed');
+        console.error('stashbox lookup:', err);
+      }).finally(() => {
+        refreshButton();
+      });
+    });
+  });
+}
+
 // Exposed for the Go cross-check test (internal/api/uploadjs_test.go),
 // which runs under Node and never defines `document`.
 if (typeof module !== 'undefined') {

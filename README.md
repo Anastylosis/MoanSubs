@@ -208,6 +208,11 @@ See [MANUAL.md](MANUAL.md) for the upload pipeline and moderation tools.
   subtitle — `default`, `cc`, `sdh`, `forced`, or `other` with a custom
   label — and the server suggests `sdh` if it detects bracketed sound cues,
   musical notes, or speaker labels, a choice you can override.
+- **Stash-box lookups.** "Find on stash-box" on `/upload` and a release
+  page fills in title/date/studio/performers/id from a stash-box you have
+  a personal key for — set on `/me`, one endpoint at a time; the node
+  never holds a key of its own (SECURITY.md). Results are shown for
+  review, never saved silently.
 - **Works.** Releases that are the same video cut differently can be
   grouped, so each offers the others' subtitles with the timing shift
   needed to fit — the case fingerprinting cannot see, because a trimmed

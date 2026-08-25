@@ -99,8 +99,11 @@ type uploadPageData struct {
 	// any http(s) endpoint, since otherwise "other" would just be rejected
 	// server-side.
 	AllowOtherStashEndpoint bool
-	Error                   string
-	Values                  uploadFormValues
+	// Per endpoint, so upload.js can grey out "Find on stash-box" without
+	// a round trip.
+	StashBoxHasKey map[string]bool
+	Error          string
+	Values         uploadFormValues
 	// The form has no preview step, so DetectKind's suggestion can only
 	// reach the user on a re-render after a validation error.
 	DetectedKind string
@@ -228,6 +231,7 @@ func (s *Server) renderUploadForm(w http.ResponseWriter, r *http.Request, ares *
 		Langs:                   uploadLangs,
 		StashEndpoints:          opts,
 		AllowOtherStashEndpoint: allowOther,
+		StashBoxHasKey:          s.stashBoxHasKeyMap(r.Context(), ares.Account.ID),
 		Error:                   msg,
 		Values:                  values,
 		DetectedKind:            detectedKind,

@@ -658,22 +658,27 @@ const tokenNonceBytes = 12
 // a node running without MOANSUBS_TOKEN_KEY must still be able to mint
 // accounts, just without a redisplayable token on /me.
 func (s *Store) encryptToken(token string) ([]byte, error) {
-	if len(s.tokenKey) == 0 {
+	return encryptUnderKey(s.tokenKey, token)
+}
+
+// Shared by account tokens and stash-box keys; (nil, nil) when no key is set.
+func encryptUnderKey(key []byte, plain string) ([]byte, error) {
+	if len(key) == 0 {
 		return nil, nil
 	}
-	block, err := aes.NewCipher(s.tokenKey)
+	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, fmt.Errorf("token cipher: %w", err)
+		return nil, fmt.Errorf("cipher: %w", err)
 	}
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, fmt.Errorf("token GCM: %w", err)
+		return nil, fmt.Errorf("GCM: %w", err)
 	}
 	nonce := make([]byte, gcm.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
-		return nil, fmt.Errorf("token nonce: %w", err)
+		return nil, fmt.Errorf("nonce: %w", err)
 	}
-	return gcm.Seal(nonce, nonce, []byte(token), nil), nil
+	return gcm.Seal(nonce, nonce, []byte(plain), nil), nil
 }
 
 // DecryptToken reverses encryptToken — /me's read path for showing the
@@ -685,10 +690,14 @@ func (s *Store) encryptToken(token string) ([]byte, error) {
 // every one of those, since none of them is something a visitor can act
 // on beyond rotating the token.
 func (s *Store) DecryptToken(enc []byte) (token string, ok bool) {
-	if len(s.tokenKey) == 0 || len(enc) < tokenNonceBytes {
+	return decryptUnderKey(s.tokenKey, enc)
+}
+
+func decryptUnderKey(key []byte, enc []byte) (plain string, ok bool) {
+	if len(key) == 0 || len(enc) < tokenNonceBytes {
 		return "", false
 	}
-	block, err := aes.NewCipher(s.tokenKey)
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", false
 	}
@@ -697,9 +706,9 @@ func (s *Store) DecryptToken(enc []byte) (token string, ok bool) {
 		return "", false
 	}
 	nonce, ciphertext := enc[:gcm.NonceSize()], enc[gcm.NonceSize():]
-	plain, err := gcm.Open(nil, nonce, ciphertext, nil)
+	out, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
 		return "", false
 	}
-	return string(plain), true
+	return string(out), true
 }

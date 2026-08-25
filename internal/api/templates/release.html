@@ -16,11 +16,12 @@
   field blank to say nothing about it. These boxes hold what
   <em>you</em> have said before, not what the page currently shows, so
   sending does not sign your name to anyone else's claims.</p>
+  {{$pre := .Mine}}{{if .Found}}{{$pre = .Found}}{{end}}
   <form method="post" action="/release/{{.Release.ID}}/metadata">
-    <label>Title<input type="text" name="title" value="{{with .Mine}}{{.Title}}{{end}}" maxlength="300"></label>
-    <label>Studio<input type="text" name="studio" value="{{with .Mine}}{{.Studio}}{{end}}" maxlength="200"></label>
-    <label>Performers<input type="text" name="performers" value="{{with .Mine}}{{.Performers}}{{end}}" placeholder="comma separated"></label>
-    <label>Date<input type="text" name="date" value="{{with .Mine}}{{.ReleaseDate}}{{end}}" placeholder="YYYY-MM-DD"></label>
+    <label>Title<input type="text" name="title" value="{{with $pre}}{{.Title}}{{end}}" maxlength="300"></label>
+    <label>Studio<input type="text" name="studio" value="{{with $pre}}{{.Studio}}{{end}}" maxlength="200"></label>
+    <label>Performers<input type="text" name="performers" value="{{with $pre}}{{.Performers}}{{end}}" placeholder="comma separated"></label>
+    <label>Date<input type="text" name="date" value="{{with $pre}}{{.ReleaseDate}}{{end}}" placeholder="YYYY-MM-DD"></label>
     <button type="submit">Send</button>
   </form>
   {{with .Mine}}
@@ -30,6 +31,24 @@
     <button type="submit" class="quiet sm">Withdraw my claim</button>
   </form>
   {{end}}
+
+  <p class="hint" style="margin-top:1rem">Or look this scene up on a stash-box you have a personal key for — the result fills the boxes above for you to review, never sent on its own.</p>
+  <form method="post" action="/release/{{.Release.ID}}/stashbox/find" class="stack">
+    <div class="two">
+      <div>
+        <label for="sb_endpoint">Stash-box</label>
+        <select id="sb_endpoint" name="endpoint">
+          {{range .StashBoxOptions}}<option value="{{.Endpoint}}"{{if not .HasKey}} disabled{{end}}>{{.Endpoint}}{{if not .HasKey}} (no key set){{end}}</option>{{end}}
+        </select>
+      </div>
+      <div>
+        <label for="sb_stash_id">Or a specific scene id</label>
+        <input type="text" id="sb_stash_id" name="stash_id" class="mono" placeholder="c72cba4a-1e2b-4f0e-8f3a-1234567890ab" autocomplete="off">
+      </div>
+    </div>
+    <button type="submit"{{if not .AnyStashBoxKey}} disabled{{end}}>Find on stash-box</button>
+    {{if not .AnyStashBoxKey}}<p class="hint">Set a personal key on <a href="/me">/me</a> first.</p>{{end}}
+  </form>
 </details>
 {{end}}
 

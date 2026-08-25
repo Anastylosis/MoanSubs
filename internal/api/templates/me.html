@@ -27,6 +27,38 @@
   </form>
 </div>
 
+<h2>Stash-box keys</h2>
+<p class="hint" style="margin:0 0 .75rem">Personal, never shared: this node never holds its own stash-box key, only what you set here, encrypted at rest. Set one to use "Find on stash-box" on the upload page and on a release you're correcting.</p>
+{{if .StashBoxNotice}}<div class="notice">{{.StashBoxNotice}}</div>{{end}}
+{{if not .StashBoxKeys}}
+<p class="empty">This node accepts no stash-box endpoints.</p>
+{{else}}
+<table>
+  <thead><tr><th>Endpoint</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+  {{range .StashBoxKeys}}
+  <tr>
+    <td class="mono">{{.Endpoint}}</td>
+    <td>{{if .HasKey}}key set{{else}}<span class="hint" style="display:inline">no key</span>{{end}}</td>
+    <td>
+      <form method="post" action="/me/stashbox" class="inline" style="margin:0">
+        <input type="hidden" name="endpoint" value="{{.Endpoint}}">
+        <input type="password" name="key" placeholder="api key" autocomplete="off" style="width:14rem">
+        <button type="submit" class="quiet sm">{{if .HasKey}}Replace{{else}}Set{{end}}</button>
+      </form>
+      {{if .HasKey}}
+      <form method="post" action="/me/stashbox/clear" class="inline" style="margin:0">
+        <input type="hidden" name="endpoint" value="{{.Endpoint}}">
+        <button type="submit" class="quiet sm">Clear</button>
+      </form>
+      {{end}}
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+
 <h2>Change password</h2>
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
 {{if .PasswordChanged}}<div class="notice">Password changed. Every other browser session for this account was logged out; this one stays logged in.</div>{{end}}

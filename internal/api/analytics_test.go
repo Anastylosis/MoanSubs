@@ -104,6 +104,23 @@ func TestParseAnalytics_ProxiedTrackerDoesNotDuplicateSelfOnUpload(t *testing.T)
 	}
 }
 
+// uploadCSP (WP-C9b) already carries its own connect-src 'self' for the
+// stash-box lookup fetch; widening it for an external tracker origin must
+// merge into that one directive, not append a second connect-src the
+// browser would then ignore.
+func TestParseAnalytics_ExternalTrackerMergesConnectSrcOnUpload(t *testing.T) {
+	a, err := ParseAnalytics("https://analytics.example/script.js", "site-id")
+	if err != nil {
+		t.Fatalf("ParseAnalytics: %v", err)
+	}
+	if n := strings.Count(a.uploadCSP, "connect-src"); n != 1 {
+		t.Fatalf("uploadCSP = %q has %d connect-src directives, want exactly 1", a.uploadCSP, n)
+	}
+	if !strings.Contains(a.uploadCSP, "connect-src 'self' https://analytics.example") {
+		t.Errorf("uploadCSP = %q, want connect-src 'self' https://analytics.example", a.uploadCSP)
+	}
+}
+
 // -- the rendered tag ------------------------------------------------------
 
 // analyticsServer wires a DB-backed test server with a tracker configured

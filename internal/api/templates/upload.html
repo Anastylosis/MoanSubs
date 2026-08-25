@@ -122,10 +122,13 @@
         <label for="stash_endpoint">On which stash-box</label>
         <select id="stash_endpoint" name="stash_endpoint">
           {{$se := .Values.StashEndpoint}}
-          {{range .StashEndpoints}}<option value="{{.}}"{{if or (eq . $se) (and (eq $se "") (eq . (index $.StashEndpoints 0)))}} selected{{end}}>{{.}}</option>{{end}}
-          {{if .AllowOtherStashEndpoint}}<option value="other"{{if eq $se "other"}} selected{{end}}>other</option>{{end}}
+          {{range .StashEndpoints}}<option value="{{.}}" data-has-key="{{index $.StashBoxHasKey .}}"{{if or (eq . $se) (and (eq $se "") (eq . (index $.StashEndpoints 0)))}} selected{{end}}>{{.}}</option>{{end}}
+          {{if .AllowOtherStashEndpoint}}<option value="other" data-has-key="false"{{if eq $se "other"}} selected{{end}}>other</option>{{end}}
         </select>
         {{if .AllowOtherStashEndpoint}}<input type="text" id="stash_endpoint_other" name="stash_endpoint_other" class="mono" value="{{.Values.StashEndpointOther}}" placeholder="https://example.stashbox/graphql" autocomplete="off" style="margin-top:.35rem">{{end}}
+        <button type="button" id="stashbox-find" class="quiet sm" style="margin-top:.5rem" disabled>Find on stash-box</button>
+        <p class="hint" id="stashbox-hint">Fills in title/date/studio/performers above from the selected stash-box — by the pasted scene id if given, otherwise by the fingerprint above. Needs a personal key on <a href="/me">/me</a> and JavaScript.</p>
+        <p class="hint" id="stashbox-status" role="status"></p>
       </div>
     </div>
 

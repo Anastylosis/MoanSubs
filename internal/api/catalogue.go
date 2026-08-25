@@ -625,6 +625,39 @@ type releasePageData struct {
 	// until the viewer has said something, so the form opens blank and
 	// "leave a field blank to say nothing about it" is literally true.
 	Mine *proposalForm
+	// Found is a stash-box lookup's result (WP-C9b), taking over the
+	// correction form's pre-fill in place of Mine for this one render —
+	// never written to the database itself, so the viewer still has to
+	// press Send. Nil on every render except the one right after
+	// POST /release/{id}/stashbox/find succeeds.
+	Found *proposalForm
+	// StashBoxOptions and AnyStashBoxKey drive the lookup form itself:
+	// which endpoints to offer and whether at least one already has a key,
+	// gating the button the same way /upload's does.
+	StashBoxOptions []stashBoxKeyRow
+	AnyStashBoxKey  bool
+}
+
+// releaseFindResult carries a successful POST /release/{id}/stashbox/find
+// into renderReleasePage without widening its signature at all thirteen
+// call sites — the same trick withAuth/authFromContext already play for
+// the authResult. Notice is separate from formError because a found match
+// is not a failure: it renders in the page's neutral notice slot, the same
+// one ?removal=sent uses, not the red error one.
+type releaseFindResult struct {
+	Found  *proposalForm
+	Notice string
+}
+
+type releaseFindResultContextKey struct{}
+
+func withFindResult(r *http.Request, res releaseFindResult) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), releaseFindResultContextKey{}, res))
+}
+
+func findResultFromContext(r *http.Request) releaseFindResult {
+	res, _ := r.Context().Value(releaseFindResultContextKey{}).(releaseFindResult)
+	return res
 }
 
 // proposalForm is one account's own proposal in the shape the form needs:
@@ -719,6 +752,10 @@ func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id in
 
 	data := releasePageData{Title: rendered.Title, Release: rendered, Error: formError}
 	data.Siblings = s.siblingViews(ctx, release.ID)
+	if res := findResultFromContext(r); res.Found != nil || res.Notice != "" {
+		data.Found = res.Found
+		data.Notice = res.Notice
+	}
 
 	// Check for authResult in context first (WP-R7) — a handler that
 	// authenticated may have stored it there to avoid a redundant session
@@ -740,6 +777,17 @@ func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id in
 		data.LoggedIn = true
 		data.ViewerName = ares.Account.Name
 		data.Mine = s.viewerProposal(ctx, release.ID, ares.Account.ID)
+		if rows, serr := s.stashBoxKeyRows(ctx, ares.Account.ID); serr != nil {
+			log.Printf("api: stashBoxKeyRows: %v", serr)
+		} else {
+			data.StashBoxOptions = rows
+			for _, row := range rows {
+				if row.HasKey {
+					data.AnyStashBoxKey = true
+					break
+				}
+			}
+		}
 		if err := s.applyViewerVoteState(ctx, &data.Release, ares.Account.ID); err != nil {
 			// The page still renders without "your vote" state — an
 			// aggregate query hiccup here shouldn't take down the whole

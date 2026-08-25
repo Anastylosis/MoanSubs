@@ -87,15 +87,27 @@ func analyticsOrigin(script string) (string, error) {
 // none — defaultCSP deliberately does not) and connect-src, which the
 // tracker needs to send events. Existing directives are left untouched so
 // the widened policies stay diffable against the consts they came from.
+//
+// connect-src is merged into an existing directive rather than appended as
+// a second one: uploadCSP (WP-C9b) already carries connect-src 'self' for
+// its own same-origin fetch, and a CSP with two connect-src directives
+// enforces only the first — appending a second unconditionally would make
+// the tracker's own reporting silently unreachable on that page.
 func widenCSP(base, origin string) string {
 	parts := strings.Split(base, "; ")
 	out := make([]string, 0, len(parts)+2)
-	scripted := false
+	scripted, connected := false, false
 	for _, p := range parts {
-		if strings.HasPrefix(p, "script-src ") {
+		switch {
+		case strings.HasPrefix(p, "script-src "):
 			scripted = true
 			// uploadCSP's script-src is already 'self', so a proxied
 			// tracker adds nothing and would only duplicate the source.
+			if origin != "'self'" {
+				p += " " + origin
+			}
+		case strings.HasPrefix(p, "connect-src "):
+			connected = true
 			if origin != "'self'" {
 				p += " " + origin
 			}
@@ -105,7 +117,10 @@ func widenCSP(base, origin string) string {
 	if !scripted {
 		out = append(out, "script-src "+origin)
 	}
-	return strings.Join(out, "; ") + "; connect-src " + origin
+	if !connected {
+		out = append(out, "connect-src "+origin)
+	}
+	return strings.Join(out, "; ")
 }
 
 // analyticsPages is the set of body templates that carry the tracker: the

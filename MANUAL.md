@@ -109,7 +109,7 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_METADATA_RATE_PER_HOUR` | `60` | Per-account budget for `POST /api/v1/metadata` (API.md), the route that says what a scene *is* without uploading a subtitle for it. Each request carries up to 25 scenes, so this is a large library in an hour; the bound exists because every entry triggers a derivation, and a grouped release derives its whole work. |
 | `MOANSUBS_VOTE_RATE_PER_HOUR` | `60` | Per-account budget for `PUT`/`DELETE /api/v1/subtitles/{id}/vote` (API.md "Votes"). Generous enough for a person triaging their own downloads in one sitting, tight enough to stop a script grinding a track's score. |
 | `MOANSUBS_REMOVAL_RATE_PER_HOUR` | `5` | Per-IP budget for `POST /release/{id}/removal` (TAKEDOWN.md), same shape as `MOANSUBS_REGISTER_RATE_PER_HOUR` — a genuine filer needs this once per track, not repeatedly. |
-| `MOANSUBS_TOKEN_KEY` | *(unset)* | 64 hex characters (32 bytes; generate with `openssl rand -hex 32`) — the AES-256-GCM key `/me` needs to show an account's API token again after this process restarts (it's stored encrypted, alongside the one-way hash every lookup actually uses). Unset: tokens are never re-displayable — `/me` says so and offers "Rotate" instead. An invalid value (wrong length, not hex) refuses to start rather than silently running without encryption. |
+| `MOANSUBS_TOKEN_KEY` | *(unset)* | 64 hex characters (32 bytes; generate with `openssl rand -hex 32`) — the AES-256-GCM key `/me` needs to show an account's API token again after this process restarts (it's stored encrypted, alongside the one-way hash every lookup actually uses). The same key also encrypts a personal stash-box key set on `/me` (see "Stash-box lookups" below) — unlike the account token there is no one-way hash to fall back on, so without this env var set, `/me` refuses to save a stash-box key at all rather than storing one nobody can ever decrypt. Unset: tokens are never re-displayable — `/me` says so and offers "Rotate" instead. An invalid value (wrong length, not hex) refuses to start rather than silently running without encryption. |
 | `MOANSUBS_ADMIN_NAME` | `admin` | The name the first-run admin bootstrap (below) creates, when one runs at all. |
 | `MOANSUBS_BOOTSTRAP_ADMIN` | `true` | Set to `false` to disable the automatic first-run admin creation below — for an operator who'd rather keep credentials out of container logs entirely and mint the account by hand with `moansubs admin bootstrap` (via `docker compose exec`) instead. |
 | `MOANSUBS_AGE_GATE` | `true` | Shows an 18+ click-through interstitial (`GET`/`POST /age`) in front of every human page until a visitor accepts it — a plain "I am 18 or older" button, **not** age or identity verification (no ID, no face check). `false` disables it entirely, for an operator who satisfies a jurisdiction's real verification requirement some other way (a dedicated third-party provider, or a reverse proxy gating the whole node) rather than through this server. Never gates `/api/*`, `/healthz`, `/robots.txt`, `/favicon.ico`, or `/static/*`. |
@@ -208,7 +208,11 @@ rotate-token, mints one single-use code when the budget allows it, else
 (`/register?invite=CODE`) and a "Disable" button per code
 (`POST /me/invites/{code}/disable`, session + Origin-checked like
 rotate-token, restricted to the code's own creator or an admin), the list
-of members who joined through one of them, and a link to `/upload`.
+of members who joined through one of them, a **stash-box keys** section
+(one row per endpoint in `MOANSUBS_STASH_ENDPOINTS`, a "set"/"replace" and
+a "clear" form each, `POST /me/stashbox` / `POST /me/stashbox/clear`,
+session + Origin-checked — see "Stash-box lookups" below), and a link to
+`/upload`.
 `/upload` (session required,
 redirects to `/login` otherwise) is a multipart form for the same
 `POST /api/v1/subtitles` upload — same fields, same rate limit
@@ -256,6 +260,42 @@ documents](https://docs.stashapp.cc/metadata-sources/stash-box-instances/) by
 default — with an "other" free-text `stash_endpoint_other` offered only
 when that's set to `*`, since anything else would just be rejected
 server-side.
+
+#### Stash-box lookups (`Find on stash-box`)
+
+Next to the `stash_endpoint` select, `/upload` offers a "Find on
+stash-box" button (`internal/stashbox`'s minimal GraphQL client,
+`POST /api/v1/stashbox/lookup`): given the fingerprint already on the
+form (or a pasted scene id in `stash_id`, which wins), it looks the scene
+up on the selected endpoint and fills in title/date/studio/performers/
+`stash_id` for review — nothing is ever written by the lookup itself, only
+by the ordinary upload submit afterward. A release page's own "Correct
+the details" section (and its `/mod/release/{id}` moderator page — mods
+can use the identical control on the public release page, which has no
+separate copy of the form) offers the same action,
+`POST /release/{id}/stashbox/find`, using the release's own already-stored
+fingerprint rather than asking the visitor to resupply it; a successful
+find fills the correction form for that one render and is gone on the
+next plain `GET` — it never touches the stored proposal until "Send" is
+pressed.
+
+The button is disabled, with a hint pointing at `/me`, for any endpoint
+the account has no personal key for — **the node never holds a stash-box
+key of its own**, only what an account sets on `/me` under
+`MOANSUBS_TOKEN_KEY` encryption (the same cipher as the account token,
+see "Configuration" above); without that env var configured, setting
+a key fails outright rather than storing one nobody can ever decrypt
+again. A shared node-wide key would mean every visitor's lookups ride on
+one account's standing with the box — see SECURITY.md for why that's a
+ban risk nobody should take on another's behalf. Both actions are rate
+limited per account (30/hour) since they spend that personal key against
+a third party; a `401` from the box (bad/revoked key) or a `429` (the box
+itself asking to slow down) is shown close to verbatim and never retried
+in a loop. There is no admin-configured endpoint list beyond
+`MOANSUBS_STASH_ENDPOINTS` itself — narrowing it removes an endpoint from
+both the key list on `/me` and every lookup button, the same allow-list
+every upload's own `stash_id` is already checked against.
+
 Every other page is self-contained — no assets, no JavaScript. The
 catalogue pages (`/browse`, `/search`, `/release/*`,
 `/u/*`) send `X-Robots-Tag: noindex, nofollow`, and `/robots.txt`

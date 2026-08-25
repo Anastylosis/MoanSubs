@@ -93,6 +93,13 @@ const VoteRateLimitPerHour = 60
 
 const RemovalRateLimitPerHour = 5
 
+// StashBoxRateLimitPerHour is the per-account budget for a stash-box
+// lookup (WP-C9b spec: "e.g. 30/hour") — generous enough for someone
+// working through a backlog of uploads in one sitting, tight enough that
+// a compromised account can't use it to grind a personal key against the
+// box's own rate limit on the node's behalf.
+const StashBoxRateLimitPerHour = 30
+
 // DefaultInvitesInitial is MOANSUBS_INVITES_INITIAL's default (WP-C7c): a
 // brand-new account can bring in a couple of people before it has
 // contributed anything.
@@ -369,6 +376,12 @@ type Server struct {
 	ContactEmail   string
 	ContactEnabled bool
 	ContactNote    string
+	// StashBoxLimiter is the per-account budget for POST
+	// /api/v1/stashbox/lookup and POST /release/{id}/stashbox/find
+	// (WP-C9b): both spend the caller's own personal key against a
+	// third-party service, so the limit exists as much to protect that
+	// key's standing on the box as to protect this node.
+	StashBoxLimiter *RateLimiter
 }
 
 // NewServer builds a Server backed by s, with its own rate limiters.
@@ -393,6 +406,7 @@ func NewServer(s *store.Store) *Server {
 		VoteLimiter:       NewRateLimiter(VoteRateLimitPerHour),
 		RemovalLimiter:    NewRateLimiter(RemovalRateLimitPerHour),
 		MetadataLimiter:   NewRateLimiter(MetadataRateLimitPerHour),
+		StashBoxLimiter:   NewRateLimiter(StashBoxRateLimitPerHour),
 		// Production default: an adult-focused node gates every human page
 		// behind the click-through until an operator opts out
 		// (MOANSUBS_AGE_GATE=false).
@@ -441,6 +455,8 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("POST /me/password", s.page(s.handleChangePassword))
 	mux.HandleFunc("POST /me/invites", s.page(s.handleCreateInvite))
 	mux.HandleFunc("POST /me/invites/{code}/disable", s.page(s.handleDisableInvite))
+	mux.HandleFunc("POST /me/stashbox", s.page(s.handleSetStashBoxKey))
+	mux.HandleFunc("POST /me/stashbox/clear", s.page(s.handleClearStashBoxKey))
 	mux.HandleFunc("GET /upload", s.page(s.handleUploadForm))
 	mux.HandleFunc("POST /upload", s.page(s.handleUploadSubmit))
 	mux.HandleFunc("GET /static/upload.js", s.handleUploadJS)
@@ -463,6 +479,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("POST /release/{id}/vote", s.page(s.handleReleaseVote))
 	mux.HandleFunc("POST /release/{id}/metadata", s.page(s.handleReleaseProposeMetadata))
 	mux.HandleFunc("POST /release/{id}/removal", s.page(s.handleReleaseRemoval))
+	mux.HandleFunc("POST /release/{id}/stashbox/find", s.page(s.handleReleaseStashBoxFind))
 	mux.HandleFunc("GET /u/{name}", s.page(s.handleUploaderPage))
 	mux.HandleFunc("POST /age", s.handleAgeConfirm)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
@@ -482,6 +499,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("POST /api/v1/lookup/exact", s.handleLookupExact)
 	mux.HandleFunc("GET /api/v1/search", s.handleSearchAPI)
 	mux.HandleFunc("POST /api/v1/match", s.handleMatch)
+	mux.HandleFunc("POST /api/v1/stashbox/lookup", s.handleStashBoxLookupAPI)
 	mux.HandleFunc("GET /mod/flagged", s.page(s.handleModFlagged))
 	mux.HandleFunc("POST /mod/removal/{id}/withdraw", s.page(s.handleModRemovalWithdraw))
 	mux.HandleFunc("POST /mod/removal/{id}/dismiss", s.page(s.handleModRemovalDismiss))
