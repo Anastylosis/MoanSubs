@@ -38,7 +38,7 @@ jobs:
       # transitively via `needs`, so one approval covers all three. See
       # CONTRIBUTING.md → "Cutting a release".
       environment-name: manual-smoke-gate
-      environment-url: ${{ github.server_url }}/${{ github.repository }}/blob/master/CONTRIBUTING.md#cutting-a-release
+      environment-url: ${{ github.server_url }}/${{ github.repository }}/blob/master/CONTRIBUTING.md#approver-checklist
       pre-release-checklist: |
         - [ ] This tag's plugin bundle installs into a live Stash, and
               **Settings → Plugins → Reload plugins** shows it without error.
