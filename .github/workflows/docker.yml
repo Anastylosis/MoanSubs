@@ -10,6 +10,8 @@ on:
   pull_request:
     paths:
       - 'Dockerfile'
+      - 'docs/**'
+      - 'mkdocs.yml'
       - '.dockerignore'
       - '.github/workflows/docker.yml'
   workflow_dispatch:
@@ -34,3 +36,17 @@ jobs:
       attestations: write
     with:
       mode: dev
+
+  docs:
+    uses: Anastylosis/.github/.github/workflows/docker-publish.yml@v1
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    with:
+      mode: dev
+      image-name: anastylosis/moansubs-docs
+      dockerfile: ./docs/Dockerfile
+      go-version-build-arg: false
+      version-build-args: false

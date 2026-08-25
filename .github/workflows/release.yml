@@ -109,6 +109,43 @@ jobs:
     with:
       mode: release
 
+  docs:
+    name: Build and push docs image
+    needs: release
+    uses: Anastylosis/.github/.github/workflows/docker-publish.yml@v1
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    with:
+      mode: release
+      image-name: anastylosis/moansubs-docs
+      dockerfile: ./docs/Dockerfile
+      go-version-build-arg: false
+      version-build-args: false
+
+  # Deploys the canonical node once everything the release publishes exists.
+  # The key can only run deploy-release.sh on the host (a forced command in
+  # authorized_keys), so a leaked secret deploys a tag and nothing else.
+  deploy:
+    name: Deploy the canonical node
+    needs: [docker, docs, plugin]
+    runs-on: ubuntu-latest
+    if: ${{ vars.PROD_DEPLOY == 'true' }}
+    steps:
+      - name: Deploy ${{ github.ref_name }}
+        env:
+          KEY: ${{ secrets.PROD_SSH_KEY }}
+          HOST: ${{ secrets.PROD_HOST }}
+          KNOWN_HOSTS: ${{ secrets.PROD_KNOWN_HOSTS }}
+        run: |
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy -o BatchMode=yes "$HOST" "${GITHUB_REF_NAME#v}"
+
   # Also gated behind the release job: the bundles are attached to a release
   # that only exists once the manual approval went through, and the index is
   # only advertised for a release that exists.

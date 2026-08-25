@@ -192,6 +192,21 @@ services:
       # served over plain HTTP again.
       - traefik.http.middlewares.moansubs-hsts.headers.stsSeconds=31536000
 
+  docs:
+    # End-user documentation, static HTML behind nginx. Follows MOANSUBS_TAG
+    # so a release deploys the docs written for it. Routed only when
+    # DOCS_DOMAIN is set; the fallback host never matches.
+    image: ghcr.io/anastylosis/moansubs-docs:${MOANSUBS_TAG:-latest}
+    restart: unless-stopped
+    logging: *default-logging
+    labels:
+      - traefik.enable=true
+      - moansubs.domain=${DOMAIN}
+      - "traefik.http.routers.moansubs-docs.rule=Host(`${DOCS_DOMAIN:-docs.invalid}`)"
+      - traefik.http.routers.moansubs-docs.entrypoints=websecure
+      - traefik.http.services.moansubs-docs.loadbalancer.server.port=8080
+      - traefik.http.routers.moansubs-docs.middlewares=moansubs-compress,moansubs-hsts
+
   postgres:
     image: postgres:18-alpine
     restart: unless-stopped

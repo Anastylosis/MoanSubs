@@ -82,6 +82,25 @@ same `logging:` cap via one YAML anchor, so none of their container logs
 grows without bound on the host disk — see MANUAL.md's "Operations" →
 "Logs" for the per-request log line format and what it doesn't log.
 
+## End-user docs and deploy-on-release
+
+`docs` serves the end-user documentation (`ghcr.io/anastylosis/moansubs-docs`,
+built from `docs/user` by `docs/Dockerfile`) and follows `MOANSUBS_TAG`,
+so a node and its docs always match. Set `DOCS_DOMAIN` (e.g.
+`docs.example.org`, DNS pointed at this host) to route it; unset, the
+container runs but nothing reaches it.
+
+The release workflow can deploy a tag here by itself once three secrets
+exist on the repository — `PROD_SSH_KEY` (a dedicated ed25519 private key),
+`PROD_HOST` (`user@host`), `PROD_KNOWN_HOSTS` (the host's `ssh-keyscan`
+line) — and the repository variable `PROD_DEPLOY` is `true`. On the host,
+the key's `authorized_keys` line is restricted to
+`command="<app dir>/deploy-release.sh",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty`;
+that script accepts only a `x.y.z` version, rewrites `MOANSUBS_TAG`, pulls
+`server` and `docs` and restarts the stack — a leaked key can deploy a
+published release and nothing else. Leave `PROD_DEPLOY` unset to keep
+deploying by hand.
+
 ## Configuring with a file instead
 
 Everything here is set through `environment:` on the `server` service, and
