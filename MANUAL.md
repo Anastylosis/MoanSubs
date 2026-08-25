@@ -838,7 +838,11 @@ on the host disk otherwise.
    never creates a duplicate. The Stash plugin infers `kind` from a
    Plex/Emby-style filename suffix (`.en.sdh.srt`, `.en.cc.srt`,
    `.en.forced.srt`) when pushing sidecars, never from content — the SDH
-   detector above only ever suggests (`plugin/README.md`).
+   detector above only ever suggests (`plugin/README.md`). The plugin's
+   bulk "Download subtitles" task writes only through the hash-based match
+   levels (a scene's own stash-box id, oshash, or phash) — the level-5
+   title/filename scorer stays offer-only in the interactive panel and is
+   never used by an unattended task.
 
 ## Counters (`GET /api/v1/stats`, API.md)
 

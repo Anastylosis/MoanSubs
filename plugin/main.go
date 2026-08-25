@@ -104,10 +104,10 @@ func (r *runner) Stop(_ struct{}, output *bool) error {
 func dispatch(ctx context.Context, input PluginInput) (any, error) {
 	mode, _ := input.Args["mode"].(string)
 	switch mode {
-	case "probe", "search", "download", "vote", "badge", "push", "push_status", "push_all",
-		"contribute", "contribute_all":
+	case "probe", "search", "download", "download_all", "vote", "badge", "push", "push_status",
+		"push_all", "contribute", "contribute_all":
 	default:
-		return nil, fmt.Errorf("unknown mode %q (want probe, search, download, vote, badge, push, push_status, push_all, contribute or contribute_all)", mode)
+		return nil, fmt.Errorf("unknown mode %q (want probe, search, download, download_all, vote, badge, push, push_status, push_all, contribute or contribute_all)", mode)
 	}
 
 	app, err := newApp(ctx, input)
@@ -136,6 +136,8 @@ func dispatch(ctx context.Context, input PluginInput) (any, error) {
 		return app.pushStatus(ctx, argString(input.Args, "scene_id"))
 	case "push_all":
 		return app.pushAll(ctx, argBool(input.Args, "dry_run"))
+	case "download_all":
+		return app.downloadAll(ctx, argBool(input.Args, "dry_run"))
 	case "contribute":
 		return app.contribute(ctx, argString(input.Args, "scene_id"), argBool(input.Args, "dry_run"))
 	case "contribute_all":

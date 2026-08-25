@@ -226,7 +226,7 @@ func TestArgStrings_MissingOrWrongTypeIsEmpty(t *testing.T) {
 // known mode would get past validation and fail on the dial, which is
 // exactly how these two cases are told apart.
 func TestDispatch_UnknownModeRejectedBeforeConnecting(t *testing.T) {
-	for _, mode := range []string{"", "prob", "PROBE", "download_all", "nonsense"} {
+	for _, mode := range []string{"", "prob", "PROBE", "nonsense"} {
 		_, err := dispatch(context.Background(), PluginInput{Args: map[string]any{"mode": mode}})
 		if err == nil {
 			t.Fatalf("dispatch(mode=%q) = nil error, want one", mode)
@@ -242,7 +242,7 @@ func TestDispatch_UnknownModeRejectedBeforeConnecting(t *testing.T) {
 // which proves validation let it through.
 func TestDispatch_KnownModesReachTheConnection(t *testing.T) {
 	for _, mode := range []string{
-		"probe", "search", "download", "vote", "badge",
+		"probe", "search", "download", "download_all", "vote", "badge",
 		"push", "push_status", "push_all", "contribute", "contribute_all",
 	} {
 		_, err := dispatch(context.Background(), PluginInput{Args: map[string]any{"mode": mode}})

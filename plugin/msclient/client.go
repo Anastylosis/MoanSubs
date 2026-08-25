@@ -674,6 +674,18 @@ type httpStatusError struct {
 func (e *httpStatusError) Error() string { return e.err.Error() }
 func (e *httpStatusError) Unwrap() error { return e.err }
 
+// StatusCode extracts the HTTP status code from an error this client
+// returned, when the failure was a non-2xx response. Used by callers that
+// need to tell a rate limit (429) apart from any other failure — the
+// plugin's bulk download task backs off on one rather than the other.
+func StatusCode(err error) (int, bool) {
+	var se *httpStatusError
+	if errors.As(err, &se) {
+		return se.status, true
+	}
+	return 0, false
+}
+
 func (c *Client) do(req *http.Request, out any) error {
 	return c.doRaw(req, out, false)
 }

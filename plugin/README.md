@@ -74,7 +74,7 @@ want to upload or vote.
 | **Full-hash lookup** | Off by default. Sends complete fingerprints to the server for wider fuzzy matching (Hamming ≤8 instead of ≤4) — reveals your exact hashes to the node operator. |
 | **Preferred languages** | Empty by default. BCP-47 tags in preference order, comma-separated (e.g. `en,pl`). Sorts the per-scene panel's tracks so a preferred language's tracks come first — it never hides any track, and an unparseable entry is dropped with a log line rather than disabling the rest of the list. |
 | **Preferred subtitle kind** | Empty (meaning `default`). One of `default`, `cc`, `sdh`, `forced`, `other`. Breaks a tie between same-language tracks in the sort above — e.g. prefer `sdh` over `default` when both exist for your top language. |
-| **Download all languages (bulk tasks)** | Off. For a future bulk-download task, not the per-scene panel, which always lists every language regardless. |
+| **Download all languages (bulk tasks)** | Off. The bulk download task fetches every language a release has instead of stopping at **Preferred languages**. No effect on the per-scene panel, which always lists everything. |
 | **Replace existing captions (bulk tasks)** | Off. Governs unattended/bulk download paths only — the per-scene panel always warns, names the file, and requires a second *Overwrite* click before replacing anything on disk. |
 
 **Enable phash generation in Stash** (Settings → Tasks → Generate →
@@ -183,6 +183,10 @@ Settings → Tasks → **Plugin tasks**. Every task is safe to re-run.
   sent, so this works before you have an account.
 - **Push subtitles** — uploads every sidecar subtitle in the library. See
   [below](#push-subtitles).
+- **Download subtitles (dry run)** — reports which sidecars *would* be
+  written, without downloading anything.
+- **Download subtitles** — downloads across the whole library. See
+  [below](#download-subtitles).
 - **Contribute scene details (dry run)** — lists what would be sent,
   sending nothing. Needs no token.
 - **Contribute scene details** — sends it, batched, for every scene Stash
@@ -219,6 +223,38 @@ five (the server's limit), and so is any id whose endpoint is missing from
 the server's advertised `stash_endpoints` allow-list
 (`GET /api/v1/version`). If anything was dropped, the plugin logs it once
 for that scene.
+
+### Download subtitles
+
+Walks the whole library, looks each scene up through the batched
+`/api/v1/lookup/batch` endpoint (many scenes per request, never one), and
+writes a sidecar for the **Preferred languages** setting — or every
+language the release has, if **Download all languages** is on. Anonymous,
+like a single-scene download: no upload token needed.
+
+A scene whose base-language caption already exists on disk is skipped
+without a network round trip, unless **Replace existing captions** is on —
+there is no per-file prompt in a library-wide task, so this setting is the
+only say you get over replacing what is already there.
+
+Matching stops at hash evidence (the same **Exact match**/**Different
+encode**/**Possible match** levels the panel shows, plus the scene's own
+stash-box id): the **Name match** fallback never runs here. It is
+offer-only in the interactive panel for a reason — an unattended task
+writing a file on a title/filename guess is exactly the failure that rule
+exists to prevent.
+
+Safe to re-run (existing captions are left alone by default) and
+`Stop`-able mid-run: cancelling lands between chunks, never mid-write, so
+whatever was already written stays written and the reported counts are
+exact for what actually happened. A 429 from the server backs off and
+retries rather than hammering it.
+
+Reports how many sidecars were written per language, plus scenes with no
+match. Like every download, **captions are read-only in GraphQL and only
+attach through a metadata scan** — the task's summary ends with that
+reminder; run one (Settings → Tasks → Scan) to see what a bulk download
+wrote.
 
 ### Contribute scene details
 
@@ -313,8 +349,8 @@ What the plugin logs, and at which level:
 | Level | What appears |
 |---|---|
 | Error | Probe could not reach the server or read its version — the one failure Probe exists to surface |
-| Warning | Anything that silently degraded: a scene's phash was unparseable, stash ids were dropped, the name-match fallback was skipped or failed, a language was written as a bare subtag, a push or badge failed for one scene |
-| Info | The running commentary of a task that is working: candidate counts, files written, per-file push results, the push summary |
+| Warning | Anything that silently degraded: a scene's phash was unparseable, stash ids were dropped, the name-match fallback was skipped or failed, a language was written as a bare subtag, a push or badge failed for one scene, a bulk download backed off on a 429 or failed a track |
+| Info | The running commentary of a task that is working: candidate counts, files written, per-file push results, the push and bulk-download summaries |
 
 So a node at `Warning` still surfaces every failure and every silent
 degrade; raising it to `Info` adds the detail of what a working task did.
@@ -341,6 +377,12 @@ verbose too.
   plugin binary predates the log-envelope fix; update it.
 - **Uploads fail with 429**: you hit the server's per-token upload budget;
   the operator can raise `MOANSUBS_UPLOAD_RATE_PER_HOUR` (MANUAL.md).
+- **Download subtitles logs "rate limited (429), backing off"**: the bulk
+  download task hit the server's per-IP lookup budget. It backs off and
+  retries on its own; this Warning-level line is normal progress, not a
+  stuck task, unless it keeps recurring for the same scene after several
+  retries — in which case the task gives up on that scene and counts it as
+  an error rather than retrying forever.
 - **Against an old node**: the plugin checks `GET /api/v1/version` before
   trying the **Name match** fallback. A pre-0.2 node has no version
   endpoint at all (404), which is treated the same as a current node that

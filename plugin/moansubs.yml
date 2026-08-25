@@ -49,7 +49,7 @@ settings:
     type: STRING
   download_all_languages:
     displayName: Download all languages (bulk tasks)
-    description: A future bulk-download task fetches every language a release has instead of stopping at the first preference hit. No effect on the per-scene panel, which always lists everything.
+    description: The bulk download task fetches every language a release has instead of stopping at the preferred ones. No effect on the per-scene panel, which always lists everything.
     type: BOOLEAN
   replace_existing_captions:
     displayName: Replace existing captions (bulk tasks)
@@ -70,6 +70,15 @@ tasks:
     description: Upload every sidecar subtitle in the library to the moansubs server (safe to re-run)
     defaultArgs:
       mode: push_all
+  - name: Download subtitles (dry run)
+    description: Report which sidecar subtitles would be downloaded for your preferred (or, if set, every) language, without downloading
+    defaultArgs:
+      mode: download_all
+      dry_run: true
+  - name: Download subtitles
+    description: Download subtitles for your preferred languages (or every language, if set) across the whole library. Existing captions are kept unless "Replace existing captions" is on.
+    defaultArgs:
+      mode: download_all
   - name: Contribute scene details (dry run)
     description: Report which scenes' titles, dates, studios, performers and stash-box ids would be sent, without sending
     defaultArgs:
