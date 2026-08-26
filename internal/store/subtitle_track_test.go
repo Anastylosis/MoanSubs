@@ -1027,3 +1027,52 @@ func TestStore_SupersedeTrack_WithdrawnRevisionLeavesChainCounters(t *testing.T)
 		t.Errorf("head.Down = %d, want 0 (the withdrawn revision's downvotes do not follow the chain)", head.Down)
 	}
 }
+
+// Revision numbers must stay unique within a chain even after a withdrawn
+// successor frees the supersede slot: numbering off the parent's revision
+// reuses the withdrawn row's number, and TrackChain's "oldest first" order
+// stops being determined by the data.
+func TestStore_SupersedeTrack_RevisionNumbersNeverCollide(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID := newRelease(t, s, Release{OSHash: mustOSHash(t, "c000000000000104"), DurationMs: 1})
+	rev1, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev1")})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack(rev1): %v", err)
+	}
+	bad, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("vandalism")})
+	if err != nil {
+		t.Fatalf("SupersedeTrack(rev1 -> bad): %v", err)
+	}
+	if err := s.WithdrawTrack(ctx, bad, "vandalism"); err != nil {
+		t.Fatalf("WithdrawTrack(bad): %v", err)
+	}
+	good, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("goodfix")})
+	if err != nil {
+		t.Fatalf("SupersedeTrack(rev1 -> good): %v", err)
+	}
+
+	chain, err := s.TrackChain(ctx, rev1)
+	if err != nil {
+		t.Fatalf("TrackChain: %v", err)
+	}
+	if len(chain) != 3 {
+		t.Fatalf("chain has %d rows, want 3", len(chain))
+	}
+	seen := make(map[int]int64, len(chain))
+	for _, c := range chain {
+		if prev, dup := seen[c.Revision]; dup {
+			t.Errorf("revision %d used by both track %d and track %d", c.Revision, prev, c.ID)
+		}
+		seen[c.Revision] = c.ID
+	}
+
+	head, err := s.GetSubtitleTrack(ctx, good)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack(good): %v", err)
+	}
+	if head.Revision != 3 {
+		t.Errorf("good.Revision = %d, want 3 (past the withdrawn revision 2)", head.Revision)
+	}
+}

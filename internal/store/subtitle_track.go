@@ -203,10 +203,11 @@ func (s *Store) SupersedeTrack(ctx context.Context, parentID int64, t SubtitleTr
 	if parent.RevisionLocked {
 		return 0, ErrTrackLocked
 	}
-	var headRevision int
+	var headRevision, maxRevision int
 	if err := tx.QueryRow(ctx, `
-		SELECT COALESCE(MAX(revision), 0) FROM subtitle_tracks
-		WHERE root_id = $1 AND withdrawn_at IS NULL`, parent.RootID).Scan(&headRevision); err != nil {
+		SELECT COALESCE(MAX(revision) FILTER (WHERE withdrawn_at IS NULL), 0),
+		       COALESCE(MAX(revision), 0)
+		FROM subtitle_tracks WHERE root_id = $1`, parent.RootID).Scan(&headRevision, &maxRevision); err != nil {
 		return 0, fmt.Errorf("store: SupersedeTrack: checking head: %w", err)
 	}
 	if parent.Revision != headRevision {
@@ -236,7 +237,7 @@ func (s *Store) SupersedeTrack(ctx context.Context, parentID int64, t SubtitleTr
 		VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id`,
 		t.ReleaseID, t.Lang, t.Body, t.Generated, provenance, license, t.Source, t.UploaderID, kind, t.KindLabel,
-		parent.RootID, parent.Revision+1, parentID,
+		parent.RootID, maxRevision+1, parentID,
 	).Scan(&id); err != nil {
 		return 0, fmt.Errorf("store: SupersedeTrack: %w", err)
 	}
@@ -258,7 +259,7 @@ func (s *Store) TrackChain(ctx context.Context, id int64) ([]SubtitleTrack, erro
 		return nil, fmt.Errorf("store: TrackChain: %w", err)
 	}
 
-	rows, err := s.pool.Query(ctx, `SELECT `+subtitleTrackColumns+` FROM subtitle_tracks WHERE root_id = $1 ORDER BY revision`, rootID)
+	rows, err := s.pool.Query(ctx, `SELECT `+subtitleTrackColumns+` FROM subtitle_tracks WHERE root_id = $1 ORDER BY revision, id`, rootID)
 	if err != nil {
 		return nil, fmt.Errorf("store: TrackChain: %w", err)
 	}
