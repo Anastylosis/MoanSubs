@@ -201,6 +201,22 @@ autoconfirm:
     - "https://stashdb.org/graphql"
     - "https://theporndb.net/graphql"
 
+# ── Revisions ───────────────────────────────────────────────────────────
+
+# How different a proposed fix may be from the track it would replace
+# before it lands as an unrelated new track instead of a revision.
+# Measured on parsed cue text, never raw bytes; 0 is identical, 1 is
+# disjoint. Generous by design: real fixes score under 0.02, a different
+# subtitle over 0.5. Out of the 0..1 range fails startup rather than
+# silently clamping. (MOANSUBS_REVISION_MAX_DIVERGENCE)
+#
+# Point a declined pure-retime upload at the offset feature instead of
+# letting it land as an unexplained sibling track.
+# (MOANSUBS_REVISION_RETIME_HINT)
+revisions:
+  max_text_divergence: 0.20
+  retime_hint: true
+
 # ── Rate limits ─────────────────────────────────────────────────────────
 
 # Per account, except search/register/login which are per IP.
@@ -223,7 +239,11 @@ autoconfirm:
 #                     this once per track, not repeatedly. The one other
 #                     endpoint besides register that creates state for an
 #                     anonymous caller (TAKEDOWN.md, "Requesting removal").
-# (MOANSUBS_UPLOAD_RATE_PER_HOUR, _VOTE_, _METADATA_, _SEARCH_, _REGISTER_, _LOGIN_, _REMOVAL_)
+# revision_per_hour — supersede attempts specifically, separate from
+#                     upload_per_hour: superseding twenty tracks in an
+#                     hour is the vandalism signature, uploading twenty is
+#                     ordinary seeding.
+# (MOANSUBS_UPLOAD_RATE_PER_HOUR, _VOTE_, _METADATA_, _SEARCH_, _REGISTER_, _LOGIN_, _REMOVAL_, _REVISION_)
 rate_limits:
   upload_per_hour: 30
   vote_per_hour: 60
@@ -232,3 +252,4 @@ rate_limits:
   register_per_hour: 5
   login_per_hour: 20
   removal_per_hour: 5
+  revision_per_hour: 20

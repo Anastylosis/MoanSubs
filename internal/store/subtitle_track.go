@@ -179,10 +179,10 @@ func (s *Store) GetSubtitleTrack(ctx context.Context, id int64) (*SubtitleTrack,
 // the same parent can't both succeed. Returns ErrNotFound, ErrTrackWithdrawn,
 // ErrTrackLocked or ErrNotHead for each refusal, or a plain error if
 // t.ReleaseID/t.Lang don't match the parent's.
-func (s *Store) SupersedeTrack(ctx context.Context, parentID int64, t SubtitleTrack) (int64, error) {
+func (s *Store) SupersedeTrack(ctx context.Context, parentID int64, t SubtitleTrack) (id int64, revision int, err error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("store: SupersedeTrack: beginning tx: %w", err)
+		return 0, 0, fmt.Errorf("store: SupersedeTrack: beginning tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
 
@@ -190,31 +190,31 @@ func (s *Store) SupersedeTrack(ctx context.Context, parentID int64, t SubtitleTr
 	row := tx.QueryRow(ctx, `SELECT `+subtitleTrackColumns+` FROM subtitle_tracks WHERE id = $1 FOR UPDATE`, parentID)
 	p, err := scanSubtitleTrack(row)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, ErrNotFound
+		return 0, 0, ErrNotFound
 	}
 	if err != nil {
-		return 0, fmt.Errorf("store: SupersedeTrack: locking parent: %w", err)
+		return 0, 0, fmt.Errorf("store: SupersedeTrack: locking parent: %w", err)
 	}
 	parent = *p
 
 	if parent.WithdrawnAt != nil {
-		return 0, ErrTrackWithdrawn
+		return 0, 0, ErrTrackWithdrawn
 	}
 	if parent.RevisionLocked {
-		return 0, ErrTrackLocked
+		return 0, 0, ErrTrackLocked
 	}
 	var headRevision, maxRevision int
 	if err := tx.QueryRow(ctx, `
 		SELECT COALESCE(MAX(revision) FILTER (WHERE withdrawn_at IS NULL), 0),
 		       COALESCE(MAX(revision), 0)
 		FROM subtitle_tracks WHERE root_id = $1`, parent.RootID).Scan(&headRevision, &maxRevision); err != nil {
-		return 0, fmt.Errorf("store: SupersedeTrack: checking head: %w", err)
+		return 0, 0, fmt.Errorf("store: SupersedeTrack: checking head: %w", err)
 	}
 	if parent.Revision != headRevision {
-		return 0, ErrNotHead
+		return 0, 0, ErrNotHead
 	}
 	if t.ReleaseID != parent.ReleaseID || t.Lang != parent.Lang {
-		return 0, fmt.Errorf("store: SupersedeTrack: release/lang must match the track being superseded")
+		return 0, 0, fmt.Errorf("store: SupersedeTrack: release/lang must match the track being superseded")
 	}
 
 	license := t.License
@@ -231,21 +231,20 @@ func (s *Store) SupersedeTrack(ctx context.Context, parentID int64, t SubtitleTr
 		provenance = &v
 	}
 
-	var id int64
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO subtitle_tracks (release_id, lang, body, generated, provenance, license, source, uploader_id, kind, kind_label, root_id, revision, supersedes_id)
 		VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13)
-		RETURNING id`,
+		RETURNING id, revision`,
 		t.ReleaseID, t.Lang, t.Body, t.Generated, provenance, license, t.Source, t.UploaderID, kind, t.KindLabel,
 		parent.RootID, maxRevision+1, parentID,
-	).Scan(&id); err != nil {
-		return 0, fmt.Errorf("store: SupersedeTrack: %w", err)
+	).Scan(&id, &revision); err != nil {
+		return 0, 0, fmt.Errorf("store: SupersedeTrack: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("store: SupersedeTrack: committing: %w", err)
+		return 0, 0, fmt.Errorf("store: SupersedeTrack: committing: %w", err)
 	}
-	return id, nil
+	return id, revision, nil
 }
 
 // TrackChain returns every row sharing id's root_id, oldest first,

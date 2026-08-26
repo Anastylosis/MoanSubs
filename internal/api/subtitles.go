@@ -48,6 +48,10 @@ type uploadRequest struct {
 	// subtitle.NormalizeKind.
 	Kind      string `json:"kind"`
 	KindLabel string `json:"kind_label"`
+
+	// Supersedes: id of a track this upload proposes to revise. Zero means
+	// absent (migration 0024, WP-R3).
+	Supersedes int64 `json:"supersedes,omitempty"`
 }
 
 // stashIDInput is one entry of uploadRequest.StashIDs.
@@ -69,7 +73,40 @@ type uploadResponse struct {
 	// Duplicate is true when a byte-identical track already existed and its
 	// id was returned instead of inserting a copy (HTTP 200, not 201).
 	Duplicate bool `json:"duplicate,omitempty"`
+
+	// Revision/Supersedes/RootID set on an actual supersede;
+	// RevisionDeclined/RevisionHint set instead on a decline. Divergence is
+	// populated either way (migration 0024, WP-R3).
+	Revision         int                 `json:"revision,omitempty"`
+	Supersedes       int64               `json:"supersedes,omitempty"`
+	RootID           int64               `json:"root_id,omitempty"`
+	Divergence       *divergenceResponse `json:"divergence,omitempty"`
+	RevisionDeclined string              `json:"revision_declined,omitempty"`
+	RevisionHint     string              `json:"revision_hint,omitempty"`
 }
+
+// divergenceResponse is subtitle.Report's wire shape: durations as
+// milliseconds, matching every other *_ms field on the wire.
+type divergenceResponse struct {
+	TextDivergence float64 `json:"text_divergence"`
+	CueDelta       int     `json:"cue_delta"`
+	MedianShiftMs  int64   `json:"median_shift_ms"`
+	ShiftSpreadMs  int64   `json:"shift_spread_ms"`
+	PureRetime     bool    `json:"pure_retime"`
+}
+
+func newDivergenceResponse(r subtitle.Report) *divergenceResponse {
+	return &divergenceResponse{
+		TextDivergence: r.TextDivergence,
+		CueDelta:       r.CueDelta,
+		MedianShiftMs:  r.MedianShift.Milliseconds(),
+		ShiftSpreadMs:  r.ShiftSpread.Milliseconds(),
+		PureRetime:     r.PureRetime,
+	}
+}
+
+// retimeHintMessage: shown only when Server.RevisionRetimeHint is on.
+const retimeHintMessage = "this looks like a constant time shift; use the offset feature instead of a new revision"
 
 var (
 	md5Pattern  = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
@@ -525,7 +562,7 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	}
 
 	accountID := account.ID
-	trackID, err := s.Store.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+	track := store.SubtitleTrack{
 		ReleaseID:  release.ID,
 		Lang:       canonicalLang,
 		Body:       rendered,
@@ -535,7 +572,13 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 		UploaderID: &accountID,
 		Kind:       kind,
 		KindLabel:  optString(kindLabel),
-	})
+	}
+
+	if req.Supersedes != 0 {
+		return s.ingestSupersede(ctx, account, req.Supersedes, release.ID, canonicalLang, cues, track)
+	}
+
+	trackID, err := s.Store.CreateSubtitleTrack(ctx, track)
 	if err != nil {
 		log.Printf("api: CreateSubtitleTrack: %v", err)
 		return nil, &apiError{http.StatusInternalServerError, "internal error"}
@@ -546,6 +589,133 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 		ReleaseID: release.ID,
 		Generated: generated,
 	}, nil
+}
+
+// ingestSupersede is ingest's `supersedes` branch (PLAN_1.md WP-R3):
+// resolves and validates the target, measures how far proposed diverges
+// from its stored body, then either supersedes it or falls back to an
+// ordinary new track with the reason stated.
+func (s *Server) ingestSupersede(ctx context.Context, account *store.Account, targetID, releaseID int64, lang string, proposed []subtitle.Cue, track store.SubtitleTrack) (*uploadResponse, *apiError) {
+	if !s.RevisionLimiter.Allow(strconv.FormatInt(account.ID, 10)) {
+		return nil, &apiError{http.StatusTooManyRequests, "revision rate limit exceeded"}
+	}
+
+	target, err := s.Store.GetSubtitleTrack(ctx, targetID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, &apiError{http.StatusNotFound, "supersedes: no such track"}
+	}
+	if err != nil {
+		log.Printf("api: GetSubtitleTrack (supersedes target): %v", err)
+		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+	}
+	if target.ReleaseID != releaseID || target.Lang != lang {
+		return nil, &apiError{http.StatusBadRequest, "supersedes: release/lang must match the track being superseded"}
+	}
+
+	if target.WithdrawnAt != nil {
+		return nil, &apiError{http.StatusConflict, "supersedes: track is withdrawn"}
+	}
+	if target.RevisionLocked {
+		return nil, &apiError{http.StatusLocked, "supersedes: track's chain is revision-locked"}
+	}
+	if msg, ok := s.notHeadRefusal(ctx, target); !ok {
+		return nil, &apiError{http.StatusConflict, msg}
+	}
+
+	targetCues, err := subtitle.Parse([]byte(target.Body))
+	if err != nil {
+		log.Printf("api: parsing stored body of track %d: %v", target.ID, err)
+		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+	}
+	report := subtitle.Divergence(targetCues, proposed)
+
+	switch {
+	case report.PureRetime:
+		return s.plainTrackWithDecline(ctx, track, "retime", report, s.RevisionRetimeHint)
+	case report.TextDivergence > s.RevisionMaxDivergence:
+		return s.plainTrackWithDecline(ctx, track, "too_different", report, false)
+	}
+
+	newID, newRevision, err := s.Store.SupersedeTrack(ctx, target.ID, track)
+	switch {
+	case errors.Is(err, store.ErrTrackWithdrawn):
+		return nil, &apiError{http.StatusConflict, "supersedes: track is withdrawn"}
+	case errors.Is(err, store.ErrTrackLocked):
+		return nil, &apiError{http.StatusLocked, "supersedes: track's chain is revision-locked"}
+	case errors.Is(err, store.ErrNotHead):
+		msg, _ := s.notHeadRefusal(ctx, target)
+		return nil, &apiError{http.StatusConflict, msg}
+	case err != nil:
+		log.Printf("api: SupersedeTrack: %v", err)
+		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+	}
+
+	return &uploadResponse{
+		TrackID:    newID,
+		ReleaseID:  releaseID,
+		Generated:  track.Generated,
+		Revision:   newRevision,
+		Supersedes: target.ID,
+		RootID:     target.RootID,
+		Divergence: newDivergenceResponse(report),
+	}, nil
+}
+
+// plainTrackWithDecline lands a declined supersede attempt as an ordinary
+// new track, reason and divergence attached; hint adds the offset-feature
+// note (only meaningful for "retime").
+func (s *Server) plainTrackWithDecline(ctx context.Context, track store.SubtitleTrack, reason string, report subtitle.Report, hint bool) (*uploadResponse, *apiError) {
+	trackID, err := s.Store.CreateSubtitleTrack(ctx, track)
+	if err != nil {
+		log.Printf("api: CreateSubtitleTrack (declined supersede): %v", err)
+		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+	}
+	resp := &uploadResponse{
+		TrackID:          trackID,
+		ReleaseID:        track.ReleaseID,
+		Generated:        track.Generated,
+		RevisionDeclined: reason,
+		Divergence:       newDivergenceResponse(report),
+	}
+	if hint {
+		resp.RevisionHint = retimeHintMessage
+	}
+	return resp, nil
+}
+
+// notHeadRefusal reports whether target is still its chain's head, and if
+// not, names the current head so a client can retry against it.
+func (s *Server) notHeadRefusal(ctx context.Context, target *store.SubtitleTrack) (string, bool) {
+	const fallback = "supersedes: track is no longer the head of its chain"
+	chain, err := s.Store.TrackChain(ctx, target.ID)
+	if err != nil {
+		log.Printf("api: TrackChain (head check): %v", err)
+		return fallback, false
+	}
+	head := chainHead(chain)
+	switch {
+	case head == nil:
+		return fallback, false
+	case head.ID == target.ID:
+		return "", true
+	}
+	return fmt.Sprintf("supersedes: track %d is no longer the head of its chain; the current head is track %d", target.ID, head.ID), false
+}
+
+// chainHead returns the live row with the highest revision in chain, or
+// nil if every row is withdrawn.
+func chainHead(chain []store.SubtitleTrack) *store.SubtitleTrack {
+	var head *store.SubtitleTrack
+	for i := range chain {
+		t := &chain[i]
+		if t.WithdrawnAt != nil {
+			continue
+		}
+		if head == nil || t.Revision > head.Revision {
+			head = t
+		}
+	}
+	return head
 }
 
 // getSubtitleResponse is GET /api/v1/subtitles/{id}'s JSON body.

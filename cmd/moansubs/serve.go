@@ -195,6 +195,35 @@ var serveCmd = &cobra.Command{
 			removalRate = n
 		}
 
+		// Its own budget, separate from uploadRate (PLAN_1.md WP-R3).
+		revisionRate := api.RevisionRateLimitPerHour
+		if v := os.Getenv("MOANSUBS_REVISION_RATE_PER_HOUR"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_REVISION_RATE_PER_HOUR %q", v)
+			}
+			revisionRate = n
+		}
+
+		// Outside 0..1 is a startup error, not a silent clamp (PLAN_1.md).
+		revisionMaxDivergence := api.DefaultRevisionMaxDivergence
+		if v := os.Getenv("MOANSUBS_REVISION_MAX_DIVERGENCE"); v != "" {
+			f, err := strconv.ParseFloat(v, 64)
+			if err != nil || f < 0 || f > 1 {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_REVISION_MAX_DIVERGENCE %q (want 0..1)", v)
+			}
+			revisionMaxDivergence = f
+		}
+
+		revisionRetimeHint := true
+		if v := os.Getenv("MOANSUBS_REVISION_RETIME_HINT"); v != "" {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_REVISION_RETIME_HINT %q", v)
+			}
+			revisionRetimeHint = b
+		}
+
 		// Per-account metadata-contribution budget: each entry costs a
 		// derivation, and a grouped release derives its whole work, so this
 		// is bounded separately from the upload budget rather than sharing
@@ -429,6 +458,9 @@ var serveCmd = &cobra.Command{
 		apiSrv.VoteLimiter = api.NewRateLimiter(voteRate)
 		apiSrv.RemovalLimiter = api.NewRateLimiter(removalRate)
 		apiSrv.MetadataLimiter = api.NewRateLimiter(metadataRate)
+		apiSrv.RevisionLimiter = api.NewRateLimiter(revisionRate)
+		apiSrv.RevisionMaxDivergence = revisionMaxDivergence
+		apiSrv.RevisionRetimeHint = revisionRetimeHint
 		apiSrv.PublicURL = publicURL
 		apiSrv.AutoConfirm = autoConfirm
 		apiSrv.IndexFrontPage = indexFrontPage

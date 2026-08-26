@@ -38,6 +38,10 @@ type lookupTrackSummary struct {
 	// Kind/KindLabel: migration 0021 (WP-K1), additive.
 	Kind      string  `json:"kind"`
 	KindLabel *string `json:"kind_label,omitempty"`
+	// Revision/RootID: migration 0024, additive. Downloads/Up/Down above
+	// are the chain's totals, not this row's own.
+	Revision int   `json:"revision"`
+	RootID   int64 `json:"root_id"`
 }
 
 // lookupStashID is one stash-box scene identity as echoed on a release
@@ -135,6 +139,8 @@ func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) (
 				Down:          t.Down,
 				Kind:          t.Kind,
 				KindLabel:     t.KindLabel,
+				Revision:      t.Revision,
+				RootID:        t.RootID,
 			})
 		}
 

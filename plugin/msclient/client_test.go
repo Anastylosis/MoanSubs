@@ -567,7 +567,7 @@ func TestVersion_ParsesVersionAndFeatures(t *testing.T) {
 	if v.Version != "dev" {
 		t.Errorf("Version.Version = %q, want %q", v.Version, "dev")
 	}
-	want := map[string]bool{"lookup": true, "match": true, "withdraw": true, "stats": true, "srt": true, "votes": true, "stash_ids": true, "metadata": true, "kinds": true}
+	want := map[string]bool{"lookup": true, "match": true, "withdraw": true, "stats": true, "srt": true, "votes": true, "stash_ids": true, "metadata": true, "kinds": true, "revisions": true}
 	if len(v.Features) != len(want) {
 		t.Fatalf("Features = %v, want exactly %v", v.Features, want)
 	}

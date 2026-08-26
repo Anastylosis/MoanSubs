@@ -93,6 +93,17 @@ const VoteRateLimitPerHour = 60
 
 const RemovalRateLimitPerHour = 5
 
+// RevisionRateLimitPerHour is the per-account budget for a supersede
+// attempt (PLAN_1.md WP-R3), separate from UploadRateLimitPerHour:
+// superseding twenty tracks in an hour is the vandalism signature,
+// uploading twenty is ordinary seeding.
+const RevisionRateLimitPerHour = 20
+
+// DefaultRevisionMaxDivergence is MOANSUBS_REVISION_MAX_DIVERGENCE's
+// default (PLAN_1.md "Settled decisions"): generous on purpose — real
+// fixes score well under this, a different subtitle well over it.
+const DefaultRevisionMaxDivergence = 0.20
+
 // StashBoxRateLimitPerHour is the per-account budget for a stash-box
 // lookup (WP-C9b spec: "e.g. 30/hour") — generous enough for someone
 // working through a backlog of uploads in one sitting, tight enough that
@@ -382,6 +393,18 @@ type Server struct {
 	// third-party service, so the limit exists as much to protect that
 	// key's standing on the box as to protect this node.
 	StashBoxLimiter *RateLimiter
+	// RevisionLimiter is the per-account budget for a supersede attempt
+	// (PLAN_1.md WP-R3, MOANSUBS_REVISION_RATE_PER_HOUR), separate from
+	// Limiter.
+	RevisionLimiter *RateLimiter
+	// RevisionMaxDivergence is the text-divergence ceiling (subtitle.Report
+	// .TextDivergence) a proposed revision must be at or under to replace
+	// the track it targets (MOANSUBS_REVISION_MAX_DIVERGENCE). Over it, the
+	// upload still lands, as a sibling track rather than a new revision.
+	RevisionMaxDivergence float64
+	// RevisionRetimeHint governs whether a declined pure-retime upload's
+	// response names the offset feature (MOANSUBS_REVISION_RETIME_HINT).
+	RevisionRetimeHint bool
 }
 
 // NewServer builds a Server backed by s, with its own rate limiters.
@@ -397,16 +420,19 @@ func NewServer(s *store.Store) *Server {
 		// Open by default: a subtitle database with no contributors is a
 		// mirror. Operators running a private node close it with
 		// MOANSUBS_REGISTRATION=closed.
-		Registration:      RegistrationOpen,
-		InvitesInitial:    DefaultInvitesInitial,
-		InvitesPerUploads: DefaultInvitesPerUploads,
-		InvitesCap:        DefaultInvitesCap,
-		Version:           "dev",
-		Stats:             NewStats(s),
-		VoteLimiter:       NewRateLimiter(VoteRateLimitPerHour),
-		RemovalLimiter:    NewRateLimiter(RemovalRateLimitPerHour),
-		MetadataLimiter:   NewRateLimiter(MetadataRateLimitPerHour),
-		StashBoxLimiter:   NewRateLimiter(StashBoxRateLimitPerHour),
+		Registration:          RegistrationOpen,
+		InvitesInitial:        DefaultInvitesInitial,
+		InvitesPerUploads:     DefaultInvitesPerUploads,
+		InvitesCap:            DefaultInvitesCap,
+		Version:               "dev",
+		Stats:                 NewStats(s),
+		VoteLimiter:           NewRateLimiter(VoteRateLimitPerHour),
+		RemovalLimiter:        NewRateLimiter(RemovalRateLimitPerHour),
+		MetadataLimiter:       NewRateLimiter(MetadataRateLimitPerHour),
+		StashBoxLimiter:       NewRateLimiter(StashBoxRateLimitPerHour),
+		RevisionLimiter:       NewRateLimiter(RevisionRateLimitPerHour),
+		RevisionMaxDivergence: DefaultRevisionMaxDivergence,
+		RevisionRetimeHint:    true,
 		// Production default: an adult-focused node gates every human page
 		// behind the click-through until an operator opts out
 		// (MOANSUBS_AGE_GATE=false).

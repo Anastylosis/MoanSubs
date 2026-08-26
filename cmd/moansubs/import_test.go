@@ -402,11 +402,11 @@ func TestDumpImportRoundTrip_PreservesChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSubtitleTrack(rev1): %v", err)
 	}
-	rev2, err := s.SupersedeTrack(ctx, rev1, store.SubtitleTrack{ReleaseID: release, Lang: "en", Body: rev2Body})
+	rev2, _, err := s.SupersedeTrack(ctx, rev1, store.SubtitleTrack{ReleaseID: release, Lang: "en", Body: rev2Body})
 	if err != nil {
 		t.Fatalf("SupersedeTrack(rev1 -> rev2): %v", err)
 	}
-	if _, err := s.SupersedeTrack(ctx, rev2, store.SubtitleTrack{ReleaseID: release, Lang: "en", Body: rev3Body}); err != nil {
+	if _, _, err := s.SupersedeTrack(ctx, rev2, store.SubtitleTrack{ReleaseID: release, Lang: "en", Body: rev3Body}); err != nil {
 		t.Fatalf("SupersedeTrack(rev2 -> rev3): %v", err)
 	}
 
@@ -479,7 +479,7 @@ func TestImport_ChainIdempotentRerun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSubtitleTrack(rev1): %v", err)
 	}
-	if _, err := s.SupersedeTrack(ctx, rev1, store.SubtitleTrack{ReleaseID: release, Lang: "en", Body: rev2Body}); err != nil {
+	if _, _, err := s.SupersedeTrack(ctx, rev1, store.SubtitleTrack{ReleaseID: release, Lang: "en", Body: rev2Body}); err != nil {
 		t.Fatalf("SupersedeTrack: %v", err)
 	}
 

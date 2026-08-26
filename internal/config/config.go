@@ -56,6 +56,7 @@ type File struct {
 	StashBoxes  StashBoxes  `yaml:"stash_boxes"`
 	AutoConfirm AutoConfirm `yaml:"autoconfirm"`
 	Contact     Contact     `yaml:"contact"`
+	Revisions   Revisions   `yaml:"revisions"`
 }
 
 type Analytics struct {
@@ -77,6 +78,7 @@ type RateLimits struct {
 	RegisterPerHour *int `yaml:"register_per_hour"`
 	LoginPerHour    *int `yaml:"login_per_hour"`
 	RemovalPerHour  *int `yaml:"removal_per_hour"`
+	RevisionPerHour *int `yaml:"revision_per_hour"`
 }
 
 type StashBoxes struct {
@@ -92,6 +94,15 @@ type Contact struct {
 	Email   *string `yaml:"email"`
 	Enabled *bool   `yaml:"enabled"`
 	Note    *string `yaml:"note"`
+}
+
+// Revisions is migration 0024's config (PLAN_1.md WP-R3): how different a
+// proposed fix may be from the track it would replace before it lands as
+// an unrelated new track instead, and whether a declined pure retime
+// points at the offset feature.
+type Revisions struct {
+	MaxTextDivergence *float64 `yaml:"max_text_divergence"`
+	RetimeHint        *bool    `yaml:"retime_hint"`
 }
 
 // env lists every setting this file can supply, paired with the
@@ -114,6 +125,11 @@ func (f *File) env() map[string]string {
 	setInt := func(key string, v *int) {
 		if v != nil {
 			out[key] = strconv.Itoa(*v)
+		}
+	}
+	setFloat := func(key string, v *float64) {
+		if v != nil {
+			out[key] = strconv.FormatFloat(*v, 'f', -1, 64)
 		}
 	}
 	setList := func(key string, v []string) {
@@ -154,6 +170,7 @@ func (f *File) env() map[string]string {
 	setInt("MOANSUBS_REGISTER_RATE_PER_HOUR", f.RateLimits.RegisterPerHour)
 	setInt("MOANSUBS_LOGIN_RATE_PER_HOUR", f.RateLimits.LoginPerHour)
 	setInt("MOANSUBS_REMOVAL_RATE_PER_HOUR", f.RateLimits.RemovalPerHour)
+	setInt("MOANSUBS_REVISION_RATE_PER_HOUR", f.RateLimits.RevisionPerHour)
 
 	setList("MOANSUBS_STASH_ENDPOINTS", f.StashBoxes.Accept)
 
@@ -163,6 +180,9 @@ func (f *File) env() map[string]string {
 	set("MOANSUBS_CONTACT_EMAIL", f.Contact.Email)
 	setBool("MOANSUBS_CONTACT", f.Contact.Enabled)
 	set("MOANSUBS_CONTACT_NOTE", f.Contact.Note)
+
+	setFloat("MOANSUBS_REVISION_MAX_DIVERGENCE", f.Revisions.MaxTextDivergence)
+	setBool("MOANSUBS_REVISION_RETIME_HINT", f.Revisions.RetimeHint)
 
 	return out
 }

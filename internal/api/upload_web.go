@@ -44,6 +44,10 @@ type uploadFormValues struct {
 	// Kind/KindLabel: WP-K1, plumbed for WP-K2's <select>.
 	Kind      string
 	KindLabel string
+	// Supersedes: migration 0024 (WP-R3), a track id. Empty means today's
+	// plain-upload behaviour; WP-R4's "suggest a fix" link is what actually
+	// pre-fills this.
+	Supersedes string
 }
 
 // stashEndpointDefaults is the same well-known stash-boxes API.md
@@ -258,6 +262,7 @@ func formValuesFromRequest(r *http.Request) uploadFormValues {
 		StashEndpointOther: r.PostFormValue("stash_endpoint_other"),
 		Kind:               r.PostFormValue("kind"),
 		KindLabel:          r.PostFormValue("kind_label"),
+		Supersedes:         r.PostFormValue("supersedes"),
 	}
 }
 
@@ -298,6 +303,17 @@ func uploadRequestFromForm(r *http.Request, body string) (uploadRequest, *apiErr
 		stashIDs = append(stashIDs, stashIDInput{Endpoint: endpoint, StashID: stashID})
 	}
 
+	// supersedes (WP-R3): absent is the common case, so an empty field
+	// must not become a spurious "supersede track 0" request.
+	var supersedes int64
+	if v := strings.TrimSpace(r.PostFormValue("supersedes")); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n <= 0 {
+			return uploadRequest{}, &apiError{http.StatusBadRequest, "supersedes must be a positive track id"}
+		}
+		supersedes = n
+	}
+
 	return uploadRequest{
 		OSHash:     strings.TrimSpace(r.PostFormValue("oshash")),
 		PHash:      strings.TrimSpace(r.PostFormValue("phash")),
@@ -313,6 +329,7 @@ func uploadRequestFromForm(r *http.Request, body string) (uploadRequest, *apiErr
 		StashIDs:   stashIDs,
 		Kind:       strings.TrimSpace(r.PostFormValue("kind")),
 		KindLabel:  r.PostFormValue("kind_label"),
+		Supersedes: supersedes,
 	}, nil
 }
 

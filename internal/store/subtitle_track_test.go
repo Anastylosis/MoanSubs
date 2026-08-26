@@ -581,11 +581,11 @@ func TestStore_SupersedeTrack_BuildsChainAndResolvesHead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSubtitleTrack(rev1): %v", err)
 	}
-	rev2, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")})
+	rev2, _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")})
 	if err != nil {
 		t.Fatalf("SupersedeTrack(rev1 -> rev2): %v", err)
 	}
-	rev3, err := s.SupersedeTrack(ctx, rev2, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev3")})
+	rev3, _, err := s.SupersedeTrack(ctx, rev2, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev3")})
 	if err != nil {
 		t.Fatalf("SupersedeTrack(rev2 -> rev3): %v", err)
 	}
@@ -627,7 +627,7 @@ func TestStore_SupersedeTrack_SupersededRowHiddenButStillFetchable(t *testing.T)
 	if err != nil {
 		t.Fatalf("CreateSubtitleTrack(rev1): %v", err)
 	}
-	rev2, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")})
+	rev2, _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")})
 	if err != nil {
 		t.Fatalf("SupersedeTrack: %v", err)
 	}
@@ -677,7 +677,7 @@ func TestStore_SupersedeTrack_CountersSumAcrossChain(t *testing.T) {
 		t.Fatalf("UpsertVote(rev1): %v", err)
 	}
 
-	rev2, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")})
+	rev2, _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")})
 	if err != nil {
 		t.Fatalf("SupersedeTrack: %v", err)
 	}
@@ -728,7 +728,7 @@ func TestStore_SubtitleTracksSupersedesIDUniqueIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSubtitleTrack(rev1): %v", err)
 	}
-	if _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")}); err != nil {
+	if _, _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")}); err != nil {
 		t.Fatalf("SupersedeTrack: %v", err)
 	}
 
@@ -756,7 +756,7 @@ func TestStore_SupersedeTrack_ErrTrackWithdrawn(t *testing.T) {
 		t.Fatalf("WithdrawTrack: %v", err)
 	}
 
-	if _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")}); !errors.Is(err, ErrTrackWithdrawn) {
+	if _, _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")}); !errors.Is(err, ErrTrackWithdrawn) {
 		t.Errorf("SupersedeTrack(withdrawn parent): got %v, want ErrTrackWithdrawn", err)
 	}
 }
@@ -776,7 +776,7 @@ func TestStore_SupersedeTrack_ErrTrackLocked(t *testing.T) {
 		t.Fatalf("locking rev1: %v", err)
 	}
 
-	if _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")}); !errors.Is(err, ErrTrackLocked) {
+	if _, _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")}); !errors.Is(err, ErrTrackLocked) {
 		t.Errorf("SupersedeTrack(locked parent): got %v, want ErrTrackLocked", err)
 	}
 }
@@ -790,13 +790,13 @@ func TestStore_SupersedeTrack_ErrNotHead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSubtitleTrack(rev1): %v", err)
 	}
-	if _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")}); err != nil {
+	if _, _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")}); err != nil {
 		t.Fatalf("SupersedeTrack(rev1 -> rev2): %v", err)
 	}
 
 	// rev1 is no longer the head (rev2 is, and is live); superseding it
 	// again must be refused as stale, not silently accepted as a fork.
-	if _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2b")}); !errors.Is(err, ErrNotHead) {
+	if _, _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2b")}); !errors.Is(err, ErrNotHead) {
 		t.Errorf("SupersedeTrack(stale parent): got %v, want ErrNotHead", err)
 	}
 }
@@ -806,7 +806,7 @@ func TestStore_SupersedeTrack_NotFound(t *testing.T) {
 	ctx := context.Background()
 	releaseID := newRelease(t, s, Release{OSHash: mustOSHash(t, "c000000000000008"), DurationMs: 1})
 
-	if _, err := s.SupersedeTrack(ctx, 999999, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("x")}); !errors.Is(err, ErrNotFound) {
+	if _, _, err := s.SupersedeTrack(ctx, 999999, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("x")}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("SupersedeTrack(missing parent): got %v, want ErrNotFound", err)
 	}
 }
@@ -823,7 +823,7 @@ func TestStore_WithdrawTrack_ExposesPreviousRevision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSubtitleTrack(rev1): %v", err)
 	}
-	rev2, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")})
+	rev2, _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")})
 	if err != nil {
 		t.Fatalf("SupersedeTrack: %v", err)
 	}
@@ -861,11 +861,11 @@ func TestStore_TrackChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSubtitleTrack(rev1): %v", err)
 	}
-	rev2, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")})
+	rev2, _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")})
 	if err != nil {
 		t.Fatalf("SupersedeTrack(rev1 -> rev2): %v", err)
 	}
-	rev3, err := s.SupersedeTrack(ctx, rev2, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev3")})
+	rev3, _, err := s.SupersedeTrack(ctx, rev2, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev3")})
 	if err != nil {
 		t.Fatalf("SupersedeTrack(rev2 -> rev3): %v", err)
 	}
@@ -920,11 +920,11 @@ func TestStore_SupersedeTrack_WithdrawnMiddleRevisionLeavesOneHead(t *testing.T)
 	if err != nil {
 		t.Fatalf("CreateSubtitleTrack(rev1): %v", err)
 	}
-	rev2, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")})
+	rev2, _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")})
 	if err != nil {
 		t.Fatalf("SupersedeTrack(rev1 -> rev2): %v", err)
 	}
-	rev3, err := s.SupersedeTrack(ctx, rev2, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev3")})
+	rev3, _, err := s.SupersedeTrack(ctx, rev2, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev3")})
 	if err != nil {
 		t.Fatalf("SupersedeTrack(rev2 -> rev3): %v", err)
 	}
@@ -957,7 +957,7 @@ func TestStore_SupersedeTrack_WithdrawnSuccessorFreesTheChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSubtitleTrack(rev1): %v", err)
 	}
-	bad, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("vandalism")})
+	bad, _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("vandalism")})
 	if err != nil {
 		t.Fatalf("SupersedeTrack(rev1 -> bad): %v", err)
 	}
@@ -973,7 +973,7 @@ func TestStore_SupersedeTrack_WithdrawnSuccessorFreesTheChain(t *testing.T) {
 		t.Fatalf("listing = %+v, want rev1 (%d) back as the head", summaries[releaseID], rev1)
 	}
 
-	good, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("goodfix")})
+	good, _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("goodfix")})
 	if err != nil {
 		t.Fatalf("re-superseding rev1 after its successor was withdrawn: %v", err)
 	}
@@ -998,7 +998,7 @@ func TestStore_SupersedeTrack_WithdrawnRevisionLeavesChainCounters(t *testing.T)
 	if err != nil {
 		t.Fatalf("CreateSubtitleTrack(rev1): %v", err)
 	}
-	bad, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("vandalism")})
+	bad, _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("vandalism")})
 	if err != nil {
 		t.Fatalf("SupersedeTrack(rev1 -> bad): %v", err)
 	}
@@ -1041,14 +1041,14 @@ func TestStore_SupersedeTrack_RevisionNumbersNeverCollide(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSubtitleTrack(rev1): %v", err)
 	}
-	bad, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("vandalism")})
+	bad, _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("vandalism")})
 	if err != nil {
 		t.Fatalf("SupersedeTrack(rev1 -> bad): %v", err)
 	}
 	if err := s.WithdrawTrack(ctx, bad, "vandalism"); err != nil {
 		t.Fatalf("WithdrawTrack(bad): %v", err)
 	}
-	good, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("goodfix")})
+	good, _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("goodfix")})
 	if err != nil {
 		t.Fatalf("SupersedeTrack(rev1 -> good): %v", err)
 	}
@@ -1094,7 +1094,7 @@ func TestStore_PublicCounts_CountsChainsNotRevisions(t *testing.T) {
 		t.Fatalf("PublicCounts: %v", err)
 	}
 
-	if _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")}); err != nil {
+	if _, _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")}); err != nil {
 		t.Fatalf("SupersedeTrack: %v", err)
 	}
 
