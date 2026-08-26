@@ -1076,3 +1076,36 @@ func TestStore_SupersedeTrack_RevisionNumbersNeverCollide(t *testing.T) {
 		t.Errorf("good.Revision = %d, want 3 (past the withdrawn revision 2)", head.Revision)
 	}
 }
+
+// PublicCounts reports subtitles, not rows: a chain is one subtitle however
+// many revisions it carries.
+func TestStore_PublicCounts_CountsChainsNotRevisions(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID := newRelease(t, s, Release{OSHash: mustOSHash(t, "c000000000000105"), DurationMs: 1})
+	rev1, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev1")})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack(rev1): %v", err)
+	}
+
+	before, err := s.PublicCounts(ctx)
+	if err != nil {
+		t.Fatalf("PublicCounts: %v", err)
+	}
+
+	if _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: releaseID, Lang: "en", Body: revBody("rev2")}); err != nil {
+		t.Fatalf("SupersedeTrack: %v", err)
+	}
+
+	after, err := s.PublicCounts(ctx)
+	if err != nil {
+		t.Fatalf("PublicCounts: %v", err)
+	}
+	if after.Tracks != before.Tracks {
+		t.Errorf("Tracks = %d after superseding, want %d unchanged", after.Tracks, before.Tracks)
+	}
+	if after.Languages["en"] != before.Languages["en"] {
+		t.Errorf("Languages[en] = %d after superseding, want %d unchanged", after.Languages["en"], before.Languages["en"])
+	}
+}
