@@ -71,6 +71,9 @@ type dumpStashID struct {
 // accounts of its own to have cast them).
 // SubtitleKind/SubtitleKindLabel (migration 0021, WP-K1) use that name, not
 // "kind", to avoid colliding with this line's own Kind discriminator field.
+// RootID/Revision/SupersedesID (migration 0024) are additive, absent on an
+// older dump. SupersedesID, like ReleaseID, names a track by this node's
+// own id — import has to re-link it, not trust it directly.
 type dumpTrackLine struct {
 	Kind              string          `json:"kind"`
 	ID                int64           `json:"id"`
@@ -88,6 +91,9 @@ type dumpTrackLine struct {
 	Body              string          `json:"body"`
 	SubtitleKind      string          `json:"subtitle_kind"`
 	SubtitleKindLabel *string         `json:"subtitle_kind_label,omitempty"`
+	RootID            int64           `json:"root_id"`
+	Revision          int             `json:"revision"`
+	SupersedesID      *int64          `json:"supersedes_id,omitempty"`
 }
 
 var dumpOutputPath string
@@ -263,6 +269,9 @@ func dumpTrackFrom(t store.DumpTrack) dumpTrackLine {
 		Body:              t.Body,
 		SubtitleKind:      t.Kind,
 		SubtitleKindLabel: t.KindLabel,
+		RootID:            t.RootID,
+		Revision:          t.Revision,
+		SupersedesID:      t.SupersedesID,
 	}
 }
 

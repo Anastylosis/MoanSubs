@@ -47,9 +47,38 @@ type SubtitleTrack struct {
 	// Kind on insert defaults like License does.
 	Kind      string
 	KindLabel *string
+	// RootID/Revision/SupersedesID/RevisionLocked: migration 0024 revision
+	// chains. Zero/nil on CreateSubtitleTrack means "start a new chain";
+	// `moansubs import` is the only caller that sets them explicitly.
+	RootID         int64
+	Revision       int
+	SupersedesID   *int64
+	RevisionLocked bool
 }
 
-const subtitleTrackColumns = `id, release_id, lang, body, generated, provenance, license, source, uploader_id, created_at, withdrawn_at, withdrawn_reason, downloads, up, down, kind, kind_label`
+const subtitleTrackColumns = `id, release_id, lang, body, generated, provenance, license, source, uploader_id, created_at, withdrawn_at, withdrawn_reason, downloads, up, down, kind, kind_label, root_id, revision, supersedes_id, revision_locked`
+
+// ErrNotHead is returned by SupersedeTrack when the target track has
+// already been superseded by a later, live revision.
+var ErrNotHead = errors.New("store: track is not the head of its chain")
+
+// ErrTrackLocked is returned by SupersedeTrack when the target chain's head
+// carries a moderator's revision_locked freeze (WP-R5).
+var ErrTrackLocked = errors.New("store: track's chain is revision-locked")
+
+// ErrTrackWithdrawn is returned by SupersedeTrack when the target track has
+// been withdrawn.
+var ErrTrackWithdrawn = errors.New("store: track is withdrawn")
+
+// trackIsHead selects the highest live revision of a chain. Replaces plain
+// "withdrawn_at IS NULL" in every public listing, or a chain shows up as N
+// duplicate rows. Defined on revision rather than on "nothing supersedes
+// it": withdrawing a middle revision satisfies that for two rows at once.
+func trackIsHead(alias string) string {
+	return alias + `.withdrawn_at IS NULL AND ` + alias + `.revision = (
+		SELECT MAX(hx.revision) FROM subtitle_tracks hx
+		WHERE hx.root_id = ` + alias + `.root_id AND hx.withdrawn_at IS NULL)`
+}
 
 // CreateSubtitleTrack inserts t and returns its assigned id.
 // FindIdenticalTrack returns the id of an existing track with the same
@@ -71,6 +100,9 @@ func (s *Store) FindIdenticalTrack(ctx context.Context, releaseID int64, lang, b
 	return id, nil
 }
 
+// CreateSubtitleTrack inserts t and returns its assigned id, starting a new
+// one-row chain unless t.SupersedesID is set (`moansubs import`'s re-link
+// case — a live supersede goes through SupersedeTrack instead).
 func (s *Store) CreateSubtitleTrack(ctx context.Context, t SubtitleTrack) (int64, error) {
 	license := t.License
 	if license == "" {
@@ -80,6 +112,10 @@ func (s *Store) CreateSubtitleTrack(ctx context.Context, t SubtitleTrack) (int64
 	if kind == "" {
 		kind = "default"
 	}
+	revision := t.Revision
+	if revision == 0 {
+		revision = 1
+	}
 
 	var provenance *string
 	if t.Provenance != nil {
@@ -87,15 +123,35 @@ func (s *Store) CreateSubtitleTrack(ctx context.Context, t SubtitleTrack) (int64
 		provenance = &v
 	}
 
-	var id int64
-	err := s.pool.QueryRow(ctx, `
-		INSERT INTO subtitle_tracks (release_id, lang, body, generated, provenance, license, source, uploader_id, kind, kind_label)
-		VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10)
-		RETURNING id`,
-		t.ReleaseID, t.Lang, t.Body, t.Generated, provenance, license, t.Source, t.UploaderID, kind, t.KindLabel,
-	).Scan(&id)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
+		return 0, fmt.Errorf("store: CreateSubtitleTrack: beginning tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+	// A fresh chain's root_id is its own id, unknowable before insert; 0 is
+	// a placeholder here, corrected below once id is known.
+	rootID := t.RootID
+	fresh := rootID == 0
+
+	var id int64
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO subtitle_tracks (release_id, lang, body, generated, provenance, license, source, uploader_id, kind, kind_label, root_id, revision, supersedes_id)
+		VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13)
+		RETURNING id`,
+		t.ReleaseID, t.Lang, t.Body, t.Generated, provenance, license, t.Source, t.UploaderID, kind, t.KindLabel, rootID, revision, t.SupersedesID,
+	).Scan(&id); err != nil {
 		return 0, fmt.Errorf("store: CreateSubtitleTrack: %w", err)
+	}
+
+	if fresh {
+		if _, err := tx.Exec(ctx, `UPDATE subtitle_tracks SET root_id = $1 WHERE id = $1`, id); err != nil {
+			return 0, fmt.Errorf("store: CreateSubtitleTrack: setting root_id: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("store: CreateSubtitleTrack: committing: %w", err)
 	}
 	return id, nil
 }
@@ -116,6 +172,110 @@ func (s *Store) GetSubtitleTrack(ctx context.Context, id int64) (*SubtitleTrack,
 		return nil, fmt.Errorf("store: GetSubtitleTrack: %w", err)
 	}
 	return t, nil
+}
+
+// SupersedeTrack inserts t as the next revision of parentID's chain,
+// re-reading the parent FOR UPDATE first so two concurrent supersedes of
+// the same parent can't both succeed. Returns ErrNotFound, ErrTrackWithdrawn,
+// ErrTrackLocked or ErrNotHead for each refusal, or a plain error if
+// t.ReleaseID/t.Lang don't match the parent's.
+func (s *Store) SupersedeTrack(ctx context.Context, parentID int64, t SubtitleTrack) (int64, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("store: SupersedeTrack: beginning tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+	var parent SubtitleTrack
+	row := tx.QueryRow(ctx, `SELECT `+subtitleTrackColumns+` FROM subtitle_tracks WHERE id = $1 FOR UPDATE`, parentID)
+	p, err := scanSubtitleTrack(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("store: SupersedeTrack: locking parent: %w", err)
+	}
+	parent = *p
+
+	if parent.WithdrawnAt != nil {
+		return 0, ErrTrackWithdrawn
+	}
+	if parent.RevisionLocked {
+		return 0, ErrTrackLocked
+	}
+	var headRevision int
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(MAX(revision), 0) FROM subtitle_tracks
+		WHERE root_id = $1 AND withdrawn_at IS NULL`, parent.RootID).Scan(&headRevision); err != nil {
+		return 0, fmt.Errorf("store: SupersedeTrack: checking head: %w", err)
+	}
+	if parent.Revision != headRevision {
+		return 0, ErrNotHead
+	}
+	if t.ReleaseID != parent.ReleaseID || t.Lang != parent.Lang {
+		return 0, fmt.Errorf("store: SupersedeTrack: release/lang must match the track being superseded")
+	}
+
+	license := t.License
+	if license == "" {
+		license = "CC0"
+	}
+	kind := t.Kind
+	if kind == "" {
+		kind = "default"
+	}
+	var provenance *string
+	if t.Provenance != nil {
+		v := string(t.Provenance)
+		provenance = &v
+	}
+
+	var id int64
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO subtitle_tracks (release_id, lang, body, generated, provenance, license, source, uploader_id, kind, kind_label, root_id, revision, supersedes_id)
+		VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13)
+		RETURNING id`,
+		t.ReleaseID, t.Lang, t.Body, t.Generated, provenance, license, t.Source, t.UploaderID, kind, t.KindLabel,
+		parent.RootID, parent.Revision+1, parentID,
+	).Scan(&id); err != nil {
+		return 0, fmt.Errorf("store: SupersedeTrack: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("store: SupersedeTrack: committing: %w", err)
+	}
+	return id, nil
+}
+
+// TrackChain returns every row sharing id's root_id, oldest first,
+// regardless of withdrawal.
+func (s *Store) TrackChain(ctx context.Context, id int64) ([]SubtitleTrack, error) {
+	var rootID int64
+	if err := s.pool.QueryRow(ctx, `SELECT root_id FROM subtitle_tracks WHERE id = $1`, id).Scan(&rootID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("store: TrackChain: %w", err)
+	}
+
+	rows, err := s.pool.Query(ctx, `SELECT `+subtitleTrackColumns+` FROM subtitle_tracks WHERE root_id = $1 ORDER BY revision`, rootID)
+	if err != nil {
+		return nil, fmt.Errorf("store: TrackChain: %w", err)
+	}
+	defer rows.Close()
+
+	var out []SubtitleTrack
+	for rows.Next() {
+		t, err := scanSubtitleTrack(rows)
+		if err != nil {
+			return nil, fmt.Errorf("store: TrackChain: scanning: %w", err)
+		}
+		out = append(out, *t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: TrackChain: %w", err)
+	}
+	return out, nil
 }
 
 // SubtitleTrackSummary is the lightweight per-track view the lookup
@@ -140,20 +300,25 @@ type SubtitleTrackSummary struct {
 	// Kind/KindLabel: migration 0021 (WP-K1), additive on the wire.
 	Kind      string
 	KindLabel *string
+	// Revision/RootID: migration 0024. Downloads/Up/Down above are the sum
+	// across the whole chain, not this row's own counts.
+	Revision int
+	RootID   int64
 }
 
-// TrackSummariesByReleaseIDs returns every subtitle track for the given
-// release ids, as summaries grouped by release id. A single `= ANY($1)`
-// query rather than one query per release: the lookup endpoints can return
-// dozens of releases per bucket (or up to 100 via the batch endpoint), and
-// N+1 there would multiply request count right along with the pattern the
-// batch endpoint exists to avoid.
+// TrackSummariesByReleaseIDs returns the current head of every subtitle
+// track chain for the given release ids, as summaries grouped by release
+// id. A single `= ANY($1)` query rather than one query per release: the
+// lookup endpoints can return dozens of releases per bucket, and N+1 there
+// would multiply request count right along with it.
+//
+// Downloads/Up/Down are summed across the chain's live rows via a LATERAL
+// join (backed by subtitle_tracks_root_id_idx): a chain is a handful of
+// rows at most.
 //
 // Ordering within a release is the server's documented default (WP-C3,
 // API.md): human before generated, then by score (up - down) descending,
-// then downloads descending, then id — the plugin keeps its own confidence
-// ranking across releases regardless, but a client with no opinion (the
-// catalogue templates, a bare API caller) gets a sane order for free.
+// then downloads descending, then id.
 func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int64) (map[int64][]SubtitleTrackSummary, error) {
 	out := make(map[int64][]SubtitleTrackSummary, len(releaseIDs))
 	if len(releaseIDs) == 0 {
@@ -161,11 +326,18 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, release_id, lang, generated, license, provenance IS NOT NULL, created_at, downloads, up, down, kind, kind_label
-		FROM subtitle_tracks
-		WHERE release_id = ANY($1) AND withdrawn_at IS NULL
-		ORDER BY release_id, generated ASC, (up - down) DESC, downloads DESC,
-			array_position(ARRAY['default','cc','sdh','forced','other'], kind), id ASC`, releaseIDs)
+		SELECT t.id, t.release_id, t.lang, t.generated, t.license, t.provenance IS NOT NULL, t.created_at,
+			agg.downloads, agg.up, agg.down, t.kind, t.kind_label, t.revision, t.root_id
+		FROM subtitle_tracks t
+		JOIN LATERAL (
+			SELECT COALESCE(SUM(c.downloads), 0) AS downloads,
+			       COALESCE(SUM(c.up), 0) AS up, COALESCE(SUM(c.down), 0) AS down
+			FROM subtitle_tracks c
+			WHERE c.root_id = t.root_id AND c.withdrawn_at IS NULL
+		) agg ON true
+		WHERE t.release_id = ANY($1) AND `+trackIsHead("t")+`
+		ORDER BY t.release_id, t.generated ASC, (agg.up - agg.down) DESC, agg.downloads DESC,
+			array_position(ARRAY['default','cc','sdh','forced','other'], t.kind), t.id ASC`, releaseIDs)
 	if err != nil {
 		return nil, fmt.Errorf("store: TrackSummariesByReleaseIDs: %w", err)
 	}
@@ -177,7 +349,7 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 			releaseID int64
 		)
 		if err := rows.Scan(&t.ID, &releaseID, &t.Lang, &t.Generated, &t.License, &t.HasProvenance, &t.CreatedAt,
-			&t.Downloads, &t.Up, &t.Down, &t.Kind, &t.KindLabel); err != nil {
+			&t.Downloads, &t.Up, &t.Down, &t.Kind, &t.KindLabel, &t.Revision, &t.RootID); err != nil {
 			return nil, fmt.Errorf("store: TrackSummariesByReleaseIDs: scanning: %w", err)
 		}
 		out[releaseID] = append(out[releaseID], t)
@@ -266,9 +438,14 @@ func scanSubtitleTrack(row rowScanner) (*SubtitleTrack, error) {
 		down            int
 		kind            string
 		kindLabel       *string
+		rootID          int64
+		revision        int
+		supersedesID    *int64
+		revisionLocked  bool
 	)
 	if err := row.Scan(&id, &releaseID, &lang, &body, &generated, &provenance, &license, &source, &uploaderID, &createdAt,
-		&withdrawnAt, &withdrawnReason, &downloads, &up, &down, &kind, &kindLabel); err != nil {
+		&withdrawnAt, &withdrawnReason, &downloads, &up, &down, &kind, &kindLabel,
+		&rootID, &revision, &supersedesID, &revisionLocked); err != nil {
 		return nil, err
 	}
 	return &SubtitleTrack{
@@ -289,6 +466,10 @@ func scanSubtitleTrack(row rowScanner) (*SubtitleTrack, error) {
 		Downloads:       downloads,
 		Kind:            kind,
 		KindLabel:       kindLabel,
+		RootID:          rootID,
+		Revision:        revision,
+		SupersedesID:    supersedesID,
+		RevisionLocked:  revisionLocked,
 	}, nil
 }
 

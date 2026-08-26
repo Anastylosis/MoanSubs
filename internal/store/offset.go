@@ -122,7 +122,7 @@ func (s *Store) SiblingTracks(ctx context.Context, releaseID int64) ([]SiblingTr
 		WHERE self.id = $1
 		  AND self.work_id IS NOT NULL
 		  AND sib.withdrawn_at IS NULL
-		  AND t.withdrawn_at IS NULL
+		  AND `+trackIsHead("t")+`
 		ORDER BY t.id DESC`, releaseID)
 	if err != nil {
 		return nil, fmt.Errorf("store: SiblingTracks: %w", err)

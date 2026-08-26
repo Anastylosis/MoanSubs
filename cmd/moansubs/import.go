@@ -82,6 +82,10 @@ func runImport(ctx context.Context, s *store.Store, r io.Reader, out io.Writer) 
 	dec := json.NewDecoder(r)
 	var stats importStats
 	releaseIDs := make(map[int64]int64)
+	// Map a dumped track's own id to the id/root this run assigned it
+	// locally, so a later line's SupersedesID re-links correctly.
+	trackIDs := make(map[int64]int64)
+	trackRoots := make(map[int64]int64)
 
 	line := 0
 	for {
@@ -143,9 +147,26 @@ func runImport(ctx context.Context, s *store.Store, r io.Reader, out io.Writer) 
 				stats.tracksWithdrawn++
 				continue
 			}
-			result, err := importTrack(ctx, s, out, localReleaseID, tl)
+			var parentLocal *int64
+			var parentRoot int64
+			if tl.SupersedesID != nil {
+				pID, okP := trackIDs[*tl.SupersedesID]
+				pRoot, okR := trackRoots[*tl.SupersedesID]
+				if okP && okR {
+					parentLocal, parentRoot = &pID, pRoot
+				} else {
+					_, _ = fmt.Fprintf(out, "line %d: track %d supersedes %d, not seen earlier in this dump; importing as the start of a new chain\n",
+						line, tl.ID, *tl.SupersedesID)
+				}
+			}
+
+			localID, rootID, result, err := importTrack(ctx, s, out, localReleaseID, tl, parentLocal, parentRoot)
 			if err != nil {
 				return stats, fmt.Errorf("line %d: %w", line, err)
+			}
+			if localID != 0 {
+				trackIDs[tl.ID] = localID
+				trackRoots[tl.ID] = rootID
 			}
 			switch result {
 			case trackImported:
@@ -268,11 +289,15 @@ const (
 // attach it to on this node): source records "mirror:<uploader>" when the
 // dump named an uploader, or plain "mirror" when it didn't, so provenance
 // survives the mirror even without uploader_id.
-func importTrack(ctx context.Context, s *store.Store, out io.Writer, releaseID int64, tl dumpTrackLine) (trackImportResult, error) {
+//
+// nil parentLocal (no supersedes_id, or its parent wasn't found earlier in
+// this dump) means tl starts its own new chain. Returns localID 0 only
+// when skipped as unparseable.
+func importTrack(ctx context.Context, s *store.Store, out io.Writer, releaseID int64, tl dumpTrackLine, parentLocal *int64, parentRoot int64) (localID, rootID int64, result trackImportResult, err error) {
 	cues, err := subtitle.Parse([]byte(tl.Body))
 	if err != nil {
 		_, _ = fmt.Fprintf(out, "track %d: unparseable, skipping: %v\n", tl.ID, err)
-		return trackSkippedUnparseable, nil
+		return 0, 0, trackSkippedUnparseable, nil
 	}
 	rendered := subtitle.RenderSRT(cues)
 
@@ -285,15 +310,21 @@ func importTrack(ctx context.Context, s *store.Store, out io.Writer, releaseID i
 
 	existingID, err := s.FindIdenticalTrack(ctx, releaseID, tl.Lang, rendered)
 	if err != nil {
-		return 0, fmt.Errorf("track %d: %w", tl.ID, err)
+		return 0, 0, 0, fmt.Errorf("track %d: %w", tl.ID, err)
 	}
 	if existingID != 0 {
 		// Kind never creates a duplicate (kinds-intro.md): re-running
 		// import corrects it on the existing row, same as a re-upload.
 		if err := s.UpdateSubtitleTrackKind(ctx, existingID, kind, tl.SubtitleKindLabel); err != nil {
-			return 0, fmt.Errorf("track %d: %w", tl.ID, err)
+			return 0, 0, 0, fmt.Errorf("track %d: %w", tl.ID, err)
 		}
-		return trackDuplicate, nil
+		// The existing row's actual root, not parentRoot, since a re-run may
+		// have built the local chain under different ids than this pass.
+		existing, err := s.GetSubtitleTrack(ctx, existingID)
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("track %d: %w", tl.ID, err)
+		}
+		return existingID, existing.RootID, trackDuplicate, nil
 	}
 
 	source := "mirror"
@@ -301,7 +332,7 @@ func importTrack(ctx context.Context, s *store.Store, out io.Writer, releaseID i
 		source = "mirror:" + *tl.Uploader
 	}
 
-	if _, err := s.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+	t := store.SubtitleTrack{
 		ReleaseID:  releaseID,
 		Lang:       tl.Lang,
 		Body:       rendered,
@@ -311,10 +342,22 @@ func importTrack(ctx context.Context, s *store.Store, out io.Writer, releaseID i
 		Source:     &source,
 		Kind:       kind,
 		KindLabel:  tl.SubtitleKindLabel,
-	}); err != nil {
-		return 0, fmt.Errorf("track %d: %w", tl.ID, err)
 	}
-	return trackImported, nil
+	if parentLocal != nil {
+		t.SupersedesID = parentLocal
+		t.RootID = parentRoot
+		t.Revision = tl.Revision
+	}
+
+	id, err := s.CreateSubtitleTrack(ctx, t)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("track %d: %w", tl.ID, err)
+	}
+	root := parentRoot
+	if parentLocal == nil {
+		root = id
+	}
+	return id, root, trackImported, nil
 }
 
 func init() {

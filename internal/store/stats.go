@@ -120,9 +120,15 @@ func (s *Store) PublicCounts(ctx context.Context) (PublicCounts, error) {
 
 	var generated int64
 	if err := s.pool.QueryRow(ctx, `
-		SELECT count(*), count(*) FILTER (WHERE t.generated), coalesce(sum(t.downloads), 0)
+		SELECT count(*) FILTER (WHERE t.revision = mx.rev),
+		       count(*) FILTER (WHERE t.revision = mx.rev AND t.generated),
+		       coalesce(sum(t.downloads), 0)
 		FROM subtitle_tracks t
 		JOIN releases r ON r.id = t.release_id
+		JOIN LATERAL (
+			SELECT MAX(c.revision) AS rev FROM subtitle_tracks c
+			WHERE c.root_id = t.root_id AND c.withdrawn_at IS NULL
+		) mx ON true
 		WHERE t.withdrawn_at IS NULL AND r.withdrawn_at IS NULL`,
 	).Scan(&out.Tracks, &generated, &out.DownloadsTotal); err != nil {
 		return PublicCounts{}, fmt.Errorf("store: PublicCounts: tracks: %w", err)
@@ -135,7 +141,7 @@ func (s *Store) PublicCounts(ctx context.Context) (PublicCounts, error) {
 		SELECT t.lang, count(*)
 		FROM subtitle_tracks t
 		JOIN releases r ON r.id = t.release_id
-		WHERE t.withdrawn_at IS NULL AND r.withdrawn_at IS NULL
+		WHERE `+trackIsHead("t")+` AND r.withdrawn_at IS NULL
 		GROUP BY t.lang`)
 	if err != nil {
 		return PublicCounts{}, fmt.Errorf("store: PublicCounts: languages: %w", err)

@@ -384,6 +384,138 @@ func TestDumpImportRoundTrip_CarriesKind(t *testing.T) {
 	}
 }
 
+// A chain must survive dump -> import intact: every revision, not just the
+// head, and the supersedes_id links re-pointed at the ids assigned locally.
+func TestDumpImportRoundTrip_PreservesChain(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	release, err := s.CreateRelease(ctx, store.Release{OSHash: mustOSHash(t, "f500000000000001"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	rev1Body := "1\n00:00:01,000 --> 00:00:03,000\nrev1\n\n"
+	rev2Body := "1\n00:00:01,000 --> 00:00:03,000\nrev2\n\n"
+	rev3Body := "1\n00:00:01,000 --> 00:00:03,000\nrev3\n\n"
+
+	rev1, err := s.CreateSubtitleTrack(ctx, store.SubtitleTrack{ReleaseID: release, Lang: "en", Body: rev1Body})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack(rev1): %v", err)
+	}
+	rev2, err := s.SupersedeTrack(ctx, rev1, store.SubtitleTrack{ReleaseID: release, Lang: "en", Body: rev2Body})
+	if err != nil {
+		t.Fatalf("SupersedeTrack(rev1 -> rev2): %v", err)
+	}
+	if _, err := s.SupersedeTrack(ctx, rev2, store.SubtitleTrack{ReleaseID: release, Lang: "en", Body: rev3Body}); err != nil {
+		t.Fatalf("SupersedeTrack(rev2 -> rev3): %v", err)
+	}
+
+	path := filepath.Join(t.TempDir(), "dump.jsonl.gz")
+	dumpSummary := runDumpToFile(t, path)
+	if !strings.Contains(dumpSummary, "wrote 1 release(s), 3 track(s)") {
+		t.Fatalf("dump summary = %q, want 1 release and 3 tracks (the whole chain, not just the head)", dumpSummary)
+	}
+
+	s = openTestStore(t)
+	importSummary := runImportFile(t, path)
+	if !strings.Contains(importSummary, "3 imported, 0 already present") {
+		t.Errorf("import summary = %q, want 3 imported", importSummary)
+	}
+
+	imported, err := s.GetReleaseByOshash(ctx, mustOSHash(t, "f500000000000001"))
+	if err != nil {
+		t.Fatalf("GetReleaseByOshash: %v", err)
+	}
+	summaries, err := s.TrackSummariesByReleaseIDs(ctx, []int64{imported.ID})
+	if err != nil {
+		t.Fatalf("TrackSummariesByReleaseIDs: %v", err)
+	}
+	if len(summaries[imported.ID]) != 1 {
+		t.Fatalf("imported release has %d visible track(s), want 1 (only the chain's head)", len(summaries[imported.ID]))
+	}
+	head := summaries[imported.ID][0]
+	if head.Revision != 3 {
+		t.Errorf("imported head.Revision = %d, want 3", head.Revision)
+	}
+
+	chain, err := s.TrackChain(ctx, head.ID)
+	if err != nil {
+		t.Fatalf("TrackChain: %v", err)
+	}
+	if len(chain) != 3 {
+		t.Fatalf("imported chain has %d row(s), want 3", len(chain))
+	}
+	if chain[0].Body != rev1Body || chain[1].Body != rev2Body || chain[2].Body != rev3Body {
+		t.Errorf("imported chain bodies = %q/%q/%q, want rev1/rev2/rev3 in order", chain[0].Body, chain[1].Body, chain[2].Body)
+	}
+	if chain[0].SupersedesID != nil {
+		t.Errorf("imported chain[0].SupersedesID = %v, want nil (root)", chain[0].SupersedesID)
+	}
+	if chain[1].SupersedesID == nil || *chain[1].SupersedesID != chain[0].ID {
+		t.Errorf("imported chain[1].SupersedesID = %v, want %d", chain[1].SupersedesID, chain[0].ID)
+	}
+	if chain[2].SupersedesID == nil || *chain[2].SupersedesID != chain[1].ID {
+		t.Errorf("imported chain[2].SupersedesID = %v, want %d", chain[2].SupersedesID, chain[1].ID)
+	}
+	if chain[0].RootID != chain[0].ID || chain[1].RootID != chain[0].ID || chain[2].RootID != chain[0].ID {
+		t.Errorf("imported chain root ids = %d/%d/%d, want all = %d", chain[0].RootID, chain[1].RootID, chain[2].RootID, chain[0].ID)
+	}
+}
+
+// Re-importing the same chain-carrying dump twice must not duplicate the
+// chain — the existing-row branch has to resolve the real local root, not
+// just skip re-linking.
+func TestImport_ChainIdempotentRerun(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	release, err := s.CreateRelease(ctx, store.Release{OSHash: mustOSHash(t, "f600000000000001"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	rev1Body := "1\n00:00:01,000 --> 00:00:03,000\nrev1\n\n"
+	rev2Body := "1\n00:00:01,000 --> 00:00:03,000\nrev2\n\n"
+	rev1, err := s.CreateSubtitleTrack(ctx, store.SubtitleTrack{ReleaseID: release, Lang: "en", Body: rev1Body})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack(rev1): %v", err)
+	}
+	if _, err := s.SupersedeTrack(ctx, rev1, store.SubtitleTrack{ReleaseID: release, Lang: "en", Body: rev2Body}); err != nil {
+		t.Fatalf("SupersedeTrack: %v", err)
+	}
+
+	path := filepath.Join(t.TempDir(), "dump.jsonl.gz")
+	runDumpToFile(t, path)
+
+	s = openTestStore(t)
+	first := runImportFile(t, path)
+	if !strings.Contains(first, "2 imported, 0 already present") {
+		t.Errorf("first import summary = %q, want 2 imported", first)
+	}
+	second := runImportFile(t, path)
+	if !strings.Contains(second, "0 imported, 2 already present") {
+		t.Errorf("second import summary = %q, want 0 imported, 2 already present", second)
+	}
+
+	got, err := s.GetReleaseByOshash(ctx, mustOSHash(t, "f600000000000001"))
+	if err != nil {
+		t.Fatalf("GetReleaseByOshash: %v", err)
+	}
+	summaries, err := s.TrackSummariesByReleaseIDs(ctx, []int64{got.ID})
+	if err != nil {
+		t.Fatalf("TrackSummariesByReleaseIDs: %v", err)
+	}
+	if len(summaries[got.ID]) != 1 {
+		t.Fatalf("release has %d visible track(s) after re-importing the same chain twice, want 1", len(summaries[got.ID]))
+	}
+	chain, err := s.TrackChain(ctx, summaries[got.ID][0].ID)
+	if err != nil {
+		t.Fatalf("TrackChain: %v", err)
+	}
+	if len(chain) != 2 {
+		t.Errorf("chain has %d row(s) after re-importing twice, want 2 (no duplication)", len(chain))
+	}
+}
+
 func TestImport_UnknownReleaseReference(t *testing.T) {
 	openTestStore(t)
 

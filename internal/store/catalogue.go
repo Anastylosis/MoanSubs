@@ -21,13 +21,14 @@ const (
 )
 
 // hasVisibleTrack is the EXISTS clause every catalogue query shares: a
-// release only belongs on a public page when at least one of its tracks
-// hasn't been withdrawn (the release's own withdrawn_at is checked
-// separately, since WithdrawRelease cascades onto every track but a track
-// can also be withdrawn on its own). $N is the placeholder position for the
-// optional lang filter; leave lang empty to skip it.
+// release only belongs on a public page when at least one of its tracks is
+// currently the live head of its chain (trackIsHead) — the release's own
+// withdrawn_at is checked separately, since WithdrawRelease cascades onto
+// every track but a track can also be withdrawn on its own. $N is the
+// placeholder position for the optional lang filter; leave lang empty to
+// skip it.
 func hasVisibleTrack(langPlaceholder string) string {
-	clause := `EXISTS (SELECT 1 FROM subtitle_tracks t WHERE t.release_id = r.id AND t.withdrawn_at IS NULL`
+	clause := `EXISTS (SELECT 1 FROM subtitle_tracks t WHERE t.release_id = r.id AND ` + trackIsHead("t")
 	if langPlaceholder != "" {
 		clause += ` AND t.lang = ` + langPlaceholder
 	}
@@ -171,7 +172,7 @@ type AccountTrackSummary struct {
 // every track they had ever made in one response — a multi-MB page per
 // anonymous hit for a seed account with tens of thousands of uploads.
 func (s *Store) VisibleTracksByAccount(ctx context.Context, accountID, afterID int64) ([]AccountTrackSummary, error) {
-	conds := []string{`t.uploader_id = $1`, `t.withdrawn_at IS NULL`, `r.withdrawn_at IS NULL`}
+	conds := []string{`t.uploader_id = $1`, trackIsHead("t"), `r.withdrawn_at IS NULL`}
 	args := []any{accountID}
 
 	if afterID > 0 {
@@ -219,7 +220,7 @@ func (s *Store) VisibleTrackCountByAccount(ctx context.Context, accountID int64)
 		SELECT COUNT(*)
 		FROM subtitle_tracks t
 		JOIN releases r ON r.id = t.release_id
-		WHERE t.uploader_id = $1 AND t.withdrawn_at IS NULL AND r.withdrawn_at IS NULL`, accountID).Scan(&n)
+		WHERE t.uploader_id = $1 AND `+trackIsHead("t")+` AND r.withdrawn_at IS NULL`, accountID).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("store: VisibleTrackCountByAccount: %w", err)
 	}
