@@ -152,11 +152,21 @@ func runImport(ctx context.Context, s *store.Store, r io.Reader, out io.Writer) 
 			if tl.SupersedesID != nil {
 				pID, okP := trackIDs[*tl.SupersedesID]
 				pRoot, okR := trackRoots[*tl.SupersedesID]
-				if okP && okR {
+				switch {
+				case okP && okR:
 					parentLocal, parentRoot = &pID, pRoot
-				} else {
-					_, _ = fmt.Fprintf(out, "line %d: track %d supersedes %d, not seen earlier in this dump; importing as the start of a new chain\n",
-						line, tl.ID, *tl.SupersedesID)
+				default:
+					// A withdrawn interior revision is absent from the dump, so
+					// its descendant loses its parent but not its chain: rejoin
+					// by root rather than forking a second one.
+					if root, ok := trackRoots[tl.RootID]; ok {
+						parentRoot = root
+						_, _ = fmt.Fprintf(out, "line %d: track %d supersedes %d, absent from this dump; rejoining its chain by root\n",
+							line, tl.ID, *tl.SupersedesID)
+					} else {
+						_, _ = fmt.Fprintf(out, "line %d: track %d supersedes %d, not seen earlier in this dump; importing as the start of a new chain\n",
+							line, tl.ID, *tl.SupersedesID)
+					}
 				}
 			}
 
@@ -290,9 +300,9 @@ const (
 // dump named an uploader, or plain "mirror" when it didn't, so provenance
 // survives the mirror even without uploader_id.
 //
-// nil parentLocal (no supersedes_id, or its parent wasn't found earlier in
-// this dump) means tl starts its own new chain. Returns localID 0 only
-// when skipped as unparseable.
+// parentRoot 0 means tl starts its own chain; a non-zero parentRoot with a
+// nil parentLocal is a revision whose parent was withdrawn and so absent
+// from the dump. Returns localID 0 only when skipped as unparseable.
 func importTrack(ctx context.Context, s *store.Store, out io.Writer, releaseID int64, tl dumpTrackLine, parentLocal *int64, parentRoot int64) (localID, rootID int64, result trackImportResult, err error) {
 	cues, err := subtitle.Parse([]byte(tl.Body))
 	if err != nil {
@@ -343,18 +353,18 @@ func importTrack(ctx context.Context, s *store.Store, out io.Writer, releaseID i
 		Kind:       kind,
 		KindLabel:  tl.SubtitleKindLabel,
 	}
-	if parentLocal != nil {
-		t.SupersedesID = parentLocal
+	if parentRoot != 0 {
 		t.RootID = parentRoot
 		t.Revision = tl.Revision
 	}
+	t.SupersedesID = parentLocal
 
 	id, err := s.CreateSubtitleTrack(ctx, t)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("track %d: %w", tl.ID, err)
 	}
 	root := parentRoot
-	if parentLocal == nil {
+	if root == 0 {
 		root = id
 	}
 	return id, root, trackImported, nil

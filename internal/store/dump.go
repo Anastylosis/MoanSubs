@@ -65,8 +65,9 @@ type DumpTrack struct {
 // its own withdrawn_at set, so the join against releases is required, not
 // redundant with the track-level filter.
 //
-// Deliberately not filtered on trackIsHead: dump reconstructs a mirror's
-// whole chain, not just its current head.
+// Not filtered on trackIsHead: a mirror needs every live revision, not just
+// the current head. Withdrawn rows stay excluded, so a chain whose interior
+// revision was withdrawn arrives with a gap import has to bridge.
 func (s *Store) DumpTracksAfter(ctx context.Context, afterID int64, limit int) ([]DumpTrack, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT t.id, t.release_id, t.lang, t.body, t.generated, t.provenance, t.license, t.source, a.name, t.created_at, t.downloads, t.up, t.down, t.kind, t.kind_label, t.root_id, t.revision, t.supersedes_id
