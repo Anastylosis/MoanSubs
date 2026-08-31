@@ -85,6 +85,10 @@ type Release struct {
 	Height     *int           `json:"height"`
 	VideoCodec *string        `json:"video_codec"`
 	Tracks     []TrackSummary `json:"tracks"`
+	// Title is the server's own displayTitle rule (curated title, else a
+	// cleaned upload stem), empty when it has neither. A server predating
+	// this field simply omits it, same as any other additive field here.
+	Title string `json:"title,omitempty"`
 	// StashIDs is migration 0011's stash-box scene identities (WP-C9a),
 	// present on every release a lookup response carries.
 	StashIDs []StashID `json:"stash_ids"`

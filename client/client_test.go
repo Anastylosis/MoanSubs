@@ -244,6 +244,83 @@ func TestUpload_KindRoundTrips(t *testing.T) {
 	}
 }
 
+// TestLookupBuckets_TitleRoundTrips covers Release.Title (mirrors the
+// server's displayTitle rule): an uploader-supplied Title round-trips as
+// the curated title, and a release with only a Stem gets the cleaned-stem
+// fallback instead — same two cases API.md documents for lookup responses.
+func TestLookupBuckets_TitleRoundTrips(t *testing.T) {
+	c, s := newTestServer(t)
+	ctx := context.Background()
+
+	token := "title-token"
+	sum := sha256.Sum256([]byte(token))
+	if _, err := s.Pool().Exec(ctx,
+		`INSERT INTO accounts (name, token_hash) VALUES ('title-pusher', $1)`,
+		hex.EncodeToString(sum[:])); err != nil {
+		t.Fatal(err)
+	}
+	c.Token = token
+
+	titled, err := c.Upload(ctx, UploadRequest{
+		OSHash: "00000000deadf00d", DurationMs: 60_000, Lang: "en",
+		Body:  "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+		Title: "Some Scene", Stem: "some-scene-2023-1080p",
+	})
+	if err != nil {
+		t.Fatalf("Upload (titled): %v", err)
+	}
+	stemOnly, err := c.Upload(ctx, UploadRequest{
+		OSHash: "00000000deadf00e", DurationMs: 60_000, Lang: "en",
+		Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+		Stem: "Some.Other.Scene.2023.1080p",
+	})
+	if err != nil {
+		t.Fatalf("Upload (stem only): %v", err)
+	}
+
+	oh, err := hash.ParseOSHash("00000000deadf00d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	releases, err := c.LookupBuckets(ctx, oh, nil)
+	if err != nil {
+		t.Fatalf("LookupBuckets: %v", err)
+	}
+	found := false
+	for _, r := range releases {
+		if r.ID == titled.ReleaseID {
+			found = true
+			if r.Title != "Some Scene" {
+				t.Errorf("Title = %q, want curated title", r.Title)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("uploaded release %d not found in LookupBuckets results", titled.ReleaseID)
+	}
+
+	oh2, err := hash.ParseOSHash("00000000deadf00e")
+	if err != nil {
+		t.Fatal(err)
+	}
+	releases2, err := c.LookupBuckets(ctx, oh2, nil)
+	if err != nil {
+		t.Fatalf("LookupBuckets: %v", err)
+	}
+	found = false
+	for _, r := range releases2 {
+		if r.ID == stemOnly.ReleaseID {
+			found = true
+			if r.Title != "Some Other Scene 2023" {
+				t.Errorf("Title = %q, want cleaned stem", r.Title)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("uploaded release %d not found in LookupBuckets results", stemOnly.ReleaseID)
+	}
+}
+
 func TestUpload_RequiresToken(t *testing.T) {
 	c := New("http://localhost:1", "")
 	_, err := c.Upload(context.Background(), UploadRequest{})
@@ -567,7 +644,7 @@ func TestVersion_ParsesVersionAndFeatures(t *testing.T) {
 	if v.Version != "dev" {
 		t.Errorf("Version.Version = %q, want %q", v.Version, "dev")
 	}
-	want := map[string]bool{"lookup": true, "match": true, "withdraw": true, "stats": true, "srt": true, "votes": true, "stash_ids": true, "metadata": true, "kinds": true, "revisions": true}
+	want := map[string]bool{"lookup": true, "match": true, "withdraw": true, "stats": true, "srt": true, "votes": true, "stash_ids": true, "metadata": true, "kinds": true, "revisions": true, "titles": true}
 	if len(v.Features) != len(want) {
 		t.Fatalf("Features = %v, want exactly %v", v.Features, want)
 	}

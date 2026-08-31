@@ -67,6 +67,15 @@ type lookupRelease struct {
 	Height     *int                 `json:"height"`
 	VideoCodec *string              `json:"video_codec"`
 	Tracks     []lookupTrackSummary `json:"tracks"`
+	// Title mirrors the catalogue's own displayTitle rule (catalogue.go):
+	// curated title if a human asserted one, else a cleaned upload stem,
+	// omitted entirely where displayTitle would say "(untitled)" — a
+	// lookup client has its own placeholder and doesn't need the wire to
+	// spell one out. Nothing new becomes visible here: the catalogue
+	// already shows the same string to any anonymous reader, and
+	// releaseIsIndexable still keeps stem-derived titles off crawlable
+	// pages regardless of what a lookup response carries.
+	Title string `json:"title,omitempty"`
 	// StashIDs is migration 0011's stash-box scene identities (WP-C9a),
 	// additive like Downloads/Up/Down above — always present, [] when none.
 	StashIDs []lookupStashID `json:"stash_ids"`
@@ -123,6 +132,10 @@ func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) (
 			v := r.PHash.String()
 			phash = &v
 		}
+		title := displayTitle(r)
+		if title == "(untitled)" {
+			title = ""
+		}
 
 		summaries := tracksByRelease[r.ID]
 		tracks := make([]lookupTrackSummary, 0, len(summaries))
@@ -174,6 +187,7 @@ func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) (
 			Height:     r.Height,
 			VideoCodec: r.VideoCodec,
 			Tracks:     tracks,
+			Title:      title,
 			StashIDs:   stashIDs,
 			Siblings:   siblings,
 		})

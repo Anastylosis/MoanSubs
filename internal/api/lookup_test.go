@@ -824,3 +824,179 @@ func TestLookupBatch_RejectsBadStashID(t *testing.T) {
 		t.Errorf("status = %d, want 400", resp.StatusCode)
 	}
 }
+
+// -- title (displayTitle's rule, mirrored on lookupRelease) -----------------
+
+func TestLookupOshash_Title_CuratedTitleWinsOverStem(t *testing.T) {
+	ts, st, _ := newTestServer(t)
+	ctx := context.Background()
+
+	title, stem := "Some Scene", "some-scene-2023-1080p"
+	oh := mustOSHash(t, "a1a1a1a1a1a1a1a1")
+	if _, err := st.CreateRelease(ctx, store.Release{OSHash: oh, DurationMs: 1, Title: &title, Stem: &stem}); err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	resp, err := http.Get(ts.URL + "/api/v1/lookup/oshash/" + oh.BucketPrefix())
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	got := decodeJSON[[]lookupRelease](t, resp)
+	if len(got) != 1 || got[0].Title != title {
+		t.Fatalf("Title = %q, want curated title %q: %+v", got[0].Title, title, got)
+	}
+}
+
+func TestLookupOshash_Title_FallsBackToCleanedStemWhenNoCuratedTitle(t *testing.T) {
+	ts, st, _ := newTestServer(t)
+	ctx := context.Background()
+
+	stem := "Some.Scene.2023.1080p"
+	oh := mustOSHash(t, "a2a2a2a2a2a2a2a2")
+	if _, err := st.CreateRelease(ctx, store.Release{OSHash: oh, DurationMs: 1, Stem: &stem}); err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	resp, err := http.Get(ts.URL + "/api/v1/lookup/oshash/" + oh.BucketPrefix())
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	got := decodeJSON[[]lookupRelease](t, resp)
+	want := "Some Scene 2023"
+	if len(got) != 1 || got[0].Title != want {
+		t.Fatalf("Title = %q, want cleaned stem %q: %+v", got[0].Title, want, got)
+	}
+}
+
+// A release with neither a curated title nor a readable stem must omit
+// `title` on the wire entirely, not send `"title":""` — a client's own
+// placeholder logic depends on the key being absent (see displayTitle's
+// "(untitled)" catalogue fallback, which a lookup client doesn't share).
+func TestLookupOshash_Title_OmittedWhenNeitherCuratedTitleNorReadableStem(t *testing.T) {
+	ts, st, _ := newTestServer(t)
+	ctx := context.Background()
+
+	oh := mustOSHash(t, "a3a3a3a3a3a3a3a3")
+	if _, err := st.CreateRelease(ctx, store.Release{OSHash: oh, DurationMs: 1}); err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	resp, err := http.Get(ts.URL + "/api/v1/lookup/oshash/" + oh.BucketPrefix())
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(resp.Body); err != nil {
+		t.Fatalf("reading body: %v", err)
+	}
+	body := buf.String()
+	if strings.Contains(body, `"title"`) {
+		t.Errorf("body = %s, want no title key (omitempty)", body)
+	}
+	var got []lookupRelease
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got) != 1 || got[0].Title != "" {
+		t.Fatalf("Title = %q, want empty", got[0].Title)
+	}
+}
+
+// TestLookup_Title_AppearsOnPhashBlockLookup, TestLookup_Title_AppearsOnStashLookup,
+// TestLookup_Title_AppearsOnBatchLookup and TestLookup_Title_AppearsOnExactLookup
+// check the field survives every other endpoint that renders lookupRelease
+// through the shared lookupReleases choke point — see
+// TestLookup_Kind_AppearsOnTrackSummary (api_test.go) for the same
+// single-representative-case convention this file follows for additive
+// fields.
+
+func TestLookup_Title_AppearsOnPhashBlockLookup(t *testing.T) {
+	ts, st, _ := newTestServer(t)
+	ctx := context.Background()
+
+	title := "Some Scene"
+	ph := hash.PHash(0x0123456789abcdef)
+	oh := mustOSHash(t, "b1b1b1b1b1b1b1b1")
+	if _, err := st.CreateRelease(ctx, store.Release{OSHash: oh, PHash: &ph, DurationMs: 1, Title: &title}); err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	resp, err := http.Get(fmt.Sprintf("%s/api/v1/lookup/phash/0/%x", ts.URL, ph.Blocks()[0]))
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	got := decodeJSON[[]lookupRelease](t, resp)
+	if len(got) != 1 || got[0].Title != title {
+		t.Fatalf("Title = %q, want %q: %+v", got[0].Title, title, got)
+	}
+}
+
+func TestLookup_Title_AppearsOnStashLookup(t *testing.T) {
+	ts, st, _ := newTestServer(t)
+	ctx := context.Background()
+
+	title := "Some Scene"
+	oh := mustOSHash(t, "b2b2b2b2b2b2b2b2")
+	releaseID, err := st.CreateRelease(ctx, store.Release{OSHash: oh, DurationMs: 1, Title: &title})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	ehash, id := attachStashID(t, st, releaseID, "https://stashdb.org/graphql", "d83dba4a-1e2b-4f0e-8f3a-1234567890cd")
+
+	resp, err := http.Get(ts.URL + "/api/v1/lookup/stash/" + ehash + "/" + id)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	got := decodeJSON[[]lookupRelease](t, resp)
+	if len(got) != 1 || got[0].Title != title {
+		t.Fatalf("Title = %q, want %q: %+v", got[0].Title, title, got)
+	}
+}
+
+func TestLookup_Title_AppearsOnBatchLookup(t *testing.T) {
+	ts, st, _ := newTestServer(t)
+	ctx := context.Background()
+
+	title := "Some Scene"
+	oh := mustOSHash(t, "b3b3b3b3b3b3b3b3")
+	if _, err := st.CreateRelease(ctx, store.Release{OSHash: oh, DurationMs: 1, Title: &title}); err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	resp := doPostJSON(t, ts, "/api/v1/lookup/batch", map[string]any{
+		"oshash_prefixes": []string{oh.BucketPrefix()},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	got := decodeJSON[batchLookupResponse](t, resp)
+	key := oshashResultKey(oh.BucketPrefix())
+	if releases, ok := got.Results[key]; !ok || len(releases) != 1 || releases[0].Title != title {
+		t.Fatalf("Results[%q] = %+v, want Title %q", key, got.Results[key], title)
+	}
+}
+
+func TestLookup_Title_AppearsOnExactLookup(t *testing.T) {
+	ts, st, _ := newTestServer(t)
+	ctx := context.Background()
+
+	title := "Some Scene"
+	oh := mustOSHash(t, "b4b4b4b4b4b4b4b4")
+	if _, err := st.CreateRelease(ctx, store.Release{OSHash: oh, DurationMs: 1, Title: &title}); err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	resp := doPostJSON(t, ts, "/api/v1/lookup/exact", map[string]any{"oshash": string(oh)})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	got := decodeJSON[exactLookupResponse](t, resp)
+	if len(got.Releases) != 1 || got.Releases[0].Title != title {
+		t.Fatalf("Releases = %+v, want Title %q", got.Releases, title)
+	}
+}

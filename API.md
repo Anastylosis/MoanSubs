@@ -78,7 +78,7 @@ leaks the same, explicitly.
 
 ### `GET /api/v1/version`
 
-`{"version": "<semver or dev>", "features": ["lookup", "match", "withdraw", "stats", "srt", "votes", "stash_ids", "metadata", "kinds"],
+`{"version": "<semver or dev>", "features": ["lookup", "match", "withdraw", "stats", "srt", "votes", "stash_ids", "metadata", "kinds", "revisions", "titles"],
 "stash_endpoints": ["https://stashdb.org/graphql", "https://fansdb.cc/graphql",
 "https://theporndb.net/graphql", "https://javstash.org/graphql",
 "https://pmvstash.org/graphql"]}`. Anonymous
@@ -275,6 +275,7 @@ what the score was computed against, including a date disagreement via
               "license": "CC0", "has_provenance": false,
               "downloads": 42, "up": 3, "down": 0, "created_at": "...",
               "kind": "default", "kind_label": null}],
+  "title": "Some Scene (1080p)",
   "stash_ids": [{"endpoint": "https://stashdb.org/graphql",
                  "stash_id": "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"}]
 }
@@ -307,6 +308,18 @@ already has a track is not a separate row: re-uploading the identical body
 under a different kind corrects the existing track's `kind` in place
 rather than creating a duplicate (track identity stays release + lang +
 body).
+
+`title` (feature `titles`) is additive too, and follows the exact same rule
+the human catalogue uses to head a release: a curated title if a human
+asserted one, else the release's own upload filename cleaned up for
+reading, else the field is **omitted** — a lookup client is expected to
+have its own placeholder rather than receive the literal string the
+catalogue shows people. This exposes nothing a lookup caller couldn't
+already see on the public catalogue page for the same release (a cleaned
+filename is shown there to any anonymous visitor); it does not affect, and
+is not affected by, whether that release's page is offered to crawlers —
+that indexing decision still depends only on a curated, moderator-pinned
+title (see TAKEDOWN.md and MANUAL.md for the catalogue's own rules).
 
 Within one release, a track list's default order — here and everywhere
 else a release's tracks are listed (lookup responses, the catalogue's
