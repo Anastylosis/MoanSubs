@@ -11,11 +11,13 @@ libraries.** Someone subtitles a scene once; everyone else who has that
 scene gets the subtitle — even though their file is a different encode with
 a different name.
 
-Two pieces: a self-hostable **Go + Postgres server** that stores subtitle
-tracks keyed by video fingerprints, and a **Stash plugin** that searches,
-downloads, and uploads them from the scene page. A public node runs at
-[moansubs.org](https://moansubs.org), and the plugin points at it out of
-the box.
+Three pieces: a self-hostable **Go + Postgres server** that stores
+subtitle tracks keyed by video fingerprints, a **Stash plugin** that
+searches, downloads, and uploads them from the scene page, and
+[**MoanDrop**](https://github.com/Anastylosis/MoanDrop) — a desktop app
+(drag-and-drop window + CLI) for people who don't run Stash at all. A
+public node runs at [moansubs.org](https://moansubs.org), and both
+clients point at it out of the box.
 
 ## Why this exists
 
@@ -90,6 +92,16 @@ exactly what it does and does not leak.
   is sent automatically.
 
 Full details: [plugin/README.md](plugin/README.md).
+
+## No Stash? MoanDrop
+
+[MoanDrop](https://github.com/Anastylosis/MoanDrop) is the same matching
+without Stash: drop a video on a window (or run `moandrop match`), get
+the ranked candidates with the same evidence wording, and one click
+writes the `.<lang>.srt` sidecar that Plex, Jellyfin, Kodi and VLC pick
+up. It fingerprints locally — the video never leaves the machine — and
+`moandrop push` shares sidecars back. Binaries, debs/rpms, AUR and
+Homebrew installs are on its releases page.
 
 ## Quick start
 
