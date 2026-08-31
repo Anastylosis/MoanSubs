@@ -17,14 +17,18 @@ Every subtitle in the catalogue is released under
 no attribution required, do what you like with it. Using the site to search
 or download costs nothing and needs no account.
 
-## Two doors, one catalogue
+## Three doors, one catalogue
 
 - **The Stash plugin** adds a Subtitles panel to every scene page, plus a
   badge on scene cards that already have something. This is the easiest way
   in if you use Stash — see [Installing the plugin](stash/install.md).
+- **MoanDrop** is a desktop app — a drag-and-drop window plus a
+  command-line tool — for everyone else: no Stash, no account needed
+  just to find and download. See
+  [Installing MoanDrop](desktop/index.md).
 - **The website** lets you browse, search, upload, and vote without Stash
-  open at all — useful from a phone, or for a file Stash hasn't scanned yet.
-  See [Browsing and registering](web/index.md).
+  or MoanDrop open at all — useful from a phone, or for a file nothing
+  else has scanned yet. See [Browsing and registering](web/index.md).
 
-Download something through one and it's there through the other too — both
-are windows onto the same server.
+Download something through any of the three and it's there through the
+others too — they're all windows onto the same server.

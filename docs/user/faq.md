@@ -35,15 +35,16 @@ subtitle's content changes; only the filename loses the region.
 ## What can the server actually see?
 
 Downloading and searching are anonymous — no account is created or
-needed. The Stash plugin normally sends only small fragments of a scene's
-fingerprint (a prefix, or one block at a time) rather than the whole
-thing, so a single request can't be turned back into your full hash on
-its own. That's a property of how lookups are shaped, though, not a hard
-guarantee: a server that logged and correlated many requests over time
-could work out more than any one request reveals. Turning on **Full-hash
-lookup** in the plugin settings sends the complete fingerprint outright,
-in exchange for a wider fuzzy-match radius — it's off by default for
-exactly that reason.
+needed, on the Stash plugin or in [MoanDrop](desktop/index.md). Both
+normally send only small fragments of a scene's fingerprint (a prefix,
+or one block at a time) rather than the whole thing, so a single request
+can't be turned back into your full hash on its own. That's a property
+of how lookups are shaped, though, not a hard guarantee: a server that
+logged and correlated many requests over time could work out more than
+any one request reveals. Turning on **Full-hash lookup** in the plugin
+settings, or `--exact` on MoanDrop, sends the complete fingerprint
+outright, in exchange for a wider fuzzy-match radius — it's off by
+default for exactly that reason.
 
 Uploading and voting need an account, and your account name is public
 — see [Browsing and registering](web/index.md).

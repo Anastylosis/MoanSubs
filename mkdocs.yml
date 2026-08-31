@@ -1,6 +1,6 @@
 site_name: moansubs
 site_url: https://docs.moansubs.org/
-site_description: End-user documentation for the moansubs subtitle database and Stash plugin.
+site_description: End-user documentation for the moansubs subtitle database, its Stash plugin, and the MoanDrop desktop app.
 docs_dir: docs/user
 strict: true
 
@@ -33,6 +33,10 @@ nav:
       - Finding and downloading subtitles: stash/getting-subtitles.md
       - Preferences and bulk tasks: stash/preferences-and-bulk.md
       - Sharing what you have: stash/sharing.md
+  - Desktop app:
+      - Installing MoanDrop: desktop/index.md
+      - Finding subtitles: desktop/matching.md
+      - Sharing what you have: desktop/sharing.md
   - Website:
       - Browsing and registering: web/index.md
       - Uploading from the browser: web/upload.md
