@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Anastylosis/MoanSubs/plugin/msclient"
+	"github.com/Anastylosis/MoanSubs/client"
 	stash "github.com/Anastylosis/stash-go"
 )
 
@@ -158,7 +158,7 @@ func (c *cancelAfterNthTrackFetch) RoundTrip(req *http.Request) (*http.Response,
 func bulkApp(stashURL, msURL string, languages []string, allLanguages, replaceExisting bool) *app {
 	return &app{
 		stash:                   stash.NewClient(stashURL),
-		ms:                      msclient.New(msURL, ""),
+		ms:                      client.New(msURL, ""),
 		languages:               languages,
 		downloadAllLanguages:    allLanguages,
 		replaceExistingCaptions: replaceExisting,
@@ -359,7 +359,7 @@ func TestDownloadAll_NoMatchNeverFallsBackToNameMatch(t *testing.T) {
 // task unconfigured must refuse up front rather than silently skip the
 // whole library.
 func TestDownloadAll_RequiresLanguageConfiguration(t *testing.T) {
-	a := &app{stash: nil, ms: &msclient.Client{}}
+	a := &app{stash: nil, ms: &client.Client{}}
 	if _, err := a.downloadAll(context.Background(), false); err == nil {
 		t.Fatal("download_all with no languages and download_all_languages off: got nil error, want a refusal")
 	}
@@ -577,7 +577,7 @@ func TestDownloadAll_GivesUpOnPersistent429(t *testing.T) {
 }
 
 func TestSelectTracksForDownload(t *testing.T) {
-	tracks := []msclient.TrackSummary{
+	tracks := []client.TrackSummary{
 		{ID: 1, Lang: "en", Kind: "default"},
 		{ID: 2, Lang: "en", Kind: "sdh"}, // same base as 1: must not duplicate
 		{ID: 3, Lang: "pt-BR", Kind: "default"},

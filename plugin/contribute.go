@@ -6,7 +6,7 @@ import (
 
 	stash "github.com/Anastylosis/stash-go"
 
-	"github.com/Anastylosis/MoanSubs/plugin/msclient"
+	"github.com/Anastylosis/MoanSubs/client"
 )
 
 // contributeStats is what the contribute modes report back.
@@ -34,22 +34,22 @@ func (st *contributeStats) note(format string, args ...any) {
 // lets a node auto-confirm the result instead of queueing it behind a
 // moderator, so an entry that carries one is worth far more than a bare
 // title. They go through the same validation and allow-list filtering as
-// a push (msclientStashIDs).
-func (a *app) sceneMetadataEntry(ctx context.Context, scene *stash.Scene) (msclient.MetadataEntry, bool) {
+// a push (clientStashIDs).
+func (a *app) sceneMetadataEntry(ctx context.Context, scene *stash.Scene) (client.MetadataEntry, bool) {
 	if len(scene.Files) == 0 {
-		return msclient.MetadataEntry{}, false
+		return client.MetadataEntry{}, false
 	}
 	oshash, _ := scene.Files[0].Fingerprint("oshash")
 	if oshash == "" {
-		return msclient.MetadataEntry{}, false
+		return client.MetadataEntry{}, false
 	}
-	e := msclient.MetadataEntry{
+	e := client.MetadataEntry{
 		OSHash:     oshash,
 		Title:      scene.Title,
 		Date:       scene.Date,
 		Studio:     studioName(scene),
 		Performers: performerNames(scene),
-		StashIDs:   a.msclientStashIDs(ctx, scene.StashIDs, scene.ID),
+		StashIDs:   a.clientStashIDs(ctx, scene.StashIDs, scene.ID),
 	}
 	// Note the deliberate absence of the filename: this endpoint records
 	// what a scene IS, and a stem is what a file is called. The server
@@ -90,7 +90,7 @@ func (a *app) contribute(ctx context.Context, sceneID string, dryRun bool) (any,
 		st.note("would send %s", describeEntry(entry))
 		return st, nil
 	}
-	a.sendMetadata(ctx, []msclient.MetadataEntry{entry}, st)
+	a.sendMetadata(ctx, []client.MetadataEntry{entry}, st)
 	return st, nil
 }
 
@@ -105,7 +105,7 @@ func (a *app) contributeAll(ctx context.Context, dryRun bool) (any, error) {
 
 	const perPage = 100
 	st := &contributeStats{DryRun: dryRun}
-	batch := make([]msclient.MetadataEntry, 0, msclient.MaxMetadataEntries)
+	batch := make([]client.MetadataEntry, 0, client.MaxMetadataEntries)
 
 	for page := 1; ; page++ {
 		if err := ctx.Err(); err != nil {
@@ -137,7 +137,7 @@ func (a *app) contributeAll(ctx context.Context, dryRun bool) (any, error) {
 				continue
 			}
 			batch = append(batch, entry)
-			if len(batch) == msclient.MaxMetadataEntries {
+			if len(batch) == client.MaxMetadataEntries {
 				a.sendMetadata(ctx, batch, st)
 				batch = batch[:0]
 			}
@@ -156,7 +156,7 @@ func (a *app) contributeAll(ctx context.Context, dryRun bool) (any, error) {
 }
 
 // sendMetadata posts one batch and folds the per-entry answers into st.
-func (a *app) sendMetadata(ctx context.Context, batch []msclient.MetadataEntry, st *contributeStats) {
+func (a *app) sendMetadata(ctx context.Context, batch []client.MetadataEntry, st *contributeStats) {
 	results, err := a.ms.ContributeMetadata(ctx, batch)
 	if err != nil {
 		st.Errors += len(batch)
@@ -197,7 +197,7 @@ func (a *app) requireMetadataFeature(ctx context.Context) error {
 	return nil
 }
 
-func describeEntry(e msclient.MetadataEntry) string {
+func describeEntry(e client.MetadataEntry) string {
 	what := e.Title
 	if what == "" {
 		what = e.OSHash

@@ -1,4 +1,4 @@
-package msclient
+package client
 
 import (
 	"context"
@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Anastylosis/MoanSubs/hash"
 	"github.com/Anastylosis/MoanSubs/internal/api"
-	"github.com/Anastylosis/MoanSubs/internal/hash"
 	"github.com/Anastylosis/MoanSubs/internal/store"
 )
 
@@ -25,7 +25,7 @@ func newTestServer(t *testing.T) (*Client, *store.Store) {
 	t.Helper()
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		t.Skip("DATABASE_URL not set; skipping msclient integration test")
+		t.Skip("DATABASE_URL not set; skipping client integration test")
 	}
 	s, err := store.Open(context.Background(), dsn)
 	if err != nil {

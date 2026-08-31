@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Anastylosis/MoanSubs/hash"
 	"github.com/Anastylosis/MoanSubs/internal/api"
-	"github.com/Anastylosis/MoanSubs/internal/hash"
 	"github.com/Anastylosis/MoanSubs/internal/stashbox"
 	"github.com/Anastylosis/MoanSubs/internal/store"
 	"github.com/spf13/cobra"

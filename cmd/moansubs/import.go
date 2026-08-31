@@ -9,7 +9,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/hash"
 	"github.com/Anastylosis/MoanSubs/internal/store"
 	"github.com/Anastylosis/MoanSubs/internal/subtitle"
 	"github.com/spf13/cobra"

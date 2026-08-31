@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/Anastylosis/MoanSubs/internal/hash"
-	"github.com/Anastylosis/MoanSubs/plugin/msclient"
+	"github.com/Anastylosis/MoanSubs/client"
+	"github.com/Anastylosis/MoanSubs/hash"
 )
 
 func mustOSHash(t *testing.T, s string) hash.OSHash {
@@ -29,7 +29,7 @@ func TestRankCandidates(t *testing.T) {
 	flip3 := scenePhash ^ hash.PHash(0b111)    // Hamming 3
 	flip6 := scenePhash ^ hash.PHash(0b111111) // Hamming 6
 
-	releases := []msclient.Release{
+	releases := []client.Release{
 		// Exact oshash match, different phash entirely: level 1.
 		{ID: 1, OSHash: sceneOshash.String(), PHash: phashStr(0xffff000000000000), DurationMs: sceneDurMs},
 		// Hamming 3 with duration inside the 1s gate: level 3 (high).
@@ -109,11 +109,11 @@ func TestStashLabel(t *testing.T) {
 // the UI treats as trustworthy) — name evidence is never fingerprint
 // identity (PLAN.md "Matching").
 func TestNameCandidates_OfferOnly(t *testing.T) {
-	result := &msclient.MatchResult{
+	result := &client.MatchResult{
 		Verdict: "CONFIRMED",
-		Candidates: []msclient.MatchCandidate{
+		Candidates: []client.MatchCandidate{
 			{
-				Release: msclient.Release{ID: 42, OSHash: "1111111111111111", DurationMs: 600_000},
+				Release: client.Release{ID: 42, OSHash: "1111111111111111", DurationMs: 600_000},
 				Score:   130,
 				NameSim: 0.95,
 				DeltaMs: -500,
@@ -160,11 +160,11 @@ func TestNameCandidates_OfferOnly(t *testing.T) {
 // a nil-pointer panic, since the JS side only ever checks a JSON string.
 func TestNameCandidates_CarriesDate(t *testing.T) {
 	date := "2023-05-25"
-	result := &msclient.MatchResult{
+	result := &client.MatchResult{
 		Verdict: "LIKELY",
-		Candidates: []msclient.MatchCandidate{
-			{Release: msclient.Release{ID: 1}, Date: &date, Reasons: []string{"date mismatch 2023-05-23 vs 2023-05-25"}},
-			{Release: msclient.Release{ID: 2}, Date: nil},
+		Candidates: []client.MatchCandidate{
+			{Release: client.Release{ID: 1}, Date: &date, Reasons: []string{"date mismatch 2023-05-23 vs 2023-05-25"}},
+			{Release: client.Release{ID: 2}, Date: nil},
 		},
 	}
 

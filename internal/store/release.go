@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/hash"
 	subs "github.com/Anastylosis/subtitlematch"
 	"github.com/jackc/pgx/v5"
 )
@@ -54,7 +54,7 @@ const releaseColumns = `id, work_id, oshash, phash, md5, duration_ms, width, hei
 	autoconfirm_blocked`
 
 // phashColumns computes the raw signed-bigint phash plus its 5 MIH block
-// values from r.PHash, all nil when r.PHash is nil — internal/hash is the
+// values from r.PHash, all nil when r.PHash is nil — hash is the
 // single source of truth for that computation, not SQL. Shared by
 // CreateRelease and GetOrCreateRelease so both insert paths stay consistent.
 func phashColumns(r Release) (phashBig *int64, b0, b1, b2, b3, b4 *int16) {

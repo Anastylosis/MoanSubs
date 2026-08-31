@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Anastylosis/MoanSubs/plugin/msclient"
+	"github.com/Anastylosis/MoanSubs/client"
 	stash "github.com/Anastylosis/stash-go"
 )
 
@@ -23,7 +23,7 @@ func sceneWithFingerprint(id, oshash string) *stash.Scene {
 // A scene Stash knows nothing about must not cost a round trip: the server
 // would accept the entry and record nothing.
 func TestSceneMetadataEntry_SkipsASceneWithNothingToSay(t *testing.T) {
-	a := &app{ms: msclient.New("http://example.invalid", "t")}
+	a := &app{ms: client.New("http://example.invalid", "t")}
 	scene := sceneWithFingerprint("1", "0123456789abcdef")
 
 	if _, ok := a.sceneMetadataEntry(context.Background(), scene); ok {
@@ -44,7 +44,7 @@ func TestSceneMetadataEntry_SkipsASceneWithNothingToSay(t *testing.T) {
 // IS; a stem is what a file is called, and contributing one as knowledge
 // is the same laundering the correction form was fixed to stop.
 func TestSceneMetadataEntry_NeverSendsTheFilename(t *testing.T) {
-	a := &app{ms: msclient.New("http://example.invalid", "t")}
+	a := &app{ms: client.New("http://example.invalid", "t")}
 	scene := sceneWithFingerprint("2", "0123456789abcdef")
 	scene.Files[0].Path = "/videos/Jane Doe - SiteRip 2019.mp4"
 	scene.Title = "A Named Scene"
@@ -74,7 +74,7 @@ func TestContribute_RefusesAnOlderNodeUpFront(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	a := &app{ms: msclient.New(ts.URL, "token"), stash: nil}
+	a := &app{ms: client.New(ts.URL, "token"), stash: nil}
 	_, err := a.contributeAll(context.Background(), false)
 	if err == nil || !strings.Contains(err.Error(), "cannot accept scene details") {
 		t.Fatalf("err = %v, want a refusal naming the missing capability", err)
@@ -84,7 +84,7 @@ func TestContribute_RefusesAnOlderNodeUpFront(t *testing.T) {
 // Contributing is a write, so it needs an account -- and must say so once
 // rather than failing per scene.
 func TestContribute_RequiresATokenBeforeTouchingAnything(t *testing.T) {
-	a := &app{ms: &msclient.Client{}, stash: nil}
+	a := &app{ms: &client.Client{}, stash: nil}
 	if _, err := a.contributeAll(context.Background(), false); err == nil {
 		t.Error("contribute_all with no token: want a refusal")
 	}
@@ -107,9 +107,9 @@ func TestSendMetadata_CountsKnownUnknownAndErrors(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	a := &app{ms: msclient.New(ts.URL, "token")}
+	a := &app{ms: client.New(ts.URL, "token")}
 	st := &contributeStats{}
-	a.sendMetadata(context.Background(), []msclient.MetadataEntry{
+	a.sendMetadata(context.Background(), []client.MetadataEntry{
 		{OSHash: "a", Title: "x"}, {OSHash: "b", Title: "y"}, {OSHash: "c", Title: "z"},
 	}, st)
 

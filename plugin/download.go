@@ -12,8 +12,8 @@ import (
 
 	stash "github.com/Anastylosis/stash-go"
 
+	"github.com/Anastylosis/MoanSubs/client"
 	"github.com/Anastylosis/MoanSubs/internal/subtitle"
-	"github.com/Anastylosis/MoanSubs/plugin/msclient"
 )
 
 // downloadLookupChunkSize caps how many scenes' keys go into one
@@ -142,7 +142,7 @@ pageLoop:
 func (a *app) downloadSceneChunk(ctx context.Context, scenes []stash.Scene, dryRun bool, st *downloadAllStats) {
 	type sceneInfo struct {
 		scene      *stash.Scene
-		keys       msclient.SceneKeys
+		keys       client.SceneKeys
 		path       string
 		durationMs int64
 		stashIDs   []stash.StashID
@@ -158,7 +158,7 @@ func (a *app) downloadSceneChunk(ctx context.Context, scenes []stash.Scene, dryR
 			continue
 		}
 		infos = append(infos, sceneInfo{
-			scene: &scenes[i], keys: msclient.SceneKeys{OSHash: oh, PHash: ph},
+			scene: &scenes[i], keys: client.SceneKeys{OSHash: oh, PHash: ph},
 			path: path, durationMs: durationMs, stashIDs: stashIDs,
 		})
 	}
@@ -166,12 +166,12 @@ func (a *app) downloadSceneChunk(ctx context.Context, scenes []stash.Scene, dryR
 		return
 	}
 
-	batchKeys := make([]msclient.SceneKeys, len(infos))
+	batchKeys := make([]client.SceneKeys, len(infos))
 	for i, inf := range infos {
 		batchKeys[i] = inf.keys
 	}
 
-	var perScene [][]msclient.Release
+	var perScene [][]client.Release
 	err := a.withRetry429(ctx, func() error {
 		var lerr error
 		perScene, lerr = a.ms.LookupBucketsBatch(ctx, batchKeys)
@@ -251,9 +251,9 @@ func (a *app) downloadSceneChunk(ctx context.Context, scenes []stash.Scene, dryR
 // tag, is what keeps two variants of one language (pt-BR and pt-PT, or a
 // default and an sdh track) from producing two sidecars that would collide
 // on disk — the sort's kind tiebreak already put the preferred one first.
-func selectTracksForDownload(tracks []msclient.TrackSummary, languages []string, allLanguages bool) []msclient.TrackSummary {
+func selectTracksForDownload(tracks []client.TrackSummary, languages []string, allLanguages bool) []client.TrackSummary {
 	seen := make(map[string]bool, len(tracks))
-	var out []msclient.TrackSummary
+	var out []client.TrackSummary
 	for _, t := range tracks {
 		base, err := subtitle.BaseLang(t.Lang)
 		if err != nil || seen[base] {
@@ -272,7 +272,7 @@ func selectTracksForDownload(tracks []msclient.TrackSummary, languages []string,
 // have written. The existing-caption check runs before any network fetch,
 // on the track summary's own language — cheap, and it means a skip never
 // costs a round trip to the server.
-func (a *app) downloadTrack(ctx context.Context, scenePath string, t msclient.TrackSummary, forRelease int64, dryRun bool, st *downloadAllStats) {
+func (a *app) downloadTrack(ctx context.Context, scenePath string, t client.TrackSummary, forRelease int64, dryRun bool, st *downloadAllStats) {
 	lang, err := ResolveCaptionLang(t.Lang)
 	if err != nil {
 		st.Errors++
@@ -292,7 +292,7 @@ func (a *app) downloadTrack(ctx context.Context, scenePath string, t msclient.Tr
 		return
 	}
 
-	var track *msclient.Track
+	var track *client.Track
 	err = a.withRetry429(ctx, func() error {
 		var terr error
 		track, terr = a.ms.GetTrackFor(ctx, t.ID, forRelease)
@@ -331,7 +331,7 @@ func (a *app) withRetry429(ctx context.Context, fn func() error) error {
 		if err == nil {
 			return nil
 		}
-		status, ok := msclient.StatusCode(err)
+		status, ok := client.StatusCode(err)
 		if !ok || status != http.StatusTooManyRequests || attempt >= maxDownloadRetries {
 			return err
 		}

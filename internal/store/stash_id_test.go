@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/hash"
 )
 
 // stashIDFixture builds a ReleaseStashID the way an upload handler would:
-// normalize the endpoint and derive its ehash via the shared internal/hash
+// normalize the endpoint and derive its ehash via the shared hash
 // helpers, so store-level tests exercise the same values the API layer
 // actually computes.
 func stashIDFixture(t *testing.T, releaseID int64, endpoint, stashID string) ReleaseStashID {

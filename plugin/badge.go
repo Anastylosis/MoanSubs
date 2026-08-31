@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Anastylosis/MoanSubs/internal/hash"
-	"github.com/Anastylosis/MoanSubs/plugin/msclient"
+	"github.com/Anastylosis/MoanSubs/client"
+	"github.com/Anastylosis/MoanSubs/hash"
 )
 
 // badgeStatus is one scene's has-subs answer for the SceneCard badge.
@@ -37,7 +37,7 @@ func (a *app) badge(ctx context.Context, sceneIDs []string) (any, error) {
 	// then hit the moansubs server with ONE deduplicated batched lookup.
 	type sceneInfo struct {
 		id         string
-		keys       msclient.SceneKeys
+		keys       client.SceneKeys
 		phash      *hash.PHash
 		durationMs int64
 	}
@@ -59,7 +59,7 @@ func (a *app) badge(ctx context.Context, sceneIDs []string) (any, error) {
 		}
 		infos = append(infos, sceneInfo{
 			id:         id,
-			keys:       msclient.SceneKeys{OSHash: oh, PHash: ph},
+			keys:       client.SceneKeys{OSHash: oh, PHash: ph},
 			phash:      ph,
 			durationMs: durationMs,
 		})
@@ -68,7 +68,7 @@ func (a *app) badge(ctx context.Context, sceneIDs []string) (any, error) {
 		return out, nil
 	}
 
-	batchKeys := make([]msclient.SceneKeys, len(infos))
+	batchKeys := make([]client.SceneKeys, len(infos))
 	for i, info := range infos {
 		batchKeys[i] = info.keys
 	}

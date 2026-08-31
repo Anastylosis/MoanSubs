@@ -13,9 +13,9 @@ import (
 
 	stash "github.com/Anastylosis/stash-go"
 
-	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/client"
+	"github.com/Anastylosis/MoanSubs/hash"
 	"github.com/Anastylosis/MoanSubs/internal/subtitle"
-	"github.com/Anastylosis/MoanSubs/plugin/msclient"
 )
 
 // pluginID must match the id Stash derives from the plugin config filename
@@ -35,7 +35,7 @@ type app struct {
 	// caption handling is a disk check, not a GraphQL one — so it is a
 	// diagnostic, not a switch on the scene queries.
 	supportsCaptions bool
-	ms               *msclient.Client
+	ms               *client.Client
 	// exactMode mirrors the opt-in "exact_mode" plugin setting (full-hash
 	// lookup; PLAN.md "Lookup" — never the default).
 	exactMode bool
@@ -49,7 +49,7 @@ type app struct {
 	// and cached on first use by serverVersion. One process serves one
 	// task invocation, so this is at most one extra round trip per task,
 	// never one per candidate or per scene.
-	version *msclient.ServerVersion
+	version *client.ServerVersion
 }
 
 func newApp(ctx context.Context, input PluginInput) (*app, error) {
@@ -97,7 +97,7 @@ func newApp(ctx context.Context, input PluginInput) (*app, error) {
 
 	return &app{
 		stash:                   st,
-		ms:                      msclient.New(serverURL, token),
+		ms:                      client.New(serverURL, token),
 		exactMode:               exact,
 		supportsCaptions:        captions,
 		languages:               parseLanguagePreference(languagesRaw),
@@ -150,8 +150,8 @@ func (a *app) serverSupportsKinds(ctx context.Context) bool {
 
 // Language first, kind as the tiebreak; stable so the server's order
 // survives for tracks matching neither preference. Never drops a track.
-func sortTracksByPreference(tracks []msclient.TrackSummary, languages []string, preferredKind string) {
-	langRank := func(t msclient.TrackSummary) int {
+func sortTracksByPreference(tracks []client.TrackSummary, languages []string, preferredKind string) {
+	langRank := func(t client.TrackSummary) int {
 		base, err := subtitle.BaseLang(t.Lang)
 		if err != nil {
 			return len(languages)
@@ -163,7 +163,7 @@ func sortTracksByPreference(tracks []msclient.TrackSummary, languages []string, 
 		}
 		return len(languages)
 	}
-	kindRank := func(t msclient.TrackSummary) int {
+	kindRank := func(t client.TrackSummary) int {
 		if preferredKind != "" && t.Kind == preferredKind {
 			return 0
 		}
@@ -233,7 +233,7 @@ func (a *app) probe(ctx context.Context) (any, error) {
 	v, err := a.serverVersion(ctx)
 	if err != nil {
 		logError("probe: reading server version failed: %v", err)
-		v = &msclient.ServerVersion{}
+		v = &client.ServerVersion{}
 	}
 	return probeResult{
 		StashOK:          true, // newApp already round-tripped settings
@@ -250,7 +250,7 @@ func (a *app) probe(ctx context.Context) (any, error) {
 // reason to round-trip twice in the same task invocation. Only a
 // successful fetch is cached; a transient failure is retried on next call
 // rather than sticking for the rest of the process.
-func (a *app) serverVersion(ctx context.Context) (*msclient.ServerVersion, error) {
+func (a *app) serverVersion(ctx context.Context) (*client.ServerVersion, error) {
 	if a.version != nil {
 		return a.version, nil
 	}
@@ -304,9 +304,9 @@ func sceneKeys(s *stash.Scene) (hash.OSHash, *hash.PHash, int64, string, []stash
 	return oh, ph, durationMs, f.Path, s.StashIDs, nil
 }
 
-// msclientStashIDs converts a scene's stash.StashID list (as read from
-// Stash's GraphQL) into msclient's wire shape — the same two fields, just a
-// different package boundary (plugin/stash reads from Stash, plugin/msclient
+// clientStashIDs converts a scene's stash.StashID list (as read from
+// Stash's GraphQL) into client's wire shape — the same two fields, just a
+// different package boundary (plugin/stash reads from Stash, the client package
 // writes to the moansubs server). Validates each ID, drops invalid ones,
 // drops any whose endpoint the server doesn't advertise in its
 // stash_endpoints allow-list (WP-R6, logs once per scene either way), and
@@ -315,11 +315,11 @@ func sceneKeys(s *stash.Scene) (hash.OSHash, *hash.PHash, int64, string, []stash
 // The allow-list check uses the cached serverVersion (one fetch per task,
 // same as everywhere else this reads it) rather than failing the push and
 // making the caller parse the server's 400 for which id it didn't like —
-// the endpoint field is right there in msclient.ServerVersion.
+// the endpoint field is right there in client.ServerVersion.
 // StashEndpoints nil (a server that predates the field, or a version fetch
 // that failed) means "no allow-list known" — send everything, the same
 // behavior this had before WP-R6.
-func (a *app) msclientStashIDs(ctx context.Context, ids []stash.StashID, sceneID string) []msclient.StashID {
+func (a *app) clientStashIDs(ctx context.Context, ids []stash.StashID, sceneID string) []client.StashID {
 	if len(ids) == 0 {
 		return nil
 	}
@@ -330,7 +330,7 @@ func (a *app) msclientStashIDs(ctx context.Context, ids []stash.StashID, sceneID
 	}
 
 	const maxStashIDs = 5
-	var out []msclient.StashID
+	var out []client.StashID
 	var dropped bool
 
 	for _, id := range ids {
@@ -358,7 +358,7 @@ func (a *app) msclientStashIDs(ctx context.Context, ids []stash.StashID, sceneID
 			continue
 		}
 
-		out = append(out, msclient.StashID{Endpoint: validEndpoint, StashID: validID})
+		out = append(out, client.StashID{Endpoint: validEndpoint, StashID: validID})
 	}
 
 	if dropped && sceneID != "" {
@@ -375,7 +375,7 @@ func (a *app) msclientStashIDs(ctx context.Context, ids []stash.StashID, sceneID
 // from this scene's — that's exactly the case a hash-only comparison can't
 // see, since the same scene re-encoded still carries the same stash-box id.
 func (a *app) stashIdentityCandidates(ctx context.Context, sceneID string, ids []stash.StashID, sceneDurationMs int64) []Candidate {
-	query := a.msclientStashIDs(ctx, ids, sceneID)
+	query := a.clientStashIDs(ctx, ids, sceneID)
 	perID, err := a.ms.LookupStashIDs(ctx, query)
 	if err != nil {
 		logWarning("stash id lookup failed: %v", err)
@@ -454,7 +454,7 @@ func (a *app) search(ctx context.Context, sceneID string) (any, error) {
 		stashCandidates = a.stashIdentityCandidates(ctx, sceneID, stashIDs, durationMs)
 	}
 
-	var releases []msclient.Release
+	var releases []client.Release
 	fromExact := false
 	if a.exactMode {
 		releases, err = a.ms.LookupExact(ctx, oh, ph, 8)
@@ -551,7 +551,7 @@ func (a *app) nameMatchFallback(ctx context.Context, scene *stash.Scene, path st
 		return nil
 	}
 
-	result, err := a.ms.Match(ctx, msclient.MatchRequest{
+	result, err := a.ms.Match(ctx, client.MatchRequest{
 		Stem:       stem,
 		Title:      title,
 		Date:       scene.Date,
@@ -560,7 +560,7 @@ func (a *app) nameMatchFallback(ctx context.Context, scene *stash.Scene, path st
 		DurationMs: durationMs,
 	})
 	if err != nil {
-		if errors.Is(err, msclient.ErrNoMatchEndpoint) {
+		if errors.Is(err, client.ErrNoMatchEndpoint) {
 			logInfo("search scene %s: server has no name-match endpoint, skipping fallback", scene.ID)
 			return nil
 		}

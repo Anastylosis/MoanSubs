@@ -116,7 +116,7 @@ The level-0 "identity" match (migration 0011): a Stash scene's own
 stash-box id (StashDB, FansDB, …) identifies it across every encode, which
 beats phash outright and costs no stash-box API key. `ehash` is the first 12
 hex characters of `sha256(normalized endpoint)` — the client computes this
-locally (the normalizer + hasher live in `internal/hash`, shared by server
+locally (the normalizer + hasher live in `hash`, shared by server
 and plugin) so a full stash-box URL never appears in a URL or an access log;
 the server has no way to invert `ehash` back into the endpoint it hashes
 from. `stash_id` is the lowercased 36-character UUID. Returns the same

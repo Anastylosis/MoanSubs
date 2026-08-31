@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/hash"
 	"github.com/Anastylosis/MoanSubs/internal/store"
 )
 
@@ -193,7 +193,7 @@ var oshashPrefixPattern = regexp.MustCompile(`^[0-9a-f]{5}$`)
 
 // ehashPattern enforces the stash lookup's own bucket-key contract
 // literally: the first 12 hex characters of sha256(normalized endpoint)
-// (internal/hash.EndpointHash). Same reasoning as oshashPrefixPattern
+// (hash.EndpointHash). Same reasoning as oshashPrefixPattern
 // above — a malformed ehash never matches a stored one, so this is a 400,
 // not a lenient normalize-and-search.
 var ehashPattern = regexp.MustCompile(`^[0-9a-f]{12}$`)
@@ -234,7 +234,7 @@ func (s *Server) handleLookupOshashPrefix(w http.ResponseWriter, r *http.Request
 // -- GET /api/v1/lookup/phash/{block}/{val} --------------------------------
 
 // phashBlockMax returns the maximum legal value for MIH block blockIndex,
-// mirroring internal/hash.PHash.Blocks's bit widths (13 bits for b0-b3, 12
+// mirroring hash.PHash.Blocks's bit widths (13 bits for b0-b3, 12
 // for b4) — PLAN.md fixes these as API contract, not an implementation
 // detail either side is free to reinterpret.
 func phashBlockMax(blockIndex int) uint64 {
@@ -290,7 +290,7 @@ func (s *Server) handleLookupPhashBlock(w http.ResponseWriter, r *http.Request) 
 // (migration 0011, WP-C9a "level 0, identity" match): a Stash scene's own
 // stash-box id identifies it across every encode, which beats phash outright
 // and costs no stash-box API key. ehash is the requester's own precomputed
-// internal/hash.EndpointHash — the server never sees the endpoint URL
+// hash.EndpointHash — the server never sees the endpoint URL
 // itself on this path, only the hash a client already derived from it.
 // Anonymous, IP rate-limited like the other lookups.
 func (s *Server) handleLookupStash(w http.ResponseWriter, r *http.Request) {
@@ -341,7 +341,7 @@ type phashBlockQuery struct {
 }
 
 // stashIDQuery is one entry of a batch request's stash_ids list: the
-// requester's own precomputed ehash (internal/hash.EndpointHash) plus the
+// requester's own precomputed ehash (hash.EndpointHash) plus the
 // stash_id it's paired with — never the endpoint itself (WP-C9a: "keeps
 // URLs out of ... the wire shape").
 type stashIDQuery struct {

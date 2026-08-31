@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/hash"
 	"github.com/Anastylosis/MoanSubs/internal/store"
 )
 
@@ -546,7 +546,7 @@ func TestLookup_RateLimitExceeded(t *testing.T) {
 // end-to-end test from the task brief: insert releases with known phashes
 // via the store, simulate the real client flow PLAN.md describes for
 // bucketed phash lookup — compute the 5 MIH blocks of a query hash locally
-// (internal/hash), query each block bucket over HTTP, union the results,
+// (hash), query each block bucket over HTTP, union the results,
 // then filter by true Hamming distance client-side — and confirm a
 // Hamming-3 neighbor is found that way while a Hamming-6 one, built to
 // share no block with the query hash by construction, is not; the

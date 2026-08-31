@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Anastylosis/MoanSubs/plugin/msclient"
+	"github.com/Anastylosis/MoanSubs/client"
 	stash "github.com/Anastylosis/stash-go"
 )
 
@@ -99,7 +99,7 @@ func TestDownload_WritesSidecarAndTriggersScan(t *testing.T) {
 	ms := downloadServer(t, map[string]any{"id": 5, "lang": "en", "body": testSRT}, nil)
 	defer ms.Close()
 
-	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "")}
+	a := &app{stash: stash.NewClient(st.URL), ms: client.New(ms.URL, "")}
 	res := downloadOK(t, mustDownload(t, a, downloadArgs{SceneID: "1", TrackID: "5"}))
 
 	want := filepath.Join(filepath.Dir(scenePath), "clip.en.srt")
@@ -142,7 +142,7 @@ func TestDownload_RegionalTagLosesItsRegion(t *testing.T) {
 	ms := downloadServer(t, map[string]any{"id": 5, "lang": "pt-BR", "body": testSRT}, nil)
 	defer ms.Close()
 
-	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "")}
+	a := &app{stash: stash.NewClient(st.URL), ms: client.New(ms.URL, "")}
 	res := downloadOK(t, mustDownload(t, a, downloadArgs{SceneID: "1", TrackID: "5"}))
 
 	if res.Lang != "pt" {
@@ -172,7 +172,7 @@ func TestDownload_RefusesToOverwriteExistingCaption(t *testing.T) {
 	ms := downloadServer(t, map[string]any{"id": 5, "lang": "en", "body": testSRT}, nil)
 	defer ms.Close()
 
-	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "")}
+	a := &app{stash: stash.NewClient(st.URL), ms: client.New(ms.URL, "")}
 	if _, err := a.download(context.Background(), downloadArgs{SceneID: "1", TrackID: "5"}); err == nil {
 		t.Fatal("download = nil error, want a refusal to overwrite")
 	}
@@ -200,7 +200,7 @@ func TestDownload_OverwriteReplacesWithoutRescanning(t *testing.T) {
 	ms := downloadServer(t, map[string]any{"id": 5, "lang": "en", "body": testSRT}, nil)
 	defer ms.Close()
 
-	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "")}
+	a := &app{stash: stash.NewClient(st.URL), ms: client.New(ms.URL, "")}
 	res := downloadOK(t, mustDownload(t, a, downloadArgs{SceneID: "1", TrackID: "5", Overwrite: true}))
 
 	body, err := os.ReadFile(existing)
@@ -228,7 +228,7 @@ func TestDownload_ReportsGeneratedFlag(t *testing.T) {
 	ms := downloadServer(t, map[string]any{"id": 5, "lang": "en", "body": testSRT, "generated": true}, nil)
 	defer ms.Close()
 
-	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "")}
+	a := &app{stash: stash.NewClient(st.URL), ms: client.New(ms.URL, "")}
 	res := downloadOK(t, mustDownload(t, a, downloadArgs{SceneID: "1", TrackID: "5"}))
 	if !res.Generated {
 		t.Error("Generated = false, want the server's determination carried through")
@@ -248,7 +248,7 @@ func TestDownload_ForReleaseReachesTheServer(t *testing.T) {
 	}, &query)
 	defer ms.Close()
 
-	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "")}
+	a := &app{stash: stash.NewClient(st.URL), ms: client.New(ms.URL, "")}
 	mustDownload(t, a, downloadArgs{SceneID: "1", TrackID: "5", ForRelease: 42})
 	if query != "for_release=42" {
 		t.Errorf("query = %q, want for_release=42", query)
@@ -264,7 +264,7 @@ func TestDownload_ForReleaseOmittedWhenUnset(t *testing.T) {
 	ms := downloadServer(t, map[string]any{"id": 5, "lang": "en", "body": testSRT}, &query)
 	defer ms.Close()
 
-	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "")}
+	a := &app{stash: stash.NewClient(st.URL), ms: client.New(ms.URL, "")}
 	mustDownload(t, a, downloadArgs{SceneID: "1", TrackID: "5"})
 	if query != "" {
 		t.Errorf("query = %q, want none when no release was named", query)
@@ -282,7 +282,7 @@ func TestDownload_RefusesTrackWithoutLanguage(t *testing.T) {
 	ms := downloadServer(t, map[string]any{"id": 5, "lang": "", "body": testSRT}, nil)
 	defer ms.Close()
 
-	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "")}
+	a := &app{stash: stash.NewClient(st.URL), ms: client.New(ms.URL, "")}
 	if _, err := a.download(context.Background(), downloadArgs{SceneID: "1", TrackID: "5"}); err == nil {
 		t.Fatal("download = nil error, want a refusal")
 	}
@@ -327,7 +327,7 @@ func TestDownload_ScanFailureStillReportsTheWrittenFile(t *testing.T) {
 	ms := downloadServer(t, map[string]any{"id": 5, "lang": "en", "body": testSRT}, nil)
 	defer ms.Close()
 
-	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "")}
+	a := &app{stash: stash.NewClient(st.URL), ms: client.New(ms.URL, "")}
 	res := downloadOK(t, mustDownload(t, a, downloadArgs{SceneID: "1", TrackID: "5"}))
 	if res.Path == "" {
 		t.Error("path is empty; the caption was written and must be reported")
@@ -343,7 +343,7 @@ func TestDownload_ScanFailureStillReportsTheWrittenFile(t *testing.T) {
 // Bad args are rejected before anything is dialled, so a malformed call
 // fails with its own message rather than a connection error.
 func TestDownload_BadArgs(t *testing.T) {
-	a := &app{stash: stash.NewClient("http://unused.invalid"), ms: msclient.New("http://unused.invalid", "")}
+	a := &app{stash: stash.NewClient("http://unused.invalid"), ms: client.New("http://unused.invalid", "")}
 	for _, tc := range []struct {
 		name string
 		args downloadArgs
@@ -374,7 +374,7 @@ func TestDownload_SceneWithoutFiles(t *testing.T) {
 	ms := downloadServer(t, map[string]any{"id": 5, "lang": "en", "body": testSRT}, nil)
 	defer ms.Close()
 
-	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "")}
+	a := &app{stash: stash.NewClient(st.URL), ms: client.New(ms.URL, "")}
 	_, err := a.download(context.Background(), downloadArgs{SceneID: "1", TrackID: "5"})
 	if err == nil {
 		t.Fatal("download = nil error, want a failure for a scene with no files")

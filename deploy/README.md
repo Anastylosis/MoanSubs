@@ -242,7 +242,7 @@ trust it; treat that fallback as a symptom, not an option.
 ### What this does to the Stash plugin
 
 **The plugin will refuse a certificate it does not trust.** It uses Go's
-default HTTP client (`plugin/msclient/client.go`), which means the system
+default HTTP client (`client/client.go`), which means the system
 trust store and no override — an untrusted certificate surfaces as
 `x509: certificate signed by unknown authority` on every lookup and push,
 with no plugin setting to bypass it.

@@ -8,9 +8,9 @@ import (
 
 // ReleaseStashID is one stash-box scene identity attached to a release
 // (migration 0011, WP-C9a). Endpoint is the stash-box GraphQL URL as Stash
-// reports it, already normalized (internal/hash.NormalizeStashEndpoint);
+// reports it, already normalized (hash.NormalizeStashEndpoint);
 // EHash is that same normalized endpoint's lookup key
-// (internal/hash.EndpointHash), stored alongside it because
+// (hash.EndpointHash), stored alongside it because
 // GET /api/v1/lookup/stash/{ehash}/{stash_id} can only ever be asked for a
 // hash — the server has no way to invert one back into the endpoint it
 // hashes from, so a lookup query needs its own column to search by.

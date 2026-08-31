@@ -1,10 +1,10 @@
-// Package msclient is the plugin-side client for the moansubs server. It
+// Package client is the plugin-side client for the moansubs server. It
 // implements the bucketed lookup flow from PLAN.md "Lookup: bucketed by
-// default": derive the oshash prefix and MIH blocks locally (internal/hash
+// default": derive the oshash prefix and MIH blocks locally (hash
 // is the shared source of truth for both ends of the API contract), fetch
 // the buckets in one batch request, and do all true-distance filtering
 // client-side. Exact mode (full hash to the server) is opt-in.
-package msclient
+package client
 
 import (
 	"bytes"
@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/hash"
 )
 
 // Client talks to one moansubs server. Safe for concurrent use.
@@ -148,7 +148,7 @@ type phashBlock struct {
 }
 
 // stashIDBatchQuery is one entry of the batch endpoint's stash_ids list:
-// ehash (internal/hash.EndpointHash of the normalized endpoint), never the
+// ehash (hash.EndpointHash of the normalized endpoint), never the
 // endpoint itself — same reasoning GET /api/v1/lookup/stash/{ehash}/{...}
 // has (API.md).
 type stashIDBatchQuery struct {
@@ -273,7 +273,7 @@ func (c *Client) LookupStashIDs(ctx context.Context, ids []StashID) ([][]Release
 	req := batchRequest{}
 	// keyToIdx maps the batch response's "stash:<ehash>:<id>" key back to
 	// ids' index — the server echoes ehash, not the endpoint it hashes
-	// from (internal/hash.EndpointHash is one-way by design), so the
+	// from (hash.EndpointHash is one-way by design), so the
 	// original endpoint string is never recoverable from the response key.
 	keyToIdx := make(map[string]int, len(ids))
 	for i, id := range ids {
@@ -333,7 +333,7 @@ func (c *Client) LookupExact(ctx context.Context, oshash hash.OSHash, phash *has
 // level 5). Callers must degrade to "no fallback" silently rather than
 // surface an error, since this is an expected compatibility case, not a
 // failure.
-var ErrNoMatchEndpoint = errors.New("msclient: server has no /api/v1/match endpoint (older server?)")
+var ErrNoMatchEndpoint = errors.New("client: server has no /api/v1/match endpoint (older server?)")
 
 // MatchRequest carries a scene's name metadata to POST /api/v1/match, the
 // no-phash fallback used only once hash-based lookup finds nothing. Mirrors
@@ -393,7 +393,7 @@ type ServerVersion struct {
 	Version  string   `json:"version"`
 	Features []string `json:"features"`
 	// StashEndpoints is the node's stash-box endpoint allow-list (WP-R6):
-	// msclientStashIDs (plugin's app.go) drops any id whose endpoint isn't
+	// clientStashIDs (plugin's app.go) drops any id whose endpoint isn't
 	// in this list before a push, rather than letting the server's 400
 	// reject it one id at a time. A single entry of "*" means the node
 	// accepts any http(s) endpoint. nil on a server that predates this
@@ -494,7 +494,7 @@ type UploadResult struct {
 // Upload pushes one subtitle to the server. Requires the account token.
 func (c *Client) Upload(ctx context.Context, req UploadRequest) (*UploadResult, error) {
 	if c.Token == "" {
-		return nil, fmt.Errorf("msclient: no upload token configured — create an account on the server and paste its token into the plugin settings")
+		return nil, fmt.Errorf("client: no upload token configured — create an account on the server and paste its token into the plugin settings")
 	}
 
 	// Cap name metadata to the server's own limits (WP-P3) before it ever
@@ -520,7 +520,7 @@ func (c *Client) Upload(ctx context.Context, req UploadRequest) (*UploadResult, 
 
 	b, err := json.Marshal(req)
 	if err != nil {
-		return nil, fmt.Errorf("msclient: marshalling upload: %w", err)
+		return nil, fmt.Errorf("client: marshalling upload: %w", err)
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/api/v1/subtitles", bytes.NewReader(b))
 	if err != nil {
@@ -587,11 +587,11 @@ type voteResponse struct {
 // plugin panel shows it straight to the user next to the track row.
 func (c *Client) Vote(ctx context.Context, trackID int64, value int, reason, note string) (up, down int, err error) {
 	if c.Token == "" {
-		return 0, 0, fmt.Errorf("msclient: no upload token configured — create an account on the server and paste its token into the plugin settings")
+		return 0, 0, fmt.Errorf("client: no upload token configured — create an account on the server and paste its token into the plugin settings")
 	}
 	b, err := json.Marshal(voteRequest{Value: value, Reason: reason, Note: note})
 	if err != nil {
-		return 0, 0, fmt.Errorf("msclient: marshalling vote: %w", err)
+		return 0, 0, fmt.Errorf("client: marshalling vote: %w", err)
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPut,
 		fmt.Sprintf("%s/api/v1/subtitles/%d/vote", c.BaseURL, trackID), bytes.NewReader(b))
@@ -611,7 +611,7 @@ func (c *Client) Vote(ctx context.Context, trackID int64, value int, reason, not
 // same as the server's DELETE. Requires the upload token.
 func (c *Client) Unvote(ctx context.Context, trackID int64) error {
 	if c.Token == "" {
-		return fmt.Errorf("msclient: no upload token configured — create an account on the server and paste its token into the plugin settings")
+		return fmt.Errorf("client: no upload token configured — create an account on the server and paste its token into the plugin settings")
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete,
 		fmt.Sprintf("%s/api/v1/subtitles/%d/vote", c.BaseURL, trackID), nil)
@@ -652,7 +652,7 @@ func (c *Client) VoteCounts(ctx context.Context, trackID int64) (up, down int, e
 func (c *Client) post(ctx context.Context, path string, body, out any) error {
 	b, err := json.Marshal(body)
 	if err != nil {
-		return fmt.Errorf("msclient: marshalling request: %w", err)
+		return fmt.Errorf("client: marshalling request: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+path, bytes.NewReader(b))
 	if err != nil {
@@ -702,7 +702,7 @@ func (c *Client) doJSONError(req *http.Request, out any) error {
 func (c *Client) doRaw(req *http.Request, out any, preferJSONError bool) error {
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return fmt.Errorf("msclient: %w", err)
+		return fmt.Errorf("client: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -717,7 +717,7 @@ func (c *Client) doRaw(req *http.Request, out any, preferJSONError bool) error {
 		}
 		return &httpStatusError{
 			status: resp.StatusCode,
-			err:    fmt.Errorf("msclient: %s: HTTP %d: %s", req.URL.Path, resp.StatusCode, strings.TrimSpace(string(b))),
+			err:    fmt.Errorf("client: %s: HTTP %d: %s", req.URL.Path, resp.StatusCode, strings.TrimSpace(string(b))),
 		}
 	}
 	if out != nil {
@@ -726,13 +726,13 @@ func (c *Client) doRaw(req *http.Request, out any, preferJSONError bool) error {
 		// (possibly still valid-looking) partial decode.
 		b, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBytes+1))
 		if err != nil {
-			return fmt.Errorf("msclient: reading response: %w", err)
+			return fmt.Errorf("client: reading response: %w", err)
 		}
 		if len(b) > MaxResponseBytes {
-			return fmt.Errorf("msclient: response exceeds %d byte cap", MaxResponseBytes)
+			return fmt.Errorf("client: response exceeds %d byte cap", MaxResponseBytes)
 		}
 		if err := json.Unmarshal(b, out); err != nil {
-			return fmt.Errorf("msclient: decoding response: %w", err)
+			return fmt.Errorf("client: decoding response: %w", err)
 		}
 	}
 	return nil
@@ -780,13 +780,13 @@ const MaxMetadataEntries = 25
 // two requests, and the person doing it chose to.
 func (c *Client) ContributeMetadata(ctx context.Context, entries []MetadataEntry) ([]MetadataResult, error) {
 	if c.Token == "" {
-		return nil, fmt.Errorf("msclient: no upload token configured — contributing scene details needs an account")
+		return nil, fmt.Errorf("client: no upload token configured — contributing scene details needs an account")
 	}
 	if len(entries) == 0 {
 		return nil, nil
 	}
 	if len(entries) > MaxMetadataEntries {
-		return nil, fmt.Errorf("msclient: %d entries exceeds the server's cap of %d", len(entries), MaxMetadataEntries)
+		return nil, fmt.Errorf("client: %d entries exceeds the server's cap of %d", len(entries), MaxMetadataEntries)
 	}
 
 	// Same caps the upload path applies, for the same reason: reach the
@@ -810,7 +810,7 @@ func (c *Client) ContributeMetadata(ctx context.Context, entries []MetadataEntry
 		Entries []MetadataEntry `json:"entries"`
 	}{capped})
 	if err != nil {
-		return nil, fmt.Errorf("msclient: marshalling metadata: %w", err)
+		return nil, fmt.Errorf("client: marshalling metadata: %w", err)
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/api/v1/metadata", bytes.NewReader(b))
 	if err != nil {

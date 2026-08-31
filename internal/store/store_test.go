@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/hash"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 

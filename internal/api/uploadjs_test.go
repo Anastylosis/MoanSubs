@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/hash"
 )
 
 // nodeUploadJSDriver runs static/upload.js's oshashOf over a list of files
@@ -39,7 +39,7 @@ const { oshashOf } = require(process.argv[2]);
 
 // TestUploadJS_OSHashMatchesGo cross-checks static/upload.js's oshashOf
 // against hash.ComputeOSHash — the same algorithm, ported independently —
-// over the same size boundaries internal/hash/oshash_test.go's
+// over the same size boundaries hash/oshash_test.go's
 // TestComputeOSHash_AgainstReference already exercises (just under/at/over
 // one chunk, just under/at/over two chunks), plus both of that file's
 // hand-computable fixtures and a too-small file. Skips when `node` is not

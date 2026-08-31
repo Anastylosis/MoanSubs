@@ -15,7 +15,7 @@ type versionResponse struct {
 	Features []string `json:"features"`
 	// StashEndpoints is the node's stash-box endpoint allow-list (WP-R6,
 	// Server.StashEndpoints) verbatim — a single "*" entry means any
-	// http(s) endpoint. The plugin's msclientStashIDs filters what it
+	// http(s) endpoint. The plugin's clientStashIDs filters what it
 	// sends on a push against this, rather than racing the server's own
 	// 400 one id at a time; a node predating this field (nil here) is
 	// read by the plugin as "send everything, as before".

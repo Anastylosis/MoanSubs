@@ -9,8 +9,8 @@ import (
 
 	stash "github.com/Anastylosis/stash-go"
 
+	"github.com/Anastylosis/MoanSubs/client"
 	"github.com/Anastylosis/MoanSubs/internal/subtitle"
-	"github.com/Anastylosis/MoanSubs/plugin/msclient"
 	"golang.org/x/text/language"
 )
 
@@ -169,7 +169,7 @@ func (a *app) pushScene(ctx context.Context, scene *stash.Scene, dryRun bool, on
 		if kindOverride != "" {
 			kind, kindLabel = kindOverride, kindLabelOverride
 		}
-		req := msclient.UploadRequest{
+		req := client.UploadRequest{
 			OSHash:     oshashStr,
 			PHash:      fingerprint(f, "phash"),
 			MD5:        fingerprint(f, "md5"),
@@ -188,7 +188,7 @@ func (a *app) pushScene(ctx context.Context, scene *stash.Scene, dryRun bool, on
 			// The scene's stash-box ids (WP-C9a) — sent with every upload so
 			// the server can attach them to the release, additive like the
 			// name metadata above.
-			StashIDs: a.msclientStashIDs(ctx, scene.StashIDs, scene.ID),
+			StashIDs: a.clientStashIDs(ctx, scene.StashIDs, scene.ID),
 		}
 		if kindsSupported {
 			req.Kind = kind

@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/Anastylosis/MoanSubs/plugin/msclient"
+	"github.com/Anastylosis/MoanSubs/client"
 	stash "github.com/Anastylosis/stash-go"
 )
 
@@ -158,7 +158,7 @@ func TestRequireUploadToken(t *testing.T) {
 		{"token, dry run", "t", true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			a := &app{ms: &msclient.Client{Token: tc.token}}
+			a := &app{ms: &client.Client{Token: tc.token}}
 			err := a.requireUploadToken(tc.dryRun)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("requireUploadToken(%v) with token %q: got %v, wantErr %v",
@@ -173,14 +173,14 @@ func TestRequireUploadToken(t *testing.T) {
 func TestPushAll_NoToken_FailsWithoutTouchingStash(t *testing.T) {
 	// A nil stash client panics the moment anything calls it, so reaching
 	// FindScenesPage is a test failure rather than a silent pass.
-	a := &app{ms: &msclient.Client{}, stash: nil}
+	a := &app{ms: &client.Client{}, stash: nil}
 	if _, err := a.pushAll(context.Background(), false); err == nil {
 		t.Fatal("pushAll with no token: got nil error, want a refusal")
 	}
 }
 
 func TestPush_NoToken_FailsBeforeSceneLookup(t *testing.T) {
-	a := &app{ms: &msclient.Client{}, stash: nil}
+	a := &app{ms: &client.Client{}, stash: nil}
 	if _, err := a.push(context.Background(), "42", false, "", "", ""); err == nil {
 		t.Fatal("push with no token: got nil error, want a refusal")
 	}
@@ -287,7 +287,7 @@ func TestPushScene_SendsKindWhenServerSupportsKinds(t *testing.T) {
 	ms := httptest.NewServer(mux)
 	defer ms.Close()
 
-	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "tok")}
+	a := &app{stash: stash.NewClient(st.URL), ms: client.New(ms.URL, "tok")}
 	if _, err := a.push(context.Background(), "1", false, "", "", ""); err != nil {
 		t.Fatalf("push: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestPushScene_OmitsKindWhenServerLacksFeature(t *testing.T) {
 	ms := httptest.NewServer(mux)
 	defer ms.Close()
 
-	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "tok")}
+	a := &app{stash: stash.NewClient(st.URL), ms: client.New(ms.URL, "tok")}
 	if _, err := a.push(context.Background(), "1", false, "", "", ""); err != nil {
 		t.Fatalf("push: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestPush_KindOverrideAppliesToTheSidecar(t *testing.T) {
 	ms := httptest.NewServer(mux)
 	defer ms.Close()
 
-	a := &app{stash: stash.NewClient(st.URL), ms: msclient.New(ms.URL, "tok")}
+	a := &app{stash: stash.NewClient(st.URL), ms: client.New(ms.URL, "tok")}
 	if _, err := a.push(context.Background(), "1", false, "", "cc", ""); err != nil {
 		t.Fatalf("push: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestPush_KindOverrideAppliesToTheSidecar(t *testing.T) {
 // vocabulary an upload would enforce anyway, but rejected here up front
 // instead of wasting a round trip on a guaranteed 400.
 func TestPush_KindOverrideValidated(t *testing.T) {
-	a := &app{ms: &msclient.Client{Token: "tok"}, stash: nil}
+	a := &app{ms: &client.Client{Token: "tok"}, stash: nil}
 	for _, tc := range []struct {
 		name, kind, label string
 	}{

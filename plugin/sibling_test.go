@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/Anastylosis/MoanSubs/internal/hash"
-	"github.com/Anastylosis/MoanSubs/plugin/msclient"
+	"github.com/Anastylosis/MoanSubs/client"
+	"github.com/Anastylosis/MoanSubs/hash"
 )
 
 func i64p(v int64) *int64   { return &v }
@@ -18,16 +18,16 @@ func TestRankCandidates_OffersSiblingsOfAnExactMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseOSHash: %v", err)
 	}
-	rel := msclient.Release{
+	rel := client.Release{
 		ID: 753, OSHash: "9fb6be9c13df176c", DurationMs: 2210000,
-		Tracks: []msclient.TrackSummary{{ID: 757, Lang: "es"}},
-		Siblings: []msclient.Sibling{
+		Tracks: []client.TrackSummary{{ID: 757, Lang: "es"}},
+		Siblings: []client.Sibling{
 			{ID: 665, ReleaseID: 662, Lang: "es", OffsetMs: i64p(3080), OffsetFrom: strp("measured")},
 			{ID: 999, ReleaseID: 662, Lang: "en"}, // no offset recorded
 			{ID: 998, ReleaseID: 662, Lang: "fr", OffsetMs: i64p(3080), OffsetFrom: strp("duration-delta")},
 		},
 	}
-	got := rankCandidates([]msclient.Release{rel}, oshash, nil, 2210000, false)
+	got := rankCandidates([]client.Release{rel}, oshash, nil, 2210000, false)
 	if len(got) != 4 {
 		t.Fatalf("got %d candidates, want 4 (the exact match plus three siblings)", len(got))
 	}
@@ -70,11 +70,11 @@ func TestRankCandidates_OffersSiblingsOfAnExactMatch(t *testing.T) {
 
 func TestRankCandidates_NoSiblingsIsUnchanged(t *testing.T) {
 	oshash, _ := hash.ParseOSHash("9fb6be9c13df176c")
-	rel := msclient.Release{
+	rel := client.Release{
 		ID: 753, OSHash: "9fb6be9c13df176c", DurationMs: 2210000,
-		Tracks: []msclient.TrackSummary{{ID: 757, Lang: "es"}},
+		Tracks: []client.TrackSummary{{ID: 757, Lang: "es"}},
 	}
-	got := rankCandidates([]msclient.Release{rel}, oshash, nil, 2210000, false)
+	got := rankCandidates([]client.Release{rel}, oshash, nil, 2210000, false)
 	if len(got) != 1 {
 		t.Fatalf("an ungrouped release produced %d candidates, want 1", len(got))
 	}

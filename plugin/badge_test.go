@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Anastylosis/MoanSubs/plugin/msclient"
+	"github.com/Anastylosis/MoanSubs/client"
 	stash "github.com/Anastylosis/stash-go"
 )
 
@@ -78,7 +78,7 @@ func badgeServer(t *testing.T, hits map[string]string, calls *int) *httptest.Ser
 }
 
 func badgeApp(stashURL, msURL string) *app {
-	return &app{stash: stash.NewClient(stashURL), ms: msclient.New(msURL, "")}
+	return &app{stash: stash.NewClient(stashURL), ms: client.New(msURL, "")}
 }
 
 func badgeResult(t *testing.T, v any) map[string]badgeStatus {

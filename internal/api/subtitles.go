@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/hash"
 	"github.com/Anastylosis/MoanSubs/internal/provenance"
 	"github.com/Anastylosis/MoanSubs/internal/store"
 	"github.com/Anastylosis/MoanSubs/internal/subtitle"
@@ -137,7 +137,7 @@ func samePtrString(a, b *string) bool {
 // parameter rather than reaching for server state itself. allowedEndpoints
 // is a Server.StashEndpoints value (WP-R6): an endpoint outside it (and not
 // the wildcard "*") rejects the whole upload, the same defense-in-depth
-// the plugin already applies before sending (msclientStashIDs, WP-R3)
+// the plugin already applies before sending (clientStashIDs, WP-R3)
 // against a rogue uploader attaching an arbitrary URL the UI would later
 // render as a link.
 func parseUploadStashIDs(ids []stashIDInput, allowedEndpoints []string) ([]store.ReleaseStashID, *apiError) {

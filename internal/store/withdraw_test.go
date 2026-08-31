@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Anastylosis/MoanSubs/internal/hash"
+	"github.com/Anastylosis/MoanSubs/hash"
 )
 
 func TestStore_WithdrawTrack_RestoreTrack(t *testing.T) {

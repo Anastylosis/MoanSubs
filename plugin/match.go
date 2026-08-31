@@ -5,8 +5,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/Anastylosis/MoanSubs/internal/hash"
-	"github.com/Anastylosis/MoanSubs/plugin/msclient"
+	"github.com/Anastylosis/MoanSubs/client"
+	"github.com/Anastylosis/MoanSubs/hash"
 )
 
 // stashLabel maps a stash-box endpoint to a short display label (WP-C9a
@@ -61,8 +61,8 @@ const durationGate = time.Second
 
 // Candidate is one release the scene might match, with the evidence.
 type Candidate struct {
-	Release    msclient.Release `json:"release"`
-	Confidence string           `json:"confidence"`
+	Release    client.Release `json:"release"`
+	Confidence string         `json:"confidence"`
 	// HammingDistance is -1 for oshash-exact matches (not applicable).
 	HammingDistance int `json:"hamming_distance"`
 	// DurationDeltaMs is scene duration minus release duration.
@@ -107,7 +107,7 @@ type Candidate struct {
 // equality and true Hamming distances are computed here, which is what makes
 // the bucketed lookup private-by-default: the server never learns which
 // candidate matched.
-func rankCandidates(releases []msclient.Release, sceneOshash hash.OSHash, scenePhash *hash.PHash, sceneDurationMs int64, fromExactMode bool) []Candidate {
+func rankCandidates(releases []client.Release, sceneOshash hash.OSHash, scenePhash *hash.PHash, sceneDurationMs int64, fromExactMode bool) []Candidate {
 	var out []Candidate
 	for _, r := range releases {
 		deltaMs := sceneDurationMs - r.DurationMs
@@ -169,12 +169,12 @@ func confidenceRank(c string) int {
 	}
 }
 
-// nameCandidates converts msclient.Match's response into the plugin's
+// nameCandidates converts client.Match's response into the plugin's
 // Candidate shape at ConfidenceName. Server-side score/name_sim/delta_ms
 // aren't independently useful to the UI beyond the reasons already computed
 // from them, so only Reasons (plus the raw Score, for anyone who wants it)
 // carry over.
-func nameCandidates(result *msclient.MatchResult) []Candidate {
+func nameCandidates(result *client.MatchResult) []Candidate {
 	out := make([]Candidate, 0, len(result.Candidates))
 	for _, c := range result.Candidates {
 		cand := Candidate{
@@ -207,7 +207,7 @@ func nameCandidates(result *msclient.MatchResult) []Candidate {
 // Confidence is deliberately ConfidenceOffer even when the sync is known:
 // the grouping is advisory, and a subtitle authored for another cut is
 // never the same claim as one authored for this file.
-func siblingCandidates(r msclient.Release, deltaMs int64) []Candidate {
+func siblingCandidates(r client.Release, deltaMs int64) []Candidate {
 	if len(r.Siblings) == 0 {
 		return nil
 	}
@@ -216,7 +216,7 @@ func siblingCandidates(r msclient.Release, deltaMs int64) []Candidate {
 		// A sibling is presented as its own one-track release so the panel
 		// can render it with the machinery it already has.
 		rel := r
-		rel.Tracks = []msclient.TrackSummary{{
+		rel.Tracks = []client.TrackSummary{{
 			ID: sb.ID, Lang: sb.Lang, Generated: sb.Generated, Downloads: sb.Downloads,
 		}}
 		rel.Siblings = nil

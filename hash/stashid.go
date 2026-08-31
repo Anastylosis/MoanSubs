@@ -37,7 +37,7 @@ func ParseStashID(s string) (string, error) {
 //
 // Client and server both call this before EndpointHash, so the two ends
 // always agree on which ehash a given endpoint hashes to — this is the
-// single source of truth for that normalization, same role internal/hash
+// single source of truth for that normalization, same role hash
 // plays for oshash/phash.
 func NormalizeStashEndpoint(s string) (string, error) {
 	s = strings.TrimSpace(s)

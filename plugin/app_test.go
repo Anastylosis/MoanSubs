@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/Anastylosis/MoanSubs/plugin/msclient"
+	"github.com/Anastylosis/MoanSubs/client"
 	stash "github.com/Anastylosis/stash-go"
 )
 
@@ -44,7 +44,7 @@ func TestNameMatchFallback_SkipsWhenServerHasNoMatchFeature(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	a := &app{ms: msclient.New(ts.URL, "")}
+	a := &app{ms: client.New(ts.URL, "")}
 	scene := &stash.Scene{ID: "1", Title: "Some Scene"}
 	got := a.nameMatchFallback(context.Background(), scene, "/videos/some-scene.mp4", 60_000)
 	if got != nil {
@@ -69,7 +69,7 @@ func TestNameMatchFallback_CachesVersionAcrossCalls(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	a := &app{ms: msclient.New(ts.URL, "")}
+	a := &app{ms: client.New(ts.URL, "")}
 	scene := &stash.Scene{ID: "1", Title: "Some Scene"}
 	a.nameMatchFallback(context.Background(), scene, "/videos/some-scene.mp4", 60_000)
 	a.nameMatchFallback(context.Background(), scene, "/videos/some-scene.mp4", 60_000)
@@ -85,7 +85,7 @@ func TestNameMatchFallback_CachesVersionAcrossCalls(t *testing.T) {
 // applies on its own side.
 func TestNameMatchFallback_SendsSceneDate(t *testing.T) {
 	var versionHits atomic.Int64
-	var gotReq msclient.MatchRequest
+	var gotReq client.MatchRequest
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/version", versionHandler(&versionHits, []string{"lookup", "match"}))
 	mux.HandleFunc("POST /api/v1/match", func(w http.ResponseWriter, r *http.Request) {
@@ -98,7 +98,7 @@ func TestNameMatchFallback_SendsSceneDate(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	a := &app{ms: msclient.New(ts.URL, "")}
+	a := &app{ms: client.New(ts.URL, "")}
 	scene := &stash.Scene{ID: "1", Title: "Some Scene", Date: "2023-05-23"}
 	a.nameMatchFallback(context.Background(), scene, "/videos/some-scene.mp4", 60_000)
 
@@ -116,7 +116,7 @@ func TestProbe_ReportsServerVersionAndFeatures(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	a := &app{stash: &stash.Client{}, ms: msclient.New(ts.URL, "")}
+	a := &app{stash: &stash.Client{}, ms: client.New(ts.URL, "")}
 	out, err := a.probe(context.Background())
 	if err != nil {
 		t.Fatalf("probe: %v", err)
@@ -136,7 +136,7 @@ func TestProbe_ReportsServerVersionAndFeatures(t *testing.T) {
 // TestProbe_DegradesOnUnreachableServer covers the case probe exists for:
 // a misconfigured server URL must be reported, not crash the call.
 func TestProbe_DegradesOnUnreachableServer(t *testing.T) {
-	a := &app{stash: &stash.Client{}, ms: msclient.New("http://127.0.0.1:1", "")}
+	a := &app{stash: &stash.Client{}, ms: client.New("http://127.0.0.1:1", "")}
 	out, err := a.probe(context.Background())
 	if err != nil {
 		t.Fatalf("probe: %v", err)
@@ -204,7 +204,7 @@ func TestParsePreferredKind(t *testing.T) {
 // their original order, and — critically — nothing ever dropped.
 func TestSortTracksByPreference(t *testing.T) {
 	t.Run("language preference reorders", func(t *testing.T) {
-		tracks := []msclient.TrackSummary{{ID: 1, Lang: "es"}, {ID: 2, Lang: "en"}, {ID: 3, Lang: "pl"}}
+		tracks := []client.TrackSummary{{ID: 1, Lang: "es"}, {ID: 2, Lang: "en"}, {ID: 3, Lang: "pl"}}
 		sortTracksByPreference(tracks, []string{"pl", "en"}, "")
 		var ids []int64
 		for _, t := range tracks {
@@ -216,7 +216,7 @@ func TestSortTracksByPreference(t *testing.T) {
 	})
 
 	t.Run("kind breaks a language tie", func(t *testing.T) {
-		tracks := []msclient.TrackSummary{
+		tracks := []client.TrackSummary{
 			{ID: 1, Lang: "en", Kind: "default"},
 			{ID: 2, Lang: "en", Kind: "sdh"},
 		}
@@ -227,7 +227,7 @@ func TestSortTracksByPreference(t *testing.T) {
 	})
 
 	t.Run("no preference is a no-op (stable)", func(t *testing.T) {
-		tracks := []msclient.TrackSummary{{ID: 1, Lang: "en"}, {ID: 2, Lang: "pl"}, {ID: 3, Lang: "de"}}
+		tracks := []client.TrackSummary{{ID: 1, Lang: "en"}, {ID: 2, Lang: "pl"}, {ID: 3, Lang: "de"}}
 		sortTracksByPreference(tracks, nil, "")
 		if tracks[0].ID != 1 || tracks[1].ID != 2 || tracks[2].ID != 3 {
 			t.Errorf("order changed with no preference set: %+v", tracks)
@@ -235,7 +235,7 @@ func TestSortTracksByPreference(t *testing.T) {
 	})
 
 	t.Run("regional track matches a base-subtag preference", func(t *testing.T) {
-		tracks := []msclient.TrackSummary{{ID: 1, Lang: "en"}, {ID: 2, Lang: "pt-BR"}}
+		tracks := []client.TrackSummary{{ID: 1, Lang: "en"}, {ID: 2, Lang: "pt-BR"}}
 		sortTracksByPreference(tracks, []string{"pt"}, "")
 		if tracks[0].ID != 2 {
 			t.Errorf("first track = %d, want the pt-BR track (2) to match a \"pt\" preference", tracks[0].ID)
@@ -243,7 +243,7 @@ func TestSortTracksByPreference(t *testing.T) {
 	})
 
 	t.Run("never drops a track", func(t *testing.T) {
-		tracks := []msclient.TrackSummary{{ID: 1, Lang: "en"}, {ID: 2, Lang: "pl"}}
+		tracks := []client.TrackSummary{{ID: 1, Lang: "en"}, {ID: 2, Lang: "pl"}}
 		sortTracksByPreference(tracks, []string{"pl"}, "sdh")
 		if len(tracks) != 2 {
 			t.Fatalf("len(tracks) = %d, want 2 — a preference must never hide a track", len(tracks))
@@ -352,7 +352,7 @@ func TestNewApp_BulkSettingsHonorExplicitTrue(t *testing.T) {
 // reach the server at all — since that's what the UI shows next to a
 // disabled vote button.
 func TestVote_RequiresTokenConfigured(t *testing.T) {
-	a := &app{ms: msclient.New("http://127.0.0.1:1", "")}
+	a := &app{ms: client.New("http://127.0.0.1:1", "")}
 	_, err := a.vote(context.Background(), voteArgs{TrackID: "1", Value: "1"})
 	if err == nil || err.Error() != "set an upload token in the plugin settings to vote" {
 		t.Fatalf("vote without a configured token: err = %v, want the exact plugin-settings message", err)
@@ -363,7 +363,7 @@ func TestVote_RequiresTokenConfigured(t *testing.T) {
 // request is sent — a typo'd track_id or an out-of-range value gets a
 // local error, not whatever the server happens to say about it.
 func TestVote_BadArgs(t *testing.T) {
-	a := &app{ms: msclient.New("http://127.0.0.1:1", "tok")}
+	a := &app{ms: client.New("http://127.0.0.1:1", "tok")}
 	if _, err := a.vote(context.Background(), voteArgs{TrackID: "not-a-number", Value: "1"}); err == nil {
 		t.Error("vote with a non-numeric track_id: want an error")
 	}
@@ -394,7 +394,7 @@ func TestVote_CastAndRetract(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	a := &app{ms: msclient.New(ts.URL, "tok")}
+	a := &app{ms: client.New(ts.URL, "tok")}
 
 	out, err := a.vote(context.Background(), voteArgs{TrackID: "42", Value: "1"})
 	if err != nil {
@@ -431,7 +431,7 @@ func TestVote_ServerErrorPassedThroughVerbatim(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	a := &app{ms: msclient.New(ts.URL, "tok")}
+	a := &app{ms: client.New(ts.URL, "tok")}
 	_, err := a.vote(context.Background(), voteArgs{TrackID: "1", Value: "1"})
 	if err == nil || err.Error() != "cannot vote on your own upload" {
 		t.Fatalf("err = %v, want the server's message verbatim", err)
@@ -512,7 +512,7 @@ func TestSearch_StashIdentityRanksFirst(t *testing.T) {
 
 	a := &app{
 		stash: &stash.Client{}, // FindScene isn't reachable in this test; search is called on a pre-built scene via the lower-level pieces instead
-		ms:    msclient.New(ts.URL, ""),
+		ms:    client.New(ts.URL, ""),
 	}
 
 	scene := &stash.Scene{
@@ -571,9 +571,9 @@ func TestDefaultServerURL_Defined(t *testing.T) {
 
 // TestDefaultServerURL_UsedWhenSettingEmpty verifies that an empty or
 // whitespace server_url setting falls back to DefaultServerURL. This is
-// tested via msclient.New to ensure the URL is correctly passed.
+// tested via client.New to ensure the URL is correctly passed.
 func TestDefaultServerURL_UsedWhenSettingEmpty(t *testing.T) {
-	c := msclient.New(DefaultServerURL, "")
+	c := client.New(DefaultServerURL, "")
 	if c.BaseURL != "https://moansubs.org" {
 		t.Errorf("BaseURL = %q, want https://moansubs.org", c.BaseURL)
 	}
@@ -583,14 +583,14 @@ func TestDefaultServerURL_UsedWhenSettingEmpty(t *testing.T) {
 // setting overrides the default.
 func TestServerURL_ExplicitSettingUsed(t *testing.T) {
 	customURL := "https://custom.example.com"
-	c := msclient.New(customURL, "")
+	c := client.New(customURL, "")
 	if c.BaseURL != customURL {
 		t.Errorf("BaseURL = %q, want %q", c.BaseURL, customURL)
 	}
 }
 
 // TestServerURL_TrailingSlashStripped verifies that trailing slashes are
-// correctly handled by msclient.New, whether from an explicit setting or
+// correctly handled by client.New, whether from an explicit setting or
 // from DefaultServerURL.
 func TestServerURL_TrailingSlashStripped(t *testing.T) {
 	tests := []struct {
@@ -602,29 +602,29 @@ func TestServerURL_TrailingSlashStripped(t *testing.T) {
 		{"https://custom.example.com///", "https://custom.example.com"},
 	}
 	for _, tt := range tests {
-		c := msclient.New(tt.input, "")
+		c := client.New(tt.input, "")
 		if c.BaseURL != tt.want {
-			t.Errorf("msclient.New(%q).BaseURL = %q, want %q", tt.input, c.BaseURL, tt.want)
+			t.Errorf("client.New(%q).BaseURL = %q, want %q", tt.input, c.BaseURL, tt.want)
 		}
 	}
 }
 
 // noStashEndpointsVersionServer serves GET /api/v1/version with no
 // stash_endpoints field at all — the same shape a server that predates
-// WP-R6 answers with — so msclientStashIDs's allow-list check degrades to
+// WP-R6 answers with — so clientStashIDs's allow-list check degrades to
 // "send everything", the behavior these pre-WP-R6 tests were written
 // against.
-func noStashEndpointsVersionServer(t *testing.T) *msclient.Client {
+func noStashEndpointsVersionServer(t *testing.T) *client.Client {
 	t.Helper()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"version": "1.0.0", "features": []string{}})
 	}))
 	t.Cleanup(ts.Close)
-	return msclient.New(ts.URL, "")
+	return client.New(ts.URL, "")
 }
 
-// TestMsclientStashIDs_FiltersAndCaps verifies that msclientStashIDs
+// TestMsclientStashIDs_FiltersAndCaps verifies that clientStashIDs
 // validates each StashID format, normalizes endpoints, drops invalid ones,
 // and caps the output at 5 entries matching the server's push limit. This
 // exercises WP-R3: a scene with one bad id and six good ones produces five.
@@ -649,9 +649,9 @@ func TestMsclientStashIDs_FiltersAndCaps(t *testing.T) {
 		{Endpoint: "https://more.org/graphql", ID: "b72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
 	}
 
-	got := a.msclientStashIDs(context.Background(), ids, "test-scene-id")
+	got := a.clientStashIDs(context.Background(), ids, "test-scene-id")
 	if len(got) != 5 {
-		t.Errorf("msclientStashIDs returned %d entries, want 5 (first five valid)", len(got))
+		t.Errorf("clientStashIDs returned %d entries, want 5 (first five valid)", len(got))
 	}
 
 	// Check that the first five valid ones are present and in order
@@ -683,9 +683,9 @@ func TestMsclientStashIDs_FiltersAndCaps(t *testing.T) {
 // even fetching the server version — a nil app.ms would panic if it tried.
 func TestMsclientStashIDs_EmptyInput(t *testing.T) {
 	a := &app{}
-	got := a.msclientStashIDs(context.Background(), []stash.StashID{}, "scene-id")
+	got := a.clientStashIDs(context.Background(), []stash.StashID{}, "scene-id")
 	if got != nil {
-		t.Errorf("msclientStashIDs([], ...) = %v, want nil", got)
+		t.Errorf("clientStashIDs([], ...) = %v, want nil", got)
 	}
 }
 
@@ -703,15 +703,15 @@ func TestMsclientStashIDs_DropsEndpointNotAdvertised(t *testing.T) {
 		})
 	}))
 	defer ts.Close()
-	a := &app{ms: msclient.New(ts.URL, "")}
+	a := &app{ms: client.New(ts.URL, "")}
 
 	ids := []stash.StashID{
 		{Endpoint: "https://stashdb.org/graphql", ID: "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
 		{Endpoint: "https://evil.example/graphql", ID: "d72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
 	}
-	got := a.msclientStashIDs(context.Background(), ids, "test-scene-id")
+	got := a.clientStashIDs(context.Background(), ids, "test-scene-id")
 	if len(got) != 1 {
-		t.Fatalf("msclientStashIDs returned %d entries, want 1 (evil.example dropped)", len(got))
+		t.Fatalf("clientStashIDs returned %d entries, want 1 (evil.example dropped)", len(got))
 	}
 	if got[0].Endpoint != "https://stashdb.org/graphql" {
 		t.Errorf("got[0].Endpoint = %q, want the advertised endpoint", got[0].Endpoint)
@@ -730,13 +730,13 @@ func TestMsclientStashIDs_WildcardAllowsAnyEndpoint(t *testing.T) {
 		})
 	}))
 	defer ts.Close()
-	a := &app{ms: msclient.New(ts.URL, "")}
+	a := &app{ms: client.New(ts.URL, "")}
 
 	ids := []stash.StashID{
 		{Endpoint: "https://custom.example/graphql", ID: "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"},
 	}
-	got := a.msclientStashIDs(context.Background(), ids, "test-scene-id")
+	got := a.clientStashIDs(context.Background(), ids, "test-scene-id")
 	if len(got) != 1 {
-		t.Fatalf("msclientStashIDs returned %d entries, want 1 (wildcard allows any endpoint)", len(got))
+		t.Fatalf("clientStashIDs returned %d entries, want 1 (wildcard allows any endpoint)", len(got))
 	}
 }
