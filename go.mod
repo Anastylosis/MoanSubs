@@ -3,6 +3,7 @@ module github.com/Anastylosis/MoanSubs
 go 1.25.0
 
 require (
+	github.com/Anastylosis/mediahash v0.1.0
 	github.com/Anastylosis/stash-go v0.6.0
 	github.com/Anastylosis/subtitlematch v0.2.0
 	github.com/jackc/pgx/v5 v5.10.0

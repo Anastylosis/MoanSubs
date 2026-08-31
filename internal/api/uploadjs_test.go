@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Anastylosis/MoanSubs/hash"
+	"github.com/Anastylosis/mediahash/oshash"
 )
 
 // nodeUploadJSDriver runs static/upload.js's oshashOf over a list of files
@@ -38,13 +38,13 @@ const { oshashOf } = require(process.argv[2]);
 `
 
 // TestUploadJS_OSHashMatchesGo cross-checks static/upload.js's oshashOf
-// against hash.ComputeOSHash — the same algorithm, ported independently —
-// over the same size boundaries hash/oshash_test.go's
-// TestComputeOSHash_AgainstReference already exercises (just under/at/over
-// one chunk, just under/at/over two chunks), plus both of that file's
-// hand-computable fixtures and a too-small file. Skips when `node` is not
-// on PATH: CI may not have it, and this is a cross-check, not the
-// authoritative test — hash.ComputeOSHash's own tests are.
+// against mediahash's oshash.Compute — the same algorithm, ported
+// independently — over the same size boundaries that package's
+// TestCompute_AgainstReference already exercises (just under/at/over one
+// chunk, just under/at/over two chunks), plus both of its hand-computable
+// fixtures and a too-small file. Skips when `node` is not on PATH: CI may
+// not have it, and this is a cross-check, not the authoritative test —
+// oshash.Compute's own tests are.
 func TestUploadJS_OSHashMatchesGo(t *testing.T) {
 	nodePath, err := exec.LookPath("node")
 	if err != nil {
@@ -63,25 +63,25 @@ func TestUploadJS_OSHashMatchesGo(t *testing.T) {
 		}
 		fixtures = append(fixtures, path)
 
-		got, err := hash.ComputeOSHash(bytes.NewReader(data), int64(len(data)))
+		got, err := oshash.Compute(bytes.NewReader(data), int64(len(data)))
 		if err != nil {
-			// Too small to hash — hash.ComputeOSHash's error is oshashOf's
+			// Too small to hash — oshash.Compute's error is oshashOf's
 			// null, not a hex string.
 			want = append(want, "null")
 			return
 		}
-		want = append(want, string(got))
+		want = append(want, got)
 	}
 
-	// Too small to fingerprint at all (TestComputeOSHash_TooSmall).
+	// Too small to fingerprint at all (TestCompute_TooSmall).
 	writeFixture("too-small", make([]byte, 5))
-	// Hand-computable: all-zero, chunk shrinks to 96 (TestComputeOSHash_HandComputedFixture).
+	// Hand-computable: all-zero, chunk shrinks to 96 (TestCompute_HandComputedFixture).
 	writeFixture("all-zero-100", make([]byte, 100))
-	// Hand-computable: all-0xff, exactly one chunk (TestComputeOSHash_AllOnesFixture).
+	// Hand-computable: all-0xff, exactly one chunk (TestCompute_AllOnesFixture).
 	writeFixture("all-ff-65536", bytes.Repeat([]byte{0xff}, 65536))
 
 	// Same size boundaries and RNG seed as
-	// TestComputeOSHash_AgainstReference: just under the minimum, below/at/
+	// TestCompute_AgainstReference: just under the minimum, below/at/
 	// above one chunk (64KiB), below/at/above two chunks (128KiB, where
 	// head/tail stop overlapping).
 	sizes := []int64{9, 65535, 65536, 65537, 131071, 131072, 131073, 200000}
@@ -114,7 +114,7 @@ func TestUploadJS_OSHashMatchesGo(t *testing.T) {
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Errorf("fixture %s: JS oshashOf = %q, want %q (from hash.ComputeOSHash)", filepath.Base(fixtures[i]), got[i], want[i])
+			t.Errorf("fixture %s: JS oshashOf = %q, want %q (from oshash.Compute)", filepath.Base(fixtures[i]), got[i], want[i])
 		}
 	}
 }

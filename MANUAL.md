@@ -222,7 +222,7 @@ and the filename stem stay plain text fields, but `/upload` alone loads
 two scripts (`GET /static/upload.js` and `GET /static/phash.js`,
 same-origin, `script-src 'self'` on that page only) that fill them in
 when a second file picker is given the *video* file: `oshash` from the
-same algorithm as `hash.ComputeOSHash` (size plus the
+same algorithm as mediahash's `oshash.Compute` (size plus the
 little-endian uint64 sum of the first and last 64KiB, read with
 `File.slice(...).arrayBuffer()` — the video is never uploaded), duration
 from a detached `<video>` element's `loadedmetadata` event, and `phash`
