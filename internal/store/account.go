@@ -455,10 +455,25 @@ func (s *Store) SetAccountRole(ctx context.Context, name, role string) error {
 // the new count, and VerifyPassword reads whatever count a given hash was
 // made with.
 const (
-	pbkdf2Iterations = 600_000
-	pbkdf2SaltBytes  = 16
-	pbkdf2KeyBytes   = 32
+	pbkdf2SaltBytes = 16
+	pbkdf2KeyBytes  = 32
 )
+
+// pbkdf2Iterations is what HashPassword embeds in new hashes. A var, not a
+// const, only so UseFastPasswordHashing can lower it in test binaries —
+// VerifyPassword honors whatever count a given hash carries, so the two
+// counts never conflict.
+var pbkdf2Iterations = 600_000
+
+// UseFastPasswordHashing drops PBKDF2 to a trivial iteration count and
+// re-derives the constant-time login filler at that cost. FOR TEST
+// BINARIES ONLY: the production count is what makes a stolen hash
+// expensive to crack; the full-cost hashing was most of internal/api's CI
+// wall time.
+func UseFastPasswordHashing() {
+	pbkdf2Iterations = 1_000
+	dummyPasswordHash = mustHashPassword("fast filler for constant-time login in tests")
+}
 
 // pbkdf2Gate caps concurrent password verifications (see VerifyPassword).
 var pbkdf2Gate = make(chan struct{}, 4)
