@@ -235,6 +235,31 @@ func TestStore_PruneDownloadDays(t *testing.T) {
 	}
 }
 
+// TrendingReleasesWithCounts is what GET /api/v1/trending is built on: the
+// window sum it ranked by must come back with the release, not just the
+// order — that's the whole reason it exists alongside TrendingReleases.
+func TestStore_TrendingReleasesWithCounts_ReturnsTheWindowSum(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	_, trackID := trendingFixture(t, s, "c1000000c1000000", "Summed")
+	today := day(time.Now())
+
+	if err := s.MergeDownloadDays(ctx, map[DownloadDay]int64{
+		{TrackID: trackID, Day: today}:                             3,
+		{TrackID: trackID, Day: day(time.Now().AddDate(0, 0, -1))}: 4,
+	}); err != nil {
+		t.Fatalf("MergeDownloadDays: %v", err)
+	}
+
+	got, err := s.TrendingReleasesWithCounts(ctx, day(time.Now().AddDate(0, 0, -7)), 10)
+	if err != nil {
+		t.Fatalf("TrendingReleasesWithCounts: %v", err)
+	}
+	if len(got) != 1 || got[0].WindowDownloads != 7 {
+		t.Fatalf("got %+v, want one release with WindowDownloads=7 (3+4 across two days)", got)
+	}
+}
+
 // PopularReleases answers a different question from trending: lifetime
 // downloads, so it stays stable on a quiet week when trending is empty.
 func TestStore_PopularReleases(t *testing.T) {

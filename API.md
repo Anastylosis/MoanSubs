@@ -27,6 +27,7 @@ the full session/CSRF model.
   - [`GET /api/v1/lookup/stash/{ehash}/{stash_id}`](#get-apiv1lookupstashehashstash_id)
   - [`POST /api/v1/lookup/batch`](#post-apiv1lookupbatch)
   - [`POST /api/v1/lookup/exact`](#post-apiv1lookupexact)
+  - [`GET /api/v1/trending`](#get-apiv1trending)
   - [`GET /api/v1/search`](#get-apiv1search)
   - [`GET /api/v1/stats`](#get-apiv1stats)
   - [`POST /api/v1/match`](#post-apiv1match)
@@ -78,7 +79,7 @@ leaks the same, explicitly.
 
 ### `GET /api/v1/version`
 
-`{"version": "<semver or dev>", "features": ["lookup", "match", "withdraw", "stats", "srt", "votes", "stash_ids", "metadata", "kinds", "revisions", "titles"],
+`{"version": "<semver or dev>", "features": ["lookup", "match", "withdraw", "stats", "srt", "votes", "stash_ids", "metadata", "kinds", "revisions", "titles", "trending"],
 "stash_endpoints": ["https://stashdb.org/graphql", "https://fansdb.cc/graphql",
 "https://theporndb.net/graphql", "https://javstash.org/graphql",
 "https://pmvstash.org/graphql"]}`. Anonymous
@@ -149,6 +150,38 @@ Full-hash mode, opt-in. At least one of `oshash`/`phash` required;
 `max_distance` defaults to 4, hard cap 8 (false positives climb sharply
 past that). POST deliberately, so hashes stay out of access logs. Response:
 `{"releases": [<release>...]}`.
+
+### `GET /api/v1/trending`
+
+```
+GET /api/v1/trending?days=7&limit=20
+```
+
+`days` (default 7, clamped to 1–90) is the trailing window; `limit`
+(default 20, clamped to 1–100) caps the list. Both fall back to their
+default rather than 400 on a missing or unparseable value. Response:
+
+```json
+{
+  "releases": [
+    {"release": {<release shape below>}, "window_downloads": 87}
+  ]
+}
+```
+
+`releases` is always present (`[]`, never `null`), most-downloaded first,
+each entry the same release shape every lookup endpoint returns (see
+[Release shape](#release-shape-shared-by-all-lookups)) wrapped with
+`window_downloads` — the summed downloads across the release's visible
+tracks over the requested window, the number it was ranked by. A release
+only appears once it clears the same bar `/browse` applies (name metadata,
+a visible track, not withdrawn); a quiet window returns `[]`, not an error.
+
+The data behind this is aggregate-only by design (migration 0019): one
+`(track, day)` download count, no IP, no account, no timestamp finer than
+the date, kept 90 days. `days` can never see further back than that
+retention window, and there is no way to ask this endpoint (or any other)
+for who downloaded what or when.
 
 ### `GET /api/v1/search`
 

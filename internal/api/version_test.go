@@ -23,7 +23,7 @@ func TestVersion_ReturnsVersionAndFeatures(t *testing.T) {
 	if got.Version != "dev" {
 		t.Errorf("Version = %q, want %q (NewServer's default)", got.Version, "dev")
 	}
-	want := []string{"lookup", "match", "withdraw", "stats", "srt", "votes", "stash_ids", "metadata", "kinds", "revisions", "titles"}
+	want := []string{"lookup", "match", "withdraw", "stats", "srt", "votes", "stash_ids", "metadata", "kinds", "revisions", "titles", "trending"}
 	if !reflect.DeepEqual(got.Features, want) {
 		t.Errorf("Features = %v, want %v", got.Features, want)
 	}

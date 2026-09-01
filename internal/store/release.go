@@ -450,11 +450,16 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-// scanRelease scans one releaseColumns row. Scans into plain Go types
-// rather than the hash package's named types directly — pgx's scan
-// negotiation is more predictable against builtin kinds, and the
-// conversion here is a single explicit step rather than implicit magic.
-func scanRelease(row rowScanner) (*Release, error) {
+// scanRelease scans one releaseColumns row, plus any trailing columns a
+// caller's own query appended after releaseColumns (e.g.
+// TrendingReleasesWithCounts' window sum) — extra receives those in
+// order, so one release scanner serves every query built on
+// releaseColumns without a second copy of this field list. Scans into
+// plain Go types rather than the hash package's named types directly —
+// pgx's scan negotiation is more predictable against builtin kinds, and
+// the conversion here is a single explicit step rather than implicit
+// magic.
+func scanRelease(row rowScanner, extra ...any) (*Release, error) {
 	var (
 		id              int64
 		workID          *int64
@@ -475,9 +480,11 @@ func scanRelease(row rowScanner) (*Release, error) {
 		withdrawnReason *string
 		autoconfirmOff  bool
 	)
-	if err := row.Scan(&id, &workID, &oshashStr, &phashBig, &md5, &durationMs, &width, &height, &videoCodec,
+	dest := []any{&id, &workID, &oshashStr, &phashBig, &md5, &durationMs, &width, &height, &videoCodec,
 		&title, &stem, &releaseDate, &studio, &performers, &createdAt, &withdrawnAt, &withdrawnReason,
-		&autoconfirmOff); err != nil {
+		&autoconfirmOff}
+	dest = append(dest, extra...)
+	if err := row.Scan(dest...); err != nil {
 		return nil, err
 	}
 

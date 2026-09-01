@@ -81,17 +81,24 @@ func (s *Store) PruneDownloadDays(ctx context.Context, before time.Time) (int64,
 	return tag.RowsAffected(), nil
 }
 
-// TrendingReleases returns the releases whose visible tracks were
-// downloaded most in the window [since, now], most first, capped at limit.
-//
-// Windowed downloads rather than the lifetime counter: that is the whole
-// point of migration 0019. A release is only listed if it would show on a
-// catalogue page at all — it needs name metadata and a visible track, the
-// same bar BrowseReleases applies, so trending can never surface a page
-// that is a bare hash or a withdrawn row.
-func (s *Store) TrendingReleases(ctx context.Context, since time.Time, limit int) ([]Release, error) {
+// TrendingRelease pairs a release with the summed downloads that ranked it
+// in TrendingReleasesWithCounts' window — the number GET /api/v1/trending
+// surfaces as window_downloads, which the plain Release shape has no field
+// for (it isn't a property of the release, only of the query that found it).
+type TrendingRelease struct {
+	Release
+	WindowDownloads int64
+}
+
+// TrendingReleasesWithCounts is TrendingReleases plus each release's own
+// window sum, single query like its plainer sibling — mind the hot path,
+// this is the query behind the anonymous, generous-limit /trending
+// endpoint. TrendingReleases is a thin wrapper over this rather than a
+// second copy of the SQL, so the two can never drift on which releases
+// qualify.
+func (s *Store) TrendingReleasesWithCounts(ctx context.Context, since time.Time, limit int) ([]TrendingRelease, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT `+releaseColumns+`
+		SELECT `+releaseColumns+`, w.recent
 		FROM releases r
 		JOIN (
 			SELECT t.release_id, SUM(d.downloads) AS recent
@@ -106,10 +113,43 @@ func (s *Store) TrendingReleases(ctx context.Context, since time.Time, limit int
 		ORDER BY w.recent DESC, r.id DESC
 		LIMIT $2`, since, limit)
 	if err != nil {
-		return nil, fmt.Errorf("store: TrendingReleases: %w", err)
+		return nil, fmt.Errorf("store: TrendingReleasesWithCounts: %w", err)
 	}
 	defer rows.Close()
-	return scanReleases(rows)
+
+	var out []TrendingRelease
+	for rows.Next() {
+		var windowDownloads int64
+		r, err := scanRelease(rows, &windowDownloads)
+		if err != nil {
+			return nil, fmt.Errorf("store: TrendingReleasesWithCounts: %w", err)
+		}
+		out = append(out, TrendingRelease{Release: *r, WindowDownloads: windowDownloads})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: TrendingReleasesWithCounts: %w", err)
+	}
+	return out, nil
+}
+
+// TrendingReleases returns the releases whose visible tracks were
+// downloaded most in the window [since, now], most first, capped at limit.
+//
+// Windowed downloads rather than the lifetime counter: that is the whole
+// point of migration 0019. A release is only listed if it would show on a
+// catalogue page at all — it needs name metadata and a visible track, the
+// same bar BrowseReleases applies, so trending can never surface a page
+// that is a bare hash or a withdrawn row.
+func (s *Store) TrendingReleases(ctx context.Context, since time.Time, limit int) ([]Release, error) {
+	withCounts, err := s.TrendingReleasesWithCounts(ctx, since, limit)
+	if err != nil {
+		return nil, err
+	}
+	var out []Release
+	for _, tr := range withCounts {
+		out = append(out, tr.Release)
+	}
+	return out, nil
 }
 
 // PopularReleases returns the releases with the most lifetime downloads
