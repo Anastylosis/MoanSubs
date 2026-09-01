@@ -21,7 +21,10 @@ func fitFixture(t *testing.T, s *Store, oshash string) (trackID, releaseID, repo
 	if err != nil {
 		t.Fatalf("CreateSubtitleTrack: %v", err)
 	}
-	reporterID, _, err = s.CreateAccount(ctx, "reporter")
+	// Suffixed by oshash so two calls in the same test (e.g. one pairing
+	// that must report, one that must not) don't collide on the account
+	// name's uniqueness constraint.
+	reporterID, _, err = s.CreateAccount(ctx, "reporter-"+oshash)
 	if err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
@@ -174,6 +177,125 @@ func TestStore_ValidFitPairing_UnrelatedReleaseInvalid(t *testing.T) {
 	}
 	if ok {
 		t.Error("an unrelated, ungrouped release must not be a valid pairing")
+	}
+}
+
+// A superseded (non-head) revision is never offered as a sibling —
+// SiblingTracks filters trackIsHead — so a report against it as a sibling
+// pairing must be rejected too, even though the work grouping is otherwise
+// exactly right. The track's own release stays valid regardless (mirrors
+// trackForVote's own treatment of votes on an old revision).
+func TestStore_ValidFitPairing_SupersededSiblingRevisionRejected(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	a := workRelease(t, s, "fafafafafafafafa", "A")
+	b := workRelease(t, s, "fbfbfbfbfbfbfbfb", "B")
+	if _, err := s.LinkReleases(ctx, a.ID, b.ID); err != nil {
+		t.Fatalf("LinkReleases: %v", err)
+	}
+	trA := tracksOf(t, s, a.ID)
+	rev1 := trA[0].ID
+
+	rev2, _, err := s.SupersedeTrack(ctx, rev1, SubtitleTrack{ReleaseID: a.ID, Lang: "en", Body: revBody("fixed")})
+	if err != nil {
+		t.Fatalf("SupersedeTrack: %v", err)
+	}
+
+	ok, err := s.ValidFitPairing(ctx, rev1, b.ID)
+	if err != nil {
+		t.Fatalf("ValidFitPairing(superseded, sibling): %v", err)
+	}
+	if ok {
+		t.Error("a superseded revision must not be a valid sibling pairing")
+	}
+
+	ok, err = s.ValidFitPairing(ctx, rev2, b.ID)
+	if err != nil {
+		t.Fatalf("ValidFitPairing(head, sibling): %v", err)
+	}
+	if !ok {
+		t.Error("the chain's current head must still be a valid sibling pairing")
+	}
+
+	// The superseded revision's own release stays a valid pairing — no head
+	// requirement there, same as votes.
+	ok, err = s.ValidFitPairing(ctx, rev1, a.ID)
+	if err != nil {
+		t.Fatalf("ValidFitPairing(superseded, own release): %v", err)
+	}
+	if !ok {
+		t.Error("a superseded revision's own release must still be a valid pairing")
+	}
+}
+
+// The site-wide misfit queue: mod_release.html's own per-release column
+// only ever surfaces a pairing to someone already viewing that release;
+// ListMisfitPairings is what makes a report discoverable without knowing
+// which release to look at first — the fit-report analogue of
+// ListFlaggedTracks.
+func TestStore_ListMisfitPairings_FindsAcrossReleases(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	trackID, releaseID, _ := fitFixture(t, s, "fcfcfcfcfcfcfcfc")
+
+	reporter, _, err := s.CreateAccount(ctx, "misfit-lister")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	// A fit-only pairing must not appear.
+	otherTrack, otherRelease, otherReporter := fitFixture(t, s, "fdfdfdfdfdfdfdfd")
+	if _, err := s.UpsertFitReport(ctx, otherTrack, otherRelease, otherReporter, true); err != nil {
+		t.Fatalf("UpsertFitReport(fit-only): %v", err)
+	}
+
+	if _, err := s.UpsertFitReport(ctx, trackID, releaseID, reporter, false); err != nil {
+		t.Fatalf("UpsertFitReport(misfit): %v", err)
+	}
+
+	got, err := s.ListMisfitPairings(ctx)
+	if err != nil {
+		t.Fatalf("ListMisfitPairings: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("ListMisfitPairings = %+v, want exactly 1 row (the fit-only pairing must not appear)", got)
+	}
+	if got[0].TrackID != trackID || got[0].ReleaseID != releaseID {
+		t.Errorf("got[0] = %+v, want track=%d release=%d", got[0], trackID, releaseID)
+	}
+	if got[0].Fits != 0 || got[0].Misfits != 1 {
+		t.Errorf("got[0].Fits/Misfits = %d/%d, want 0/1", got[0].Fits, got[0].Misfits)
+	}
+
+	n, err := s.CountMisfitPairings(ctx)
+	if err != nil {
+		t.Fatalf("CountMisfitPairings: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("CountMisfitPairings = %d, want 1", n)
+	}
+}
+
+// A withdrawn track's misfit report is already resolved by the takedown —
+// ListMisfitPairings must not surface it, mirroring
+// ListFlaggedTracks_ExcludesWithdrawn.
+func TestStore_ListMisfitPairings_ExcludesWithdrawnTrack(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	trackID, releaseID, reporter := fitFixture(t, s, "fefefefefefefefe")
+
+	if _, err := s.UpsertFitReport(ctx, trackID, releaseID, reporter, false); err != nil {
+		t.Fatalf("UpsertFitReport: %v", err)
+	}
+	if err := s.WithdrawTrack(ctx, trackID, "test"); err != nil {
+		t.Fatalf("WithdrawTrack: %v", err)
+	}
+
+	got, err := s.ListMisfitPairings(ctx)
+	if err != nil {
+		t.Fatalf("ListMisfitPairings: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("ListMisfitPairings = %+v, want empty (track is withdrawn)", got)
 	}
 }
 

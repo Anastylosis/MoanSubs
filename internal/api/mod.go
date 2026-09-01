@@ -158,11 +158,23 @@ func newModRemovalRow(req store.RemovalRequest) modRemovalRow {
 	return row
 }
 
+// modMisfitRow is one row of /mod/flagged's misfit-pairings section —
+// store.MisfitPairing verbatim, given its own template-facing type for the
+// same reason modFlaggedRow gets one (never a raw store type in template
+// data — see catalogueRelease's doc comment, catalogue.go).
+type modMisfitRow struct {
+	TrackID   int64
+	ReleaseID int64
+	Fits      int
+	Misfits   int
+}
+
 type modFlaggedData struct {
-	Title    string
-	Removals []modRemovalRow
-	Rows     []modFlaggedRow
-	Error    string
+	Title      string
+	Removals   []modRemovalRow
+	Rows       []modFlaggedRow
+	MisfitRows []modMisfitRow
+	Error      string
 }
 
 func (s *Server) handleModFlagged(w http.ResponseWriter, r *http.Request) {
@@ -219,8 +231,21 @@ func (s *Server) renderModFlagged(w http.ResponseWriter, r *http.Request, ares *
 		rows = append(rows, row)
 	}
 
+	misfits, err := s.Store.ListMisfitPairings(ctx)
+	if err != nil {
+		log.Printf("api: ListMisfitPairings: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	misfitRows := make([]modMisfitRow, 0, len(misfits))
+	for _, m := range misfits {
+		misfitRows = append(misfitRows, modMisfitRow{
+			TrackID: m.TrackID, ReleaseID: m.ReleaseID, Fits: m.Fits, Misfits: m.Misfits,
+		})
+	}
+
 	s.renderPage(w, withAuth(r, ares), status, "mod_flagged.html", modFlaggedData{
-		Title: "Moderate — flagged tracks", Removals: removalRows, Rows: rows, Error: formErr,
+		Title: "Moderate — flagged tracks", Removals: removalRows, Rows: rows, MisfitRows: misfitRows, Error: formErr,
 	}, true)
 }
 

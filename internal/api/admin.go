@@ -37,6 +37,7 @@ type adminIndexData struct {
 	Stats          *statsResponse
 	RoleCounts     map[string]int
 	FlaggedCount   int
+	MisfitCount    int
 	PendingInvites int
 	// Views is the per-page render count (stats.go). Read outside
 	// Stats.snapshot's 5-minute cache deliberately — see ViewCounts.
@@ -71,6 +72,11 @@ func (s *Server) handleAdminIndex(w http.ResponseWriter, r *http.Request) {
 		log.Printf("api: CountFlaggedTracks: %v", err)
 	} else {
 		data.FlaggedCount = n
+	}
+	if n, err := s.Store.CountMisfitPairings(ctx); err != nil {
+		log.Printf("api: CountMisfitPairings: %v", err)
+	} else {
+		data.MisfitCount = n
 	}
 	if n, err := s.Store.CountPendingInvites(ctx); err != nil {
 		log.Printf("api: CountPendingInvites: %v", err)

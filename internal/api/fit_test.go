@@ -326,3 +326,70 @@ func TestModRelease_ListsMisfitCount(t *testing.T) {
 		t.Errorf("mod page does not list the misfit report:\n%s", body)
 	}
 }
+
+// /mod/flagged must list a misfit pairing site-wide, without a moderator
+// having to already be viewing the one release the pairing belongs to —
+// the finding this fixes: mod_release.html's own column is only ever
+// visible per-release, mirroring how /mod/flagged already surfaces flagged
+// votes without a per-release detour.
+func TestModFlagged_ListsMisfitPairingsSiteWide(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	ctx := context.Background()
+
+	a, err := st.CreateRelease(ctx, store.Release{OSHash: mustOSHash(t, "f0f1f0f1f0f1f0f1"), DurationMs: 1000})
+	if err != nil {
+		t.Fatalf("CreateRelease(a): %v", err)
+	}
+	b, err := st.CreateRelease(ctx, store.Release{OSHash: mustOSHash(t, "f2f3f2f3f2f3f2f3"), DurationMs: 1000})
+	if err != nil {
+		t.Fatalf("CreateRelease(b): %v", err)
+	}
+	trackAID, err := st.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+		ReleaseID: a, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack(a): %v", err)
+	}
+	if _, err := st.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+		ReleaseID: b, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+	}); err != nil {
+		t.Fatalf("CreateSubtitleTrack(b): %v", err)
+	}
+	if _, err := st.LinkReleases(ctx, a, b); err != nil {
+		t.Fatalf("LinkReleases: %v", err)
+	}
+
+	reporterID, _, err := st.CreateAccount(ctx, "sitewide-misfit-reporter")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	if _, err := st.UpsertFitReport(ctx, trackAID, b, reporterID, false); err != nil {
+		t.Fatalf("UpsertFitReport: %v", err)
+	}
+
+	if err := st.SetAccountRole(ctx, "webuser", "mod"); err != nil {
+		t.Fatalf("SetAccountRole: %v", err)
+	}
+
+	// /mod/flagged, not /mod/release/{b} — the whole point is discovery
+	// without already knowing which release to look at.
+	resp, err := client.Get(ts.URL + "/mod/flagged")
+	if err != nil {
+		t.Fatalf("GET /mod/flagged: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(resp.Body); err != nil {
+		t.Fatalf("reading body: %v", err)
+	}
+	body := buf.String()
+	if !strings.Contains(body, "/mod/track/"+strconv.FormatInt(trackAID, 10)) {
+		t.Errorf("/mod/flagged does not link the misfit-reported track:\n%s", body)
+	}
+	if !strings.Contains(body, "/mod/release/"+strconv.FormatInt(b, 10)) {
+		t.Errorf("/mod/flagged does not link the misfit-reported release:\n%s", body)
+	}
+}

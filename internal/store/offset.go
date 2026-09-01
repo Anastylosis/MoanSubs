@@ -125,7 +125,7 @@ func (s *Store) SiblingTracks(ctx context.Context, releaseID int64) ([]SiblingTr
 		JOIN subtitle_tracks t ON t.release_id = sib.id
 		LEFT JOIN track_release_offsets o
 		  ON o.track_id = t.id AND o.release_id = self.id
-		`+fitCountsJoin("self.id")+`
+		`+fitCountsJoin("self.id", "")+`
 		WHERE self.id = $1
 		  AND self.work_id IS NOT NULL
 		  AND sib.withdrawn_at IS NULL

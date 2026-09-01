@@ -61,4 +61,25 @@
   </tbody>
 </table>
 {{end}}
+
+<h1>Misfit-reported pairings</h1>
+<p class="hint" style="margin:0 0 1rem">A pairing where at least one account reported it did not fit as served — see the pairing's own release page for the number, and to check by hand; the ones flagged here are worth a look site-wide, not only when a moderator happens to already be viewing that release.</p>
+
+{{if not .MisfitRows}}
+<p class="empty">No pairings reported as a misfit right now.</p>
+{{else}}
+<table>
+  <thead><tr><th>Track</th><th>Release</th><th class="n">Fits</th><th class="n">Misfits</th></tr></thead>
+  <tbody>
+  {{range .MisfitRows}}
+  <tr>
+    <td><a href="/mod/track/{{.TrackID}}">#{{.TrackID}}</a></td>
+    <td><a href="/mod/release/{{.ReleaseID}}">#{{.ReleaseID}}</a></td>
+    <td class="n">{{.Fits}}</td>
+    <td class="n"><span class="down">{{.Misfits}}</span></td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
 {{end}}

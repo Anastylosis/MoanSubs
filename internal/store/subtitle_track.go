@@ -343,7 +343,7 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 			FROM subtitle_tracks c
 			WHERE c.root_id = t.root_id AND c.withdrawn_at IS NULL
 		) agg ON true
-		`+fitCountsJoin("t.release_id")+`
+		`+fitCountsJoin("t.release_id", "release_id = ANY($1)")+`
 		WHERE t.release_id = ANY($1) AND `+trackIsHead("t")+`
 		ORDER BY t.release_id, t.generated ASC, (agg.up - agg.down) DESC, agg.downloads DESC,
 			array_position(ARRAY['default','cc','sdh','forced','other'], t.kind), t.id ASC`, releaseIDs)

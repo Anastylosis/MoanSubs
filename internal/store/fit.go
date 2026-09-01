@@ -36,12 +36,34 @@ func (c FitCounts) SyncVerified() bool {
 // TrackSummariesByReleaseIDs (subtitle_track.go, releaseIDExpr
 // "t.release_id") so the aggregation lives in exactly one place rather than
 // being copied between them.
-func fitCountsJoin(releaseIDExpr string) string {
+//
+// scope, when non-empty, is a WHERE clause appended inside the aggregate
+// subquery (e.g. "release_id = ANY($1)") so the GROUP BY only ever
+// aggregates the rows the caller actually asked about, rather than every
+// row in track_release_fit_reports: releaseIDExpr is a per-output-row
+// value (self.id, t.release_id), so Postgres cannot push a predicate on it
+// down into the subquery on its own the way it can a query-wide constant.
+// Deliberately NOT a denormalized counter the way votes' up/down are
+// (recomputeVoteCounts writing onto subtitle_tracks): a fit report is
+// evidence about a (track, release) pairing, not a single track row, so
+// there's no one column to hold a running tally without a wider migration
+// — and fit volume per release stays small, so a scoped aggregate is cheap
+// enough without one. SiblingTracks passes "" here: its outer query already
+// pins self.id to exactly one bound value ($1), which the planner already
+// substitutes into this join without needing a scope of its own (confirmed
+// by EXPLAIN — see the WP-fit review fix commit).
+func fitCountsJoin(releaseIDExpr, scope string) string {
+	where := ""
+	if scope != "" {
+		where = "WHERE " + scope
+	}
 	return `LEFT JOIN (
 		SELECT track_id, release_id,
 		       COUNT(*) FILTER (WHERE fits) AS fits,
 		       COUNT(*) FILTER (WHERE NOT fits) AS misfits
-		FROM track_release_fit_reports GROUP BY track_id, release_id
+		FROM track_release_fit_reports
+		` + where + `
+		GROUP BY track_id, release_id
 	) fit_counts ON fit_counts.track_id = t.id AND fit_counts.release_id = ` + releaseIDExpr
 }
 
@@ -132,13 +154,85 @@ func (s *Store) RetractFitReport(ctx context.Context, trackID, releaseID, accoun
 	return counts, nil
 }
 
+// MisfitPairing is one (track, release) pairing that carries at least one
+// standing "didn't fit" report — /mod/flagged's misfit queue (mirroring
+// FlaggedTrack/ListFlaggedTracks): counts only, never which accounts filed
+// them, the same restraint the flagged-tracks queue already applies to
+// votes.
+type MisfitPairing struct {
+	TrackID   int64
+	ReleaseID int64
+	Fits      int
+	Misfits   int
+}
+
+// ListMisfitPairings returns every active (track, release) pairing with at
+// least one misfit report, worst first — the fit-report analogue of
+// ListFlaggedTracks. mod_release.html's own per-release column only ever
+// surfaces a pairing to a moderator already looking at that one release;
+// this is what makes a misfit report discoverable site-wide, mirroring how
+// /mod/flagged does for votes. A withdrawn track or release is excluded:
+// same reasoning as ListFlaggedTracks — a takedown is already the
+// operator's resolution, so there is nothing left to triage.
+func (s *Store) ListMisfitPairings(ctx context.Context) ([]MisfitPairing, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT f.track_id, f.release_id,
+		       COUNT(*) FILTER (WHERE f.fits) AS fits,
+		       COUNT(*) FILTER (WHERE NOT f.fits) AS misfits
+		FROM track_release_fit_reports f
+		JOIN subtitle_tracks t ON t.id = f.track_id AND t.withdrawn_at IS NULL
+		JOIN releases r ON r.id = f.release_id AND r.withdrawn_at IS NULL
+		GROUP BY f.track_id, f.release_id
+		HAVING COUNT(*) FILTER (WHERE NOT f.fits) > 0
+		ORDER BY misfits DESC, f.track_id ASC, f.release_id ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("store: ListMisfitPairings: %w", err)
+	}
+	defer rows.Close()
+
+	var out []MisfitPairing
+	for rows.Next() {
+		var m MisfitPairing
+		if err := rows.Scan(&m.TrackID, &m.ReleaseID, &m.Fits, &m.Misfits); err != nil {
+			return nil, fmt.Errorf("store: ListMisfitPairings: scanning: %w", err)
+		}
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: ListMisfitPairings: %w", err)
+	}
+	return out, nil
+}
+
+// CountMisfitPairings returns how many pairings ListMisfitPairings would
+// list, without fetching the rows themselves — /admin index's misfit count,
+// mirroring CountFlaggedTracks, and sharing ListMisfitPairings's exact
+// predicate so the two numbers can never drift apart.
+func (s *Store) CountMisfitPairings(ctx context.Context) (int, error) {
+	var n int
+	if err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM (
+			SELECT 1
+			FROM track_release_fit_reports f
+			JOIN subtitle_tracks t ON t.id = f.track_id AND t.withdrawn_at IS NULL
+			JOIN releases r ON r.id = f.release_id AND r.withdrawn_at IS NULL
+			GROUP BY f.track_id, f.release_id
+			HAVING COUNT(*) FILTER (WHERE NOT f.fits) > 0
+		) misfit_pairings`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("store: CountMisfitPairings: %w", err)
+	}
+	return n, nil
+}
+
 // ValidFitPairing reports whether releaseID is a pairing the server would
-// actually offer trackID against: either trackID's own release, or a
-// sibling release grouped into the same work — the same two cases
-// SiblingTracks and TrackSummariesByReleaseIDs ever list a track under.
-// Visibility (a withdrawn track or release) is the caller's job, same as
-// trackForVote handles it for votes; this only answers "is the pairing
-// itself real".
+// actually offer trackID against: either trackID's own release (no head
+// requirement, matching trackForVote's own treatment of votes on an old
+// revision), or a sibling release grouped into the same work AND trackID is
+// the live head of its chain — SiblingTracks never offers a superseded
+// revision as a sibling (it filters trackIsHead), so a report against one
+// would be evidence for a pairing nobody is ever shown. Visibility (a
+// withdrawn track or release) is the caller's job, same as trackForVote
+// handles it for votes; this only answers "is the pairing itself real".
 func (s *Store) ValidFitPairing(ctx context.Context, trackID, releaseID int64) (bool, error) {
 	var ok bool
 	err := s.pool.QueryRow(ctx, `
@@ -149,9 +243,12 @@ func (s *Store) ValidFitPairing(ctx context.Context, trackID, releaseID int64) (
 			WHERE t.id = $1
 			  AND (
 			    t.release_id = $2
-			    OR EXISTS (
-			      SELECT 1 FROM releases target
-			      WHERE target.id = $2 AND home.work_id IS NOT NULL AND target.work_id = home.work_id
+			    OR (
+			      `+trackIsHead("t")+`
+			      AND EXISTS (
+			        SELECT 1 FROM releases target
+			        WHERE target.id = $2 AND home.work_id IS NOT NULL AND target.work_id = home.work_id
+			      )
 			    )
 			  )
 		)`, trackID, releaseID).Scan(&ok)
