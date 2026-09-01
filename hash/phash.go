@@ -38,7 +38,10 @@ func (h PHash) String() string {
 
 // ToBigint reinterprets the uint64 bit pattern as a signed int64 for
 // Postgres `bigint` storage, matching how Stash itself stores phash in
-// SQLite (PLAN.md hash rule 2: store signed, reinterpret on read).
+// SQLite (PLAN.md hash rule 2: store signed, reinterpret on read). The
+// wraparound for hashes with the top bit set IS the reinterpretation —
+// a bounds check here would reject half the hash space (CodeQL flags
+// this conversion; it is a false positive).
 func (h PHash) ToBigint() int64 {
 	return int64(uint64(h))
 }
