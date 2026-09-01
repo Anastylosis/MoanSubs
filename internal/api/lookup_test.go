@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -998,5 +999,93 @@ func TestLookup_Title_AppearsOnExactLookup(t *testing.T) {
 	got := decodeJSON[exactLookupResponse](t, resp)
 	if len(got.Releases) != 1 || got.Releases[0].Title != title {
 		t.Fatalf("Releases = %+v, want Title %q", got.Releases, title)
+	}
+}
+
+// -- studio/performers (r.Studio/r.Performers verbatim, mirrored on lookupRelease) --
+
+func TestLookupOshash_Credits_PresentWhenSet(t *testing.T) {
+	ts, st, _ := newTestServer(t)
+	ctx := context.Background()
+
+	studio := "Some Studio"
+	performers := []string{"A Performer", "Another Performer"}
+	oh := mustOSHash(t, "c1c1c1c1c1c1c1c1")
+	if _, err := st.CreateRelease(ctx, store.Release{OSHash: oh, DurationMs: 1, Studio: &studio, Performers: performers}); err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	resp, err := http.Get(ts.URL + "/api/v1/lookup/oshash/" + oh.BucketPrefix())
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	got := decodeJSON[[]lookupRelease](t, resp)
+	if len(got) != 1 || got[0].Studio != studio {
+		t.Fatalf("Studio = %q, want %q: %+v", got[0].Studio, studio, got)
+	}
+	if len(got) != 1 || !reflect.DeepEqual(got[0].Performers, performers) {
+		t.Fatalf("Performers = %v, want %v: %+v", got[0].Performers, performers, got)
+	}
+}
+
+// A release with neither field set must omit both keys on the wire rather
+// than sending `"studio":""`/`"performers":[]` — same omitempty contract
+// as title, so a client's own "unknown" placeholder logic applies.
+func TestLookupOshash_Credits_OmittedWhenUnset(t *testing.T) {
+	ts, st, _ := newTestServer(t)
+	ctx := context.Background()
+
+	oh := mustOSHash(t, "c2c2c2c2c2c2c2c2")
+	if _, err := st.CreateRelease(ctx, store.Release{OSHash: oh, DurationMs: 1}); err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	resp, err := http.Get(ts.URL + "/api/v1/lookup/oshash/" + oh.BucketPrefix())
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(resp.Body); err != nil {
+		t.Fatalf("reading body: %v", err)
+	}
+	body := buf.String()
+	if strings.Contains(body, `"studio"`) || strings.Contains(body, `"performers"`) {
+		t.Errorf("body = %s, want no studio/performers keys (omitempty)", body)
+	}
+	var got []lookupRelease
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got) != 1 || got[0].Studio != "" || len(got[0].Performers) != 0 {
+		t.Fatalf("Studio/Performers = %q/%v, want empty", got[0].Studio, got[0].Performers)
+	}
+}
+
+// Single representative case (see TestLookup_Title_AppearsOn* above for the
+// convention): checks studio/performers survive a second endpoint through
+// the shared lookupReleases choke point, not just oshash.
+func TestLookup_Credits_AppearsOnStashLookup(t *testing.T) {
+	ts, st, _ := newTestServer(t)
+	ctx := context.Background()
+
+	studio := "Some Studio"
+	performers := []string{"A Performer"}
+	oh := mustOSHash(t, "c3c3c3c3c3c3c3c3")
+	releaseID, err := st.CreateRelease(ctx, store.Release{OSHash: oh, DurationMs: 1, Studio: &studio, Performers: performers})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	ehash, id := attachStashID(t, st, releaseID, "https://stashdb.org/graphql", "e94eba4a-1e2b-4f0e-8f3a-1234567890de")
+
+	resp, err := http.Get(ts.URL + "/api/v1/lookup/stash/" + ehash + "/" + id)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	got := decodeJSON[[]lookupRelease](t, resp)
+	if len(got) != 1 || got[0].Studio != studio || !reflect.DeepEqual(got[0].Performers, performers) {
+		t.Fatalf("Studio/Performers = %q/%v, want %q/%v: %+v", got[0].Studio, got[0].Performers, studio, performers, got)
 	}
 }

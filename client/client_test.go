@@ -265,6 +265,7 @@ func TestLookupBuckets_TitleRoundTrips(t *testing.T) {
 		OSHash: "00000000deadf00d", DurationMs: 60_000, Lang: "en",
 		Body:  "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
 		Title: "Some Scene", Stem: "some-scene-2023-1080p",
+		Studio: "Some Studio", Performers: []string{"A Performer"},
 	})
 	if err != nil {
 		t.Fatalf("Upload (titled): %v", err)
@@ -292,6 +293,12 @@ func TestLookupBuckets_TitleRoundTrips(t *testing.T) {
 			found = true
 			if r.Title != "Some Scene" {
 				t.Errorf("Title = %q, want curated title", r.Title)
+			}
+			if r.Studio != "Some Studio" {
+				t.Errorf("Studio = %q, want %q", r.Studio, "Some Studio")
+			}
+			if len(r.Performers) != 1 || r.Performers[0] != "A Performer" {
+				t.Errorf("Performers = %v, want [%q]", r.Performers, "A Performer")
 			}
 		}
 	}
@@ -644,7 +651,7 @@ func TestVersion_ParsesVersionAndFeatures(t *testing.T) {
 	if v.Version != "dev" {
 		t.Errorf("Version.Version = %q, want %q", v.Version, "dev")
 	}
-	want := map[string]bool{"lookup": true, "match": true, "withdraw": true, "stats": true, "srt": true, "votes": true, "stash_ids": true, "metadata": true, "kinds": true, "revisions": true, "titles": true, "trending": true, "fit": true}
+	want := map[string]bool{"lookup": true, "match": true, "withdraw": true, "stats": true, "srt": true, "votes": true, "stash_ids": true, "metadata": true, "kinds": true, "revisions": true, "titles": true, "trending": true, "fit": true, "credits": true}
 	if len(v.Features) != len(want) {
 		t.Fatalf("Features = %v, want exactly %v", v.Features, want)
 	}

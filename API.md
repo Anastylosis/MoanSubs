@@ -81,7 +81,7 @@ leaks the same, explicitly.
 
 ### `GET /api/v1/version`
 
-`{"version": "<semver or dev>", "features": ["lookup", "match", "withdraw", "stats", "srt", "votes", "stash_ids", "metadata", "kinds", "revisions", "titles", "trending"],
+`{"version": "<semver or dev>", "features": ["lookup", "match", "withdraw", "stats", "srt", "votes", "stash_ids", "metadata", "kinds", "revisions", "titles", "trending", "fit", "credits"],
 "stash_endpoints": ["https://stashdb.org/graphql", "https://fansdb.cc/graphql",
 "https://theporndb.net/graphql", "https://javstash.org/graphql",
 "https://pmvstash.org/graphql"]}`. Anonymous
@@ -312,6 +312,7 @@ what the score was computed against, including a date disagreement via
               "kind": "default", "kind_label": null,
               "fits": 2, "misfits": 0, "sync_verified": true}],
   "title": "Some Scene (1080p)",
+  "studio": "Some Studio", "performers": ["A Performer"],
   "stash_ids": [{"endpoint": "https://stashdb.org/graphql",
                  "stash_id": "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"}]
 }
@@ -361,6 +362,18 @@ filename is shown there to any anonymous visitor); it does not affect, and
 is not affected by, whether that release's page is offered to crawlers —
 that indexing decision still depends only on a curated, moderator-pinned
 title (see TAKEDOWN.md and MANUAL.md for the catalogue's own rules).
+
+`studio`/`performers` (feature `credits`) are additive too and carry the
+release's resolved name metadata verbatim — the same values, from the same
+proposal-resolution process, that the catalogue shows on the release's own
+page (see `POST /api/v1/subtitles` above for how a proposal is recorded and
+resolved). Either or both are **omitted** when the release has no resolved
+value, never sent empty. This exposes nothing new: the same anonymous
+catalogue visitor already sees them, unresolved into the collapsed byline
+the catalogue heads a release with when a studio is also its sole
+performer — that collapse is presentation-only and does not apply here,
+so a lookup client always gets `studio` and `performers` as separate
+fields.
 
 Within one release, a track list's default order — here and everywhere
 else a release's tracks are listed (lookup responses, the catalogue's

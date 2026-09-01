@@ -95,6 +95,11 @@ type Release struct {
 	// cleaned upload stem), empty when it has neither. A server predating
 	// this field simply omits it, same as any other additive field here.
 	Title string `json:"title,omitempty"`
+	// Studio/Performers mirror the server's own catalogue fields, empty/nil
+	// when unknown. A server predating them simply omits both, same as
+	// Title above.
+	Studio     string   `json:"studio,omitempty"`
+	Performers []string `json:"performers,omitempty"`
 	// StashIDs is migration 0011's stash-box scene identities (WP-C9a),
 	// present on every release a lookup response carries.
 	StashIDs []StashID `json:"stash_ids"`

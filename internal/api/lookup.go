@@ -84,6 +84,13 @@ type lookupRelease struct {
 	// releaseIsIndexable still keeps stem-derived titles off crawlable
 	// pages regardless of what a lookup response carries.
 	Title string `json:"title,omitempty"`
+	// Studio/Performers mirror the same store.Release fields the catalogue
+	// renders (catalogue.go's buildCatalogueRelease) verbatim — no byline
+	// collapse here, that's presentation-only. Omitted (not sent as "" /
+	// []) when unknown, same posture as Title: nothing new becomes visible
+	// that the public catalogue page for this release doesn't already show.
+	Studio     string   `json:"studio,omitempty"`
+	Performers []string `json:"performers,omitempty"`
 	// StashIDs is migration 0011's stash-box scene identities (WP-C9a),
 	// additive like Downloads/Up/Down above — always present, [] when none.
 	StashIDs []lookupStashID `json:"stash_ids"`
@@ -153,6 +160,10 @@ func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) (
 		if title == "(untitled)" {
 			title = ""
 		}
+		var studio string
+		if r.Studio != nil {
+			studio = *r.Studio
+		}
 
 		summaries := tracksByRelease[r.ID]
 		tracks := make([]lookupTrackSummary, 0, len(summaries))
@@ -211,6 +222,8 @@ func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) (
 			VideoCodec: r.VideoCodec,
 			Tracks:     tracks,
 			Title:      title,
+			Studio:     studio,
+			Performers: r.Performers,
 			StashIDs:   stashIDs,
 			Siblings:   siblings,
 		})
