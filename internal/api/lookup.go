@@ -23,12 +23,16 @@ import (
 // release in a lookup response (PLAN.md "Lookup" response shape) — enough
 // to badge and pick a track, not the full body.
 type lookupTrackSummary struct {
-	ID            int64     `json:"id"`
-	Lang          string    `json:"lang"`
-	Generated     bool      `json:"generated"`
-	License       string    `json:"license"`
-	HasProvenance bool      `json:"has_provenance"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID   int64  `json:"id"`
+	Lang string `json:"lang"`
+	// Generated is detection OR declaration (migration 0026,
+	// WP-authorship). GeneratedSource says which — see authorship.go's
+	// generatedSource doc comment.
+	Generated       bool      `json:"generated"`
+	GeneratedSource string    `json:"generated_source,omitempty"`
+	License         string    `json:"license"`
+	HasProvenance   bool      `json:"has_provenance"`
+	CreatedAt       time.Time `json:"created_at"`
 	// Downloads is migration 0006's per-track counter (WP-A2). Additive —
 	// older plugins that don't know the field simply ignore it.
 	Downloads int64 `json:"downloads"`
@@ -38,6 +42,10 @@ type lookupTrackSummary struct {
 	// Kind/KindLabel: migration 0021 (WP-K1), additive.
 	Kind      string  `json:"kind"`
 	KindLabel *string `json:"kind_label,omitempty"`
+	// CreditedTo: migration 0026 (WP-authorship), the uploader's account
+	// name, present only for an authorship of "credited" — see
+	// authorship.go's creditedTo doc comment.
+	CreditedTo string `json:"credited_to,omitempty"`
 	// Revision/RootID: migration 0024, additive. Downloads/Up/Down above
 	// are the chain's totals, not this row's own.
 	Revision int   `json:"revision"`
@@ -110,13 +118,16 @@ type lookupRelease struct {
 // claims, and collapsing them would let a client present an unverified
 // subtitle as a verified fit.
 type lookupSibling struct {
-	ID         int64   `json:"id"`
-	ReleaseID  int64   `json:"release_id"`
-	Lang       string  `json:"lang"`
-	Generated  bool    `json:"generated"`
-	Downloads  int64   `json:"downloads"`
-	OffsetMs   *int64  `json:"offset_ms"`
-	OffsetFrom *string `json:"offset_source,omitempty"`
+	ID        int64  `json:"id"`
+	ReleaseID int64  `json:"release_id"`
+	Lang      string `json:"lang"`
+	// Generated/GeneratedSource: same OR-and-distinguish contract as
+	// lookupTrackSummary above.
+	Generated       bool    `json:"generated"`
+	GeneratedSource string  `json:"generated_source,omitempty"`
+	Downloads       int64   `json:"downloads"`
+	OffsetMs        *int64  `json:"offset_ms"`
+	OffsetFrom      *string `json:"offset_source,omitempty"`
 	// Fits/Misfits/SyncVerified: migration 0025 (WP-fit), additive.
 	// SyncVerified is true only once at least store.SyncVerifiedMinFits
 	// distinct accounts reported a fit AND none reported a misfit — a
@@ -170,22 +181,24 @@ func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) (
 		for _, t := range summaries {
 			fitCounts := store.FitCounts{Fits: t.Fits, Misfits: t.Misfits}
 			tracks = append(tracks, lookupTrackSummary{
-				ID:            t.ID,
-				Lang:          t.Lang,
-				Generated:     t.Generated,
-				License:       t.License,
-				HasProvenance: t.HasProvenance,
-				CreatedAt:     t.CreatedAt,
-				Downloads:     t.Downloads,
-				Up:            t.Up,
-				Down:          t.Down,
-				Kind:          t.Kind,
-				KindLabel:     t.KindLabel,
-				Revision:      t.Revision,
-				RootID:        t.RootID,
-				Fits:          t.Fits,
-				Misfits:       t.Misfits,
-				SyncVerified:  fitCounts.SyncVerified(),
+				ID:              t.ID,
+				Lang:            t.Lang,
+				Generated:       t.Generated || t.DeclaredGenerated,
+				GeneratedSource: generatedSource(t.Generated, t.DeclaredGenerated),
+				License:         t.License,
+				HasProvenance:   t.HasProvenance,
+				CreatedAt:       t.CreatedAt,
+				Downloads:       t.Downloads,
+				Up:              t.Up,
+				Down:            t.Down,
+				Kind:            t.Kind,
+				KindLabel:       t.KindLabel,
+				Revision:        t.Revision,
+				RootID:          t.RootID,
+				Fits:            t.Fits,
+				Misfits:         t.Misfits,
+				SyncVerified:    fitCounts.SyncVerified(),
+				CreditedTo:      creditedTo(t.Authorship, t.UploaderName),
 			})
 		}
 
@@ -199,8 +212,9 @@ func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) (
 				fitCounts := store.FitCounts{Fits: t.Fits, Misfits: t.Misfits}
 				siblings = append(siblings, lookupSibling{
 					ID: t.TrackID, ReleaseID: t.ReleaseID, Lang: t.Lang,
-					Generated: t.Generated, Downloads: t.Downloads,
-					OffsetMs: t.OffsetMs, OffsetFrom: t.Source,
+					Generated: t.Generated || t.DeclaredGenerated, GeneratedSource: generatedSource(t.Generated, t.DeclaredGenerated),
+					Downloads: t.Downloads,
+					OffsetMs:  t.OffsetMs, OffsetFrom: t.Source,
 					Fits: t.Fits, Misfits: t.Misfits, SyncVerified: fitCounts.SyncVerified(),
 				})
 			}

@@ -49,6 +49,19 @@ type uploadRequest struct {
 	Kind      string `json:"kind"`
 	KindLabel string `json:"kind_label"`
 
+	// Authorship: migration 0026 (WP-authorship). Validated by
+	// subtitle.NormalizeAuthorship; empty defaults to "shared".
+	Authorship string `json:"authorship"`
+	// Generated: the uploader's own voluntary declaration that this
+	// subtitle is AI-generated. Only true is meaningful — it can only ADD
+	// to the detected `generated` flag (via declared_generated), never
+	// subtract from it, so omitting the field or sending false changes
+	// nothing. This is deliberate: nobody can declare their way to
+	// "human-made", which keeps provenance detection's own incentive
+	// (an uploader has no reason to hide it, since hiding it is
+	// impossible) intact — see internal/provenance's own doc comment.
+	Generated bool `json:"generated"`
+
 	// Supersedes: id of a track this upload proposes to revise. Zero means
 	// absent (migration 0024, WP-R3).
 	Supersedes int64 `json:"supersedes,omitempty"`
@@ -69,7 +82,12 @@ const maxUploadStashIDs = 5
 type uploadResponse struct {
 	TrackID   int64 `json:"track_id"`
 	ReleaseID int64 `json:"release_id"`
-	Generated bool  `json:"generated"`
+	// Generated is detection OR declaration (migration 0026,
+	// WP-authorship) — see GeneratedSource for which one.
+	Generated bool `json:"generated"`
+	// GeneratedSource: "provenance" or "declared", present only when
+	// Generated is true. See generatedSource's doc comment (authorship.go).
+	GeneratedSource string `json:"generated_source,omitempty"`
 	// Duplicate is true when a byte-identical track already existed and its
 	// id was returned instead of inserting a copy (HTTP 200, not 201).
 	Duplicate bool `json:"duplicate,omitempty"`
@@ -389,7 +407,12 @@ func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 // undone by re-uploading the same bytes. A re-upload that states a kind
 // corrects the row instead of duplicating it; one that omits kind leaves
 // the stored kind alone, so bulk re-seeding never downgrades an SDH track.
-func (s *Server) duplicateTrackResponse(ctx context.Context, existingID, releaseID int64, kind, kindLabel string, kindGiven, generated bool) (*uploadResponse, *apiError) {
+// Authorship (migration 0026, WP-authorship) follows the identical rule:
+// stated corrects, omitted leaves it alone. declaredGenerated instead is
+// OR'd in unconditionally — never cleared, whether or not this request
+// stated one — since a later upload can only ADD the AI-generated
+// declaration, matching detection's own one-way "generated" flag.
+func (s *Server) duplicateTrackResponse(ctx context.Context, existingID, releaseID int64, kind, kindLabel string, kindGiven bool, authorship string, authorshipGiven, declaredGenerated bool) (*uploadResponse, *apiError) {
 	existing, err := s.Store.GetSubtitleTrack(ctx, existingID)
 	if err != nil {
 		log.Printf("api: GetSubtitleTrack (duplicate check): %v", err)
@@ -405,11 +428,25 @@ func (s *Server) duplicateTrackResponse(ctx context.Context, existingID, release
 			return nil, &apiError{http.StatusInternalServerError, "internal error"}
 		}
 	}
+
+	newAuthorship := existing.Authorship
+	if authorshipGiven {
+		newAuthorship = authorship
+	}
+	newDeclaredGenerated := existing.DeclaredGenerated || declaredGenerated
+	if newAuthorship != existing.Authorship || newDeclaredGenerated != existing.DeclaredGenerated {
+		if err := s.Store.UpdateSubtitleTrackAuthorship(ctx, existingID, newAuthorship, newDeclaredGenerated); err != nil {
+			log.Printf("api: UpdateSubtitleTrackAuthorship: %v", err)
+			return nil, &apiError{http.StatusInternalServerError, "internal error"}
+		}
+	}
+
 	return &uploadResponse{
-		TrackID:   existingID,
-		ReleaseID: releaseID,
-		Generated: generated,
-		Duplicate: true,
+		TrackID:         existingID,
+		ReleaseID:       releaseID,
+		Generated:       existing.Generated || newDeclaredGenerated,
+		GeneratedSource: generatedSource(existing.Generated, newDeclaredGenerated),
+		Duplicate:       true,
 	}, nil
 }
 
@@ -468,6 +505,10 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 		return nil, &apiError{http.StatusBadRequest, "body is required"}
 	}
 	kind, kindLabel, err := subtitle.NormalizeKind(req.Kind, req.KindLabel)
+	if err != nil {
+		return nil, &apiError{http.StatusBadRequest, err.Error()}
+	}
+	authorship, err := subtitle.NormalizeAuthorship(req.Authorship)
 	if err != nil {
 		return nil, &apiError{http.StatusBadRequest, err.Error()}
 	}
@@ -558,20 +599,22 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 		log.Printf("api: FindIdenticalTrack: %v", err)
 		return nil, &apiError{http.StatusInternalServerError, "internal error"}
 	} else if existingID != 0 {
-		return s.duplicateTrackResponse(ctx, existingID, release.ID, kind, kindLabel, req.Kind != "", generated)
+		return s.duplicateTrackResponse(ctx, existingID, release.ID, kind, kindLabel, req.Kind != "", authorship, req.Authorship != "", req.Generated)
 	}
 
 	accountID := account.ID
 	track := store.SubtitleTrack{
-		ReleaseID:  release.ID,
-		Lang:       canonicalLang,
-		Body:       rendered,
-		Generated:  generated,
-		Provenance: provenanceJSON,
-		License:    "CC0", // PLAN.md "Settled decisions": CC0 declared on normal uploads.
-		UploaderID: &accountID,
-		Kind:       kind,
-		KindLabel:  optString(kindLabel),
+		ReleaseID:         release.ID,
+		Lang:              canonicalLang,
+		Body:              rendered,
+		Generated:         generated,
+		Provenance:        provenanceJSON,
+		License:           "CC0", // PLAN.md "Settled decisions": CC0 declared on normal uploads.
+		UploaderID:        &accountID,
+		Kind:              kind,
+		KindLabel:         optString(kindLabel),
+		Authorship:        authorship,
+		DeclaredGenerated: req.Generated,
 	}
 
 	if req.Supersedes != 0 {
@@ -585,9 +628,10 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	}
 
 	return &uploadResponse{
-		TrackID:   trackID,
-		ReleaseID: release.ID,
-		Generated: generated,
+		TrackID:         trackID,
+		ReleaseID:       release.ID,
+		Generated:       generated || track.DeclaredGenerated,
+		GeneratedSource: generatedSource(generated, track.DeclaredGenerated),
 	}, nil
 }
 
@@ -651,13 +695,14 @@ func (s *Server) ingestSupersede(ctx context.Context, account *store.Account, ta
 	}
 
 	return &uploadResponse{
-		TrackID:    newID,
-		ReleaseID:  releaseID,
-		Generated:  track.Generated,
-		Revision:   newRevision,
-		Supersedes: target.ID,
-		RootID:     target.RootID,
-		Divergence: newDivergenceResponse(report),
+		TrackID:         newID,
+		ReleaseID:       releaseID,
+		Generated:       track.Generated || track.DeclaredGenerated,
+		GeneratedSource: generatedSource(track.Generated, track.DeclaredGenerated),
+		Revision:        newRevision,
+		Supersedes:      target.ID,
+		RootID:          target.RootID,
+		Divergence:      newDivergenceResponse(report),
 	}, nil
 }
 
@@ -673,7 +718,8 @@ func (s *Server) plainTrackWithDecline(ctx context.Context, track store.Subtitle
 	resp := &uploadResponse{
 		TrackID:          trackID,
 		ReleaseID:        track.ReleaseID,
-		Generated:        track.Generated,
+		Generated:        track.Generated || track.DeclaredGenerated,
+		GeneratedSource:  generatedSource(track.Generated, track.DeclaredGenerated),
 		RevisionDeclined: reason,
 		Divergence:       newDivergenceResponse(report),
 	}
@@ -720,15 +766,19 @@ func chainHead(chain []store.SubtitleTrack) *store.SubtitleTrack {
 
 // getSubtitleResponse is GET /api/v1/subtitles/{id}'s JSON body.
 type getSubtitleResponse struct {
-	ID         int64           `json:"id"`
-	ReleaseID  int64           `json:"release_id"`
-	Lang       string          `json:"lang"`
-	Body       string          `json:"body"`
-	Generated  bool            `json:"generated"`
-	Provenance json.RawMessage `json:"provenance,omitempty"`
-	License    string          `json:"license"`
-	Source     *string         `json:"source,omitempty"`
-	CreatedAt  time.Time       `json:"created_at"`
+	ID        int64  `json:"id"`
+	ReleaseID int64  `json:"release_id"`
+	Lang      string `json:"lang"`
+	Body      string `json:"body"`
+	// Generated is detection OR declaration (migration 0026,
+	// WP-authorship); GeneratedSource says which. See authorship.go's
+	// generatedSource doc comment.
+	Generated       bool            `json:"generated"`
+	GeneratedSource string          `json:"generated_source,omitempty"`
+	Provenance      json.RawMessage `json:"provenance,omitempty"`
+	License         string          `json:"license"`
+	Source          *string         `json:"source,omitempty"`
+	CreatedAt       time.Time       `json:"created_at"`
 	// Downloads is migration 0006's per-track counter (WP-A2), reflecting
 	// the count as of just before this request's own increment. Additive —
 	// older plugins that don't know the field simply ignore it.
@@ -739,6 +789,11 @@ type getSubtitleResponse struct {
 	// Kind/KindLabel: migration 0021 (WP-K1), additive.
 	Kind      string  `json:"kind"`
 	KindLabel *string `json:"kind_label,omitempty"`
+	// Authorship: migration 0026 (WP-authorship), additive. CreditedTo is
+	// the uploader's account name, present only when Authorship is
+	// "credited" — see authorship.go's creditedTo doc comment.
+	Authorship string `json:"authorship"`
+	CreditedTo string `json:"credited_to,omitempty"`
 	// OffsetMs is the shift applied to this body because the caller asked
 	// for it timed against another release (for_release). Zero means none
 	// was applied — either the caller did not ask, or no sync is recorded
@@ -858,23 +913,38 @@ func (s *Server) handleGetSubtitle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// credited_to (migration 0026, WP-authorship): resolved only when it
+	// will actually be shown — an uncredited/shared track never pays for
+	// the extra query, and never gets one even attempted.
+	var creditedName string
+	if track.Authorship == subtitle.AuthorshipCredited && track.UploaderID != nil {
+		if name, nerr := s.Store.AccountNameByID(ctx, *track.UploaderID); nerr != nil {
+			log.Printf("api: AccountNameByID (credited_to): %v", nerr)
+		} else {
+			creditedName = name
+		}
+	}
+
 	writeJSON(w, http.StatusOK, getSubtitleResponse{
-		ID:         track.ID,
-		ReleaseID:  track.ReleaseID,
-		Lang:       track.Lang,
-		Downloads:  downloads,
-		Body:       body,
-		Generated:  track.Generated,
-		Provenance: json.RawMessage(track.Provenance),
-		License:    track.License,
-		Source:     track.Source,
-		CreatedAt:  track.CreatedAt,
-		Up:         track.Up,
-		Down:       track.Down,
-		Kind:       track.Kind,
-		KindLabel:  track.KindLabel,
-		OffsetMs:   appliedOffset,
-		OffsetFrom: offsetSource,
+		ID:              track.ID,
+		ReleaseID:       track.ReleaseID,
+		Lang:            track.Lang,
+		Downloads:       downloads,
+		Body:            body,
+		Generated:       track.Generated || track.DeclaredGenerated,
+		GeneratedSource: generatedSource(track.Generated, track.DeclaredGenerated),
+		Provenance:      json.RawMessage(track.Provenance),
+		License:         track.License,
+		Source:          track.Source,
+		CreatedAt:       track.CreatedAt,
+		Up:              track.Up,
+		Down:            track.Down,
+		Kind:            track.Kind,
+		KindLabel:       track.KindLabel,
+		Authorship:      track.Authorship,
+		CreditedTo:      creditedName,
+		OffsetMs:        appliedOffset,
+		OffsetFrom:      offsetSource,
 	})
 }
 

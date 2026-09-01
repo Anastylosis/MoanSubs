@@ -287,11 +287,14 @@ func TestUpload_HappyPath_PlainSubtitle(t *testing.T) {
 	if got.TrackID == 0 || got.ReleaseID == 0 {
 		t.Fatalf("response = %+v, want non-zero ids", got)
 	}
-	// A hand-made subtitle with no stash-subs marker: there is no field in
-	// the upload schema for an uploader to claim "generated" either way, so
-	// this only ever comes from auto-detection — here, correctly false.
+	// A hand-made subtitle with no stash-subs marker and no "generated"
+	// declaration (migration 0026, WP-authorship: only true is ever
+	// meaningful there) — correctly false.
 	if got.Generated {
 		t.Error("Generated = true for a plain subtitle with no marker")
+	}
+	if got.GeneratedSource != "" {
+		t.Errorf("GeneratedSource = %q, want empty", got.GeneratedSource)
 	}
 
 	track, err := st.GetSubtitleTrack(context.Background(), got.TrackID)
@@ -307,10 +310,11 @@ func TestUpload_HappyPath_PlainSubtitle(t *testing.T) {
 }
 
 // The generated flag and structured provenance are auto-detected from the
-// marker in the raw uploaded bytes — there is no "generated" field in the
-// upload schema for a client to set, so detection is the only source of
-// truth, and it cannot be suppressed by uploading content that merely omits
-// any such claim.
+// marker in the raw uploaded bytes — detection is the authoritative source
+// of that signal, and it cannot be suppressed by uploading content that
+// merely omits a "generated" declaration (migration 0026, WP-authorship
+// added that field, but it can only ADD the label, never take it away —
+// see TestUpload_Generated_DeclaredNeverClearsDetected below).
 func TestUpload_HappyPath_GeneratedSubtitleAutoDetected(t *testing.T) {
 	ts, st, token := newTestServer(t)
 
@@ -328,6 +332,9 @@ func TestUpload_HappyPath_GeneratedSubtitleAutoDetected(t *testing.T) {
 	got := decodeJSON[uploadResponse](t, resp)
 	if !got.Generated {
 		t.Error("Generated = false, want true (marker was present in the raw upload)")
+	}
+	if got.GeneratedSource != "provenance" {
+		t.Errorf("GeneratedSource = %q, want provenance", got.GeneratedSource)
 	}
 
 	track, err := st.GetSubtitleTrack(context.Background(), got.TrackID)
@@ -1132,5 +1139,302 @@ func TestLookup_Kind_AppearsOnTrackSummary(t *testing.T) {
 	}
 	if got[0].Tracks[0].Kind != "cc" {
 		t.Errorf("Tracks[0].Kind = %q, want cc", got[0].Tracks[0].Kind)
+	}
+}
+
+// -- authorship / generated declaration (migration 0026, WP-authorship) ---
+
+func TestUpload_Authorship_DefaultsToShared(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "b0b0b0b0b0b0b0b0", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+	created := decodeJSON[uploadResponse](t, resp)
+
+	getResp, err := http.Get(ts.URL + "/api/v1/subtitles/" + strconv.FormatInt(created.TrackID, 10))
+	if err != nil {
+		t.Fatalf("GET subtitle: %v", err)
+	}
+	defer func() { _ = getResp.Body.Close() }()
+	got := decodeJSON[getSubtitleResponse](t, getResp)
+	if got.Authorship != "shared" {
+		t.Errorf("Authorship = %q, want shared", got.Authorship)
+	}
+	if got.CreditedTo != "" {
+		t.Errorf("CreditedTo = %q, want empty for shared", got.CreditedTo)
+	}
+}
+
+func TestUpload_Authorship_RejectsUnknownValue(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "b1b1b1b1b1b1b1b1", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"authorship": "anonymous",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+// A credited track's GET response and its owner's account name are linked —
+// "credit" means naming the uploader, so nothing else can substitute here.
+func TestUpload_Authorship_CreditedStoresCreditedTo(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "b2b2b2b2b2b2b2b2", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"authorship": "credited",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+	created := decodeJSON[uploadResponse](t, resp)
+
+	getResp, err := http.Get(ts.URL + "/api/v1/subtitles/" + strconv.FormatInt(created.TrackID, 10))
+	if err != nil {
+		t.Fatalf("GET subtitle: %v", err)
+	}
+	defer func() { _ = getResp.Body.Close() }()
+	got := decodeJSON[getSubtitleResponse](t, getResp)
+	if got.Authorship != "credited" {
+		t.Errorf("Authorship = %q, want credited", got.Authorship)
+	}
+	if got.CreditedTo != "uploader" {
+		t.Errorf("CreditedTo = %q, want %q (newTestServer's account name)", got.CreditedTo, "uploader")
+	}
+}
+
+// An uncredited track records authorship (moderators can see it) but must
+// never carry a credited_to on any public response — the whole point of
+// declining credit.
+func TestUpload_Authorship_UncreditedHasNoCreditedTo(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "b3b3b3b3b3b3b3b3", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"authorship": "uncredited",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+	created := decodeJSON[uploadResponse](t, resp)
+
+	getResp, err := http.Get(ts.URL + "/api/v1/subtitles/" + strconv.FormatInt(created.TrackID, 10))
+	if err != nil {
+		t.Fatalf("GET subtitle: %v", err)
+	}
+	defer func() { _ = getResp.Body.Close() }()
+	got := decodeJSON[getSubtitleResponse](t, getResp)
+	if got.Authorship != "uncredited" {
+		t.Errorf("Authorship = %q, want uncredited", got.Authorship)
+	}
+	if got.CreditedTo != "" {
+		t.Errorf("CreditedTo = %q, want empty (declined credit must never surface)", got.CreditedTo)
+	}
+}
+
+// A re-upload of identical bytes under a different authorship corrects the
+// existing row rather than creating a second track — the same rule kind
+// follows (kinds-intro.md: "kind never creates a duplicate"), applied to
+// authorship (migration 0026, WP-authorship).
+func TestUpload_Authorship_ReuploadCorrectsExisting(t *testing.T) {
+	ts, st, token := newTestServer(t)
+	first := doUpload(t, ts, token, map[string]any{
+		"oshash": "b4b4b4b4b4b4b4b4", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+	})
+	if first.StatusCode != http.StatusCreated {
+		t.Fatalf("first upload status = %d, want 201", first.StatusCode)
+	}
+	firstTrack := decodeJSON[uploadResponse](t, first)
+
+	second := doUpload(t, ts, token, map[string]any{
+		"oshash": "b4b4b4b4b4b4b4b4", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"authorship": "credited",
+	})
+	if second.StatusCode != http.StatusOK {
+		t.Fatalf("second upload status = %d, want 200", second.StatusCode)
+	}
+	secondTrack := decodeJSON[uploadResponse](t, second)
+	if !secondTrack.Duplicate {
+		t.Error("Duplicate = false, want true")
+	}
+	if secondTrack.TrackID != firstTrack.TrackID {
+		t.Fatalf("TrackID = %d, want %d (same track, not a new one)", secondTrack.TrackID, firstTrack.TrackID)
+	}
+
+	track, err := st.GetSubtitleTrack(context.Background(), firstTrack.TrackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if track.Authorship != "credited" {
+		t.Errorf("track.Authorship = %q, want credited (corrected by the re-upload)", track.Authorship)
+	}
+
+	// A THIRD upload that omits authorship must leave the corrected value
+	// alone, mirroring how an omitted kind never resets kind back to
+	// "default" on re-upload.
+	third := doUpload(t, ts, token, map[string]any{
+		"oshash": "b4b4b4b4b4b4b4b4", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+	})
+	if third.StatusCode != http.StatusOK {
+		t.Fatalf("third upload status = %d, want 200", third.StatusCode)
+	}
+	track, err = st.GetSubtitleTrack(context.Background(), firstTrack.TrackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack (after third upload): %v", err)
+	}
+	if track.Authorship != "credited" {
+		t.Errorf("track.Authorship = %q, want credited (an omitted authorship on re-upload must not reset it)", track.Authorship)
+	}
+}
+
+// A bare declaration (no provenance marker) is the only source of
+// "generated" for a plain subtitle, and it's labelled distinctly:
+// generated_source = "declared", never "provenance".
+func TestUpload_Generated_DeclaredSetsGeneratedSourceDeclared(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "b5b5b5b5b5b5b5b5", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"generated": true,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+	got := decodeJSON[uploadResponse](t, resp)
+	if !got.Generated {
+		t.Error("Generated = false, want true (declared)")
+	}
+	if got.GeneratedSource != "declared" {
+		t.Errorf("GeneratedSource = %q, want declared", got.GeneratedSource)
+	}
+}
+
+// Detection wins the label even when the uploader ALSO declares — the
+// provenance-backed badge is the stronger claim, so it must never be
+// downgraded to "declared" just because a checkbox was also checked.
+func TestUpload_Generated_ProvenanceWinsSourceEvenIfAlsoDeclared(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	markedSRT := "1\n00:00:01,000 --> 00:00:03,250\nHello there.\n\n" +
+		"2\n00:00:13,000 --> 00:00:16,000\n" +
+		"[stash-subs] machine-generated subtitles · large-v3-turbo · English · 2026-08-02\n\n"
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "b6b6b6b6b6b6b6b6", "duration_ms": 20000, "lang": "en", "body": markedSRT,
+		"generated": true,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+	got := decodeJSON[uploadResponse](t, resp)
+	if !got.Generated {
+		t.Error("Generated = false, want true")
+	}
+	if got.GeneratedSource != "provenance" {
+		t.Errorf("GeneratedSource = %q, want provenance (detection wins the label)", got.GeneratedSource)
+	}
+}
+
+// A later upload can DECLARE generated but never CLEAR it — matching
+// detection's own one-way "generated" flag. Re-upload #2 declares; #3
+// re-upload without declaring must not undo #2's declaration.
+func TestUpload_Generated_ReuploadDeclaresButNeverClears(t *testing.T) {
+	ts, st, token := newTestServer(t)
+	first := doUpload(t, ts, token, map[string]any{
+		"oshash": "b7b7b7b7b7b7b7b7", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+	})
+	if first.StatusCode != http.StatusCreated {
+		t.Fatalf("first upload status = %d, want 201", first.StatusCode)
+	}
+	firstTrack := decodeJSON[uploadResponse](t, first)
+	if firstTrack.Generated {
+		t.Fatal("first upload Generated = true, want false (no marker, no declaration)")
+	}
+
+	second := doUpload(t, ts, token, map[string]any{
+		"oshash": "b7b7b7b7b7b7b7b7", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"generated": true,
+	})
+	if second.StatusCode != http.StatusOK {
+		t.Fatalf("second upload status = %d, want 200", second.StatusCode)
+	}
+	secondTrack := decodeJSON[uploadResponse](t, second)
+	if !secondTrack.Generated || secondTrack.GeneratedSource != "declared" {
+		t.Errorf("second upload Generated/GeneratedSource = %v/%q, want true/declared", secondTrack.Generated, secondTrack.GeneratedSource)
+	}
+
+	track, err := st.GetSubtitleTrack(context.Background(), firstTrack.TrackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if !track.DeclaredGenerated {
+		t.Error("track.DeclaredGenerated = false, want true (set by the second upload)")
+	}
+
+	third := doUpload(t, ts, token, map[string]any{
+		"oshash": "b7b7b7b7b7b7b7b7", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+	})
+	if third.StatusCode != http.StatusOK {
+		t.Fatalf("third upload status = %d, want 200", third.StatusCode)
+	}
+	thirdTrack := decodeJSON[uploadResponse](t, third)
+	if !thirdTrack.Generated {
+		t.Error("third upload (no declaration) Generated = false, want true (never clearable)")
+	}
+
+	track, err = st.GetSubtitleTrack(context.Background(), firstTrack.TrackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack (after third upload): %v", err)
+	}
+	if !track.DeclaredGenerated {
+		t.Error("track.DeclaredGenerated = false after a plain re-upload, want true (never cleared)")
+	}
+}
+
+func TestLookup_Authorship_CreditedToAppearsOnTrackSummary(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "b8b8b8b8b8b8b8b8", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"authorship": "credited",
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+
+	lookupResp, err := http.Get(ts.URL + "/api/v1/lookup/oshash/b8b8b")
+	if err != nil {
+		t.Fatalf("GET lookup: %v", err)
+	}
+	defer func() { _ = lookupResp.Body.Close() }()
+	got := decodeJSON[[]lookupRelease](t, lookupResp)
+	if len(got) != 1 || len(got[0].Tracks) != 1 {
+		t.Fatalf("got = %+v, want 1 release with 1 track", got)
+	}
+	if got[0].Tracks[0].CreditedTo != "uploader" {
+		t.Errorf("Tracks[0].CreditedTo = %q, want %q", got[0].Tracks[0].CreditedTo, "uploader")
+	}
+}
+
+// A shared (default) track must never carry credited_to on the wire at
+// all — omitempty, not an empty string, same convention as title/studio.
+func TestLookup_Authorship_CreditedToOmittedForShared(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	resp := doUpload(t, ts, token, map[string]any{
+		"oshash": "b9b9b9b9b9b9b9b9", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", resp.StatusCode)
+	}
+
+	lookupResp, err := http.Get(ts.URL + "/api/v1/lookup/oshash/b9b9b")
+	if err != nil {
+		t.Fatalf("GET lookup: %v", err)
+	}
+	defer func() { _ = lookupResp.Body.Close() }()
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(lookupResp.Body); err != nil {
+		t.Fatalf("reading body: %v", err)
+	}
+	if strings.Contains(buf.String(), `"credited_to"`) {
+		t.Errorf("body = %s, want no credited_to key (omitempty)", buf.String())
 	}
 }

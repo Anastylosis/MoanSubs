@@ -258,6 +258,63 @@ func TestUploaderPage_ListsOnlyVisibleTracks(t *testing.T) {
 	}
 }
 
+// The /u page's CRITICAL invariant (migration 0026, WP-authorship): an
+// uncredited track must never appear here — that would leak exactly the
+// credit its uploader declined — while a shared track (the default, no
+// authorship claim) still does, since sharing a file is not the same act
+// as declining credit for authoring one.
+func TestUploaderPage_ExcludesUncredited_KeepsSharedAndCredited(t *testing.T) {
+	ts, _, token := newTestServer(t)
+
+	shared := doUpload(t, ts, token, map[string]any{
+		"oshash": "b000000000000040", "duration_ms": 60000, "lang": "en", "body": basicSRT,
+	})
+	defer func() { _ = shared.Body.Close() }()
+	if shared.StatusCode != http.StatusCreated {
+		t.Fatalf("shared upload status = %d, want 201", shared.StatusCode)
+	}
+	sharedResp := decodeJSON[uploadResponse](t, shared)
+
+	body2 := strings.Replace(basicSRT, "Hello there.", "Hello again.", 1)
+	credited := doUpload(t, ts, token, map[string]any{
+		"oshash": "b000000000000041", "duration_ms": 60000, "lang": "en", "body": body2,
+		"authorship": "credited",
+	})
+	defer func() { _ = credited.Body.Close() }()
+	if credited.StatusCode != http.StatusCreated {
+		t.Fatalf("credited upload status = %d, want 201", credited.StatusCode)
+	}
+	creditedResp := decodeJSON[uploadResponse](t, credited)
+
+	body3 := strings.Replace(basicSRT, "Hello there.", "Hello thrice.", 1)
+	uncredited := doUpload(t, ts, token, map[string]any{
+		"oshash": "b000000000000042", "duration_ms": 60000, "lang": "en", "body": body3,
+		"authorship": "uncredited",
+	})
+	defer func() { _ = uncredited.Body.Close() }()
+	if uncredited.StatusCode != http.StatusCreated {
+		t.Fatalf("uncredited upload status = %d, want 201", uncredited.StatusCode)
+	}
+	uncreditedResp := decodeJSON[uploadResponse](t, uncredited)
+
+	resp, page := getPage(t, ts.URL+"/u/uploader")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /u/uploader = %d, want 200", resp.StatusCode)
+	}
+	if !strings.Contains(page, "release/"+strconv.FormatInt(sharedResp.ReleaseID, 10)) {
+		t.Error("uploader page missing the shared track's release link")
+	}
+	if !strings.Contains(page, "release/"+strconv.FormatInt(creditedResp.ReleaseID, 10)) {
+		t.Error("uploader page missing the credited track's release link")
+	}
+	if strings.Contains(page, "release/"+strconv.FormatInt(uncreditedResp.ReleaseID, 10)) {
+		t.Error("uploader page shows an uncredited track — this leaks the credit its uploader declined")
+	}
+	if !strings.Contains(page, "2 subtitle") {
+		t.Errorf("uploader page upload count doesn't say 2 (shared + credited, not the uncredited one): %s", page)
+	}
+}
+
 func TestUploaderPage_UnknownNameIs404(t *testing.T) {
 	ts, _, _ := newTestServer(t)
 	resp, _ := getPage(t, ts.URL+"/u/nobody-by-this-name")

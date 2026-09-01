@@ -420,3 +420,87 @@ func TestUploadForm_ResultLinksToReleaseOnlyWithNameMetadata(t *testing.T) {
 		t.Error("result page does not link to the release page when a title was given")
 	}
 }
+
+// The website form's authorship radio group and "AI-generated" checkbox
+// (migration 0026, WP-authorship) round-trip through the exact same ingest
+// path the JSON API uses — posting "credited" + a checked "generated" box
+// must land on the stored track exactly like the JSON API's own fields do.
+func TestUploadForm_AuthorshipAndGeneratedRoundTrip(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+
+	fields := webUploadFields("d6d6d6d6d6d6d6d6")
+	fields["authorship"] = "credited"
+	fields["generated"] = "on"
+	resp := doWebUpload(t, ts, client, ts.URL, fields, basicSRT)
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("POST /upload = %d, want 201: %s", resp.StatusCode, body)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading body: %v", err)
+	}
+	if !strings.Contains(string(body), "Labelled AI-generated — you said so") {
+		t.Errorf("result page does not show the distinct declared-generated notice: %s", body)
+	}
+
+	account, err := st.GetAccountByName(context.Background(), "webuser")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+	tracks, err := st.TracksByAccount(context.Background(), account.ID)
+	if err != nil {
+		t.Fatalf("TracksByAccount: %v", err)
+	}
+	if len(tracks) != 1 {
+		t.Fatalf("TracksByAccount = %+v, want exactly 1 track", tracks)
+	}
+	track, err := st.GetSubtitleTrack(context.Background(), tracks[0].TrackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if track.Authorship != "credited" {
+		t.Errorf("track.Authorship = %q, want credited", track.Authorship)
+	}
+	if !track.DeclaredGenerated {
+		t.Error("track.DeclaredGenerated = false, want true (checkbox was checked)")
+	}
+	if track.Generated {
+		t.Error("track.Generated (detection) = true, want false — a declaration must never write the detected column")
+	}
+}
+
+// An unchecked "generated" checkbox (no field at all, browsers never send
+// one for an unchecked box) must leave declared_generated false, the same
+// zero-value the JSON API's omitted "generated" produces.
+func TestUploadForm_AuthorshipDefaultsToShared(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+
+	resp := doWebUpload(t, ts, client, ts.URL, webUploadFields("d7d7d7d7d7d7d7d7"), basicSRT)
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("POST /upload = %d, want 201: %s", resp.StatusCode, body)
+	}
+
+	account, err := st.GetAccountByName(context.Background(), "webuser")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+	tracks, err := st.TracksByAccount(context.Background(), account.ID)
+	if err != nil {
+		t.Fatalf("TracksByAccount: %v", err)
+	}
+	if len(tracks) != 1 {
+		t.Fatalf("TracksByAccount = %+v, want exactly 1 track", tracks)
+	}
+	track, err := st.GetSubtitleTrack(context.Background(), tracks[0].TrackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if track.Authorship != "shared" {
+		t.Errorf("track.Authorship = %q, want shared (no radio posted)", track.Authorship)
+	}
+	if track.DeclaredGenerated {
+		t.Error("track.DeclaredGenerated = true, want false (checkbox not posted)")
+	}
+}

@@ -4,7 +4,8 @@
 <div class="meta">
   <span>Release: <a href="/mod/release/{{.Detail.ReleaseID}}">#{{.Detail.ReleaseID}}</a></span>
   <span>Lang: <b>{{.Detail.Lang}}</b></span>
-  <span>{{if .Detail.Generated}}machine-generated{{else}}human{{end}}</span>
+  <span>{{if eq .Detail.GeneratedSource "declared"}}AI — declared by uploader{{else if .Detail.Generated}}machine-generated (detected){{else}}human{{end}}</span>
+  <span>Authorship: <b>{{.Detail.Authorship}}</b></span>
   <span>Uploader: {{if .Detail.UploaderName}}<a href="/u/{{.Detail.UploaderName}}">{{.Detail.UploaderName}}</a>{{else}}(none){{end}}</span>
   <span>Uploaded: {{.Detail.CreatedAt.Format "2006-01-02"}}</span>
   <span><span class="tally"><span class="up">▲{{.Detail.Up}}</span> <span class="down">▼{{.Detail.Down}}</span></span></span>

@@ -10,7 +10,7 @@
   {{range .Tracks}}
   <tr>
     <td><a href="/release/{{.ReleaseID}}">release #{{.ReleaseID}}</a></td>
-    <td><span class="tag{{if .Generated}} auto{{end}}">{{.Lang}}</span>{{if .Generated}} <span class="hint" style="display:inline">machine-generated</span>{{end}}</td>
+    <td><span class="tag{{if .Generated}} auto{{end}}">{{.Lang}}</span>{{if eq .GeneratedSource "declared"}} <span class="hint" style="display:inline" title="The uploader said so; nothing here confirms it, unlike marker-based detection.">AI — declared by uploader</span>{{else if .Generated}} <span class="hint" style="display:inline" title="Detected from the file's own embedded marker and structured tool/model metadata.">machine-generated</span>{{end}}</td>
     <td class="n">{{.Downloads}}</td>
   </tr>
   {{end}}

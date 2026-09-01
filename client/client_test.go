@@ -244,6 +244,80 @@ func TestUpload_KindRoundTrips(t *testing.T) {
 	}
 }
 
+// TestUpload_AuthorshipAndGeneratedRoundTrips covers UploadRequest's
+// Authorship and Generated fields (server migration 0026, WP-authorship):
+// "credited" round-trips as CreditedTo on both GetTrack and the lookup
+// track summary, and a declared (not detected) generated flag is labelled
+// "declared" rather than "provenance" — see the server's generatedSource
+// doc comment (internal/api/authorship.go) for why the two stay
+// distinguishable.
+func TestUpload_AuthorshipAndGeneratedRoundTrips(t *testing.T) {
+	c, s := newTestServer(t)
+	ctx := context.Background()
+
+	token := "authorship-token"
+	sum := sha256.Sum256([]byte(token))
+	if _, err := s.Pool().Exec(ctx,
+		`INSERT INTO accounts (name, token_hash) VALUES ('authorship-pusher', $1)`,
+		hex.EncodeToString(sum[:])); err != nil {
+		t.Fatal(err)
+	}
+	c.Token = token
+
+	req := UploadRequest{
+		OSHash:     "00000000deadbeee",
+		DurationMs: 60_000,
+		Lang:       "en",
+		Body:       "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+		Authorship: "credited",
+		Generated:  true,
+	}
+	res, err := c.Upload(ctx, req)
+	if err != nil {
+		t.Fatalf("Upload: %v", err)
+	}
+	if !res.Generated || res.GeneratedSource != "declared" {
+		t.Errorf("UploadResult Generated/GeneratedSource = %v/%q, want true/declared", res.Generated, res.GeneratedSource)
+	}
+
+	track, err := c.GetTrack(ctx, res.TrackID)
+	if err != nil {
+		t.Fatalf("GetTrack: %v", err)
+	}
+	if track.Authorship != "credited" || track.CreditedTo != "authorship-pusher" {
+		t.Errorf("GetTrack Authorship/CreditedTo = %q/%q, want credited/authorship-pusher", track.Authorship, track.CreditedTo)
+	}
+	if !track.Generated || track.GeneratedSource != "declared" {
+		t.Errorf("GetTrack Generated/GeneratedSource = %v/%q, want true/declared", track.Generated, track.GeneratedSource)
+	}
+
+	oh, err := hash.ParseOSHash(req.OSHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releases, err := c.LookupBuckets(ctx, oh, nil)
+	if err != nil {
+		t.Fatalf("LookupBuckets: %v", err)
+	}
+	found := false
+	for _, r := range releases {
+		for _, tr := range r.Tracks {
+			if tr.ID == res.TrackID {
+				found = true
+				if tr.CreditedTo != "authorship-pusher" {
+					t.Errorf("lookup track CreditedTo = %q, want authorship-pusher", tr.CreditedTo)
+				}
+				if tr.GeneratedSource != "declared" {
+					t.Errorf("lookup track GeneratedSource = %q, want declared", tr.GeneratedSource)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("uploaded track %d not found in LookupBuckets results", res.TrackID)
+	}
+}
+
 // TestLookupBuckets_TitleRoundTrips covers Release.Title (mirrors the
 // server's displayTitle rule): an uploader-supplied Title round-trips as
 // the curated title, and a release with only a Stem gets the cleaned-stem
@@ -651,7 +725,7 @@ func TestVersion_ParsesVersionAndFeatures(t *testing.T) {
 	if v.Version != "dev" {
 		t.Errorf("Version.Version = %q, want %q", v.Version, "dev")
 	}
-	want := map[string]bool{"lookup": true, "match": true, "withdraw": true, "stats": true, "srt": true, "votes": true, "stash_ids": true, "metadata": true, "kinds": true, "revisions": true, "titles": true, "trending": true, "fit": true, "credits": true}
+	want := map[string]bool{"lookup": true, "match": true, "withdraw": true, "stats": true, "srt": true, "votes": true, "stash_ids": true, "metadata": true, "kinds": true, "revisions": true, "titles": true, "trending": true, "fit": true, "credits": true, "authorship": true}
 	if len(v.Features) != len(want) {
 		t.Fatalf("Features = %v, want exactly %v", v.Features, want)
 	}

@@ -51,12 +51,18 @@ func New(baseURL, token string) *Client {
 
 // TrackSummary mirrors the lookup API's per-track shape.
 type TrackSummary struct {
-	ID            int64  `json:"id"`
-	Lang          string `json:"lang"`
-	Generated     bool   `json:"generated"`
-	License       string `json:"license"`
-	HasProvenance bool   `json:"has_provenance"`
-	CreatedAt     string `json:"created_at"`
+	ID   int64  `json:"id"`
+	Lang string `json:"lang"`
+	// Generated is detection OR declaration (server migration 0026).
+	// GeneratedSource distinguishes marker detection ("provenance",
+	// structured tool/model metadata behind it) from a bare uploader
+	// declaration ("declared") — omitted, alongside Generated staying
+	// false, on a server predating either signal.
+	Generated       bool   `json:"generated"`
+	GeneratedSource string `json:"generated_source,omitempty"`
+	License         string `json:"license"`
+	HasProvenance   bool   `json:"has_provenance"`
+	CreatedAt       string `json:"created_at"`
 	// Downloads/Up/Down are migration 0006/0008's counters (WP-A2/WP-C3),
 	// present on every track summary in lookup responses — this is what
 	// lets the plugin panel show a candidate's tallies without a second
@@ -72,6 +78,10 @@ type TrackSummary struct {
 	Fits         int  `json:"fits"`
 	Misfits      int  `json:"misfits"`
 	SyncVerified bool `json:"sync_verified"`
+	// CreditedTo is the uploader's account name, present only when the
+	// track's authorship (server migration 0026) is "credited". Empty on a
+	// server predating the field, same as any other additive field here.
+	CreditedTo string `json:"credited_to,omitempty"`
 }
 
 // StashID is one stash-box scene identity (migration 0011, WP-C9a) — sent
@@ -116,13 +126,15 @@ type Release struct {
 // checked" are different things, and showing the second as the first would
 // promise a fit that was never verified.
 type Sibling struct {
-	ID         int64   `json:"id"`
-	ReleaseID  int64   `json:"release_id"`
-	Lang       string  `json:"lang"`
-	Generated  bool    `json:"generated"`
-	Downloads  int64   `json:"downloads"`
-	OffsetMs   *int64  `json:"offset_ms"`
-	OffsetFrom *string `json:"offset_source,omitempty"`
+	ID        int64  `json:"id"`
+	ReleaseID int64  `json:"release_id"`
+	Lang      string `json:"lang"`
+	// Generated/GeneratedSource: same contract as TrackSummary above.
+	Generated       bool    `json:"generated"`
+	GeneratedSource string  `json:"generated_source,omitempty"`
+	Downloads       int64   `json:"downloads"`
+	OffsetMs        *int64  `json:"offset_ms"`
+	OffsetFrom      *string `json:"offset_source,omitempty"`
 	// Fits/Misfits/SyncVerified are migration 0025's standing fit reports
 	// against this pairing — present on any server that has the "fit"
 	// feature (GET /api/v1/version), zero-valued and safely ignorable on
@@ -136,16 +148,19 @@ type Sibling struct {
 type Track struct {
 	// OffsetMs is the shift the server applied because this was fetched
 	// for another release; 0 when none was.
-	OffsetMs   int64           `json:"offset_ms"`
-	OffsetFrom string          `json:"offset_source"`
-	ID         int64           `json:"id"`
-	ReleaseID  int64           `json:"release_id"`
-	Lang       string          `json:"lang"`
-	Body       string          `json:"body"`
-	Generated  bool            `json:"generated"`
-	License    string          `json:"license"`
-	Source     *string         `json:"source"`
-	Provenance json.RawMessage `json:"provenance"`
+	OffsetMs   int64  `json:"offset_ms"`
+	OffsetFrom string `json:"offset_source"`
+	ID         int64  `json:"id"`
+	ReleaseID  int64  `json:"release_id"`
+	Lang       string `json:"lang"`
+	Body       string `json:"body"`
+	// Generated/GeneratedSource: same OR-and-distinguish contract as
+	// TrackSummary above.
+	Generated       bool            `json:"generated"`
+	GeneratedSource string          `json:"generated_source,omitempty"`
+	License         string          `json:"license"`
+	Source          *string         `json:"source"`
+	Provenance      json.RawMessage `json:"provenance"`
 	// Downloads/Up/Down mirror TrackSummary's counters — API.md documents
 	// them on this response too, but note that fetching this endpoint
 	// itself increments Downloads by one (API.md "Every successful (200)
@@ -156,6 +171,11 @@ type Track struct {
 	Down      int     `json:"down"`
 	Kind      string  `json:"kind"`
 	KindLabel *string `json:"kind_label,omitempty"`
+	// Authorship/CreditedTo: same contract as TrackSummary above. Authorship
+	// is always present on a server that has the field (like Kind above),
+	// defaulting to "shared".
+	Authorship string `json:"authorship"`
+	CreditedTo string `json:"credited_to,omitempty"`
 }
 
 type batchRequest struct {
@@ -501,13 +521,26 @@ type UploadRequest struct {
 	// Omitempty: a server without the kinds feature must see no field at all.
 	Kind      string `json:"kind,omitempty"`
 	KindLabel string `json:"kind_label,omitempty"`
+
+	// Authorship (server migration 0026, feature "authorship"): omitempty
+	// for the same reason as Kind above — a server predating the feature
+	// must see no field at all, not an explicit "shared".
+	Authorship string `json:"authorship,omitempty"`
+	// Generated is this upload's own voluntary AI-generated declaration.
+	// Omitempty because only true is ever meaningful (server-side OR, never
+	// clearable) — sending false is indistinguishable from not sending the
+	// field at all, so there is no reason to.
+	Generated bool `json:"generated,omitempty"`
 }
 
 // UploadResult mirrors the server's upload response.
 type UploadResult struct {
 	TrackID   int64 `json:"track_id"`
 	ReleaseID int64 `json:"release_id"`
-	Generated bool  `json:"generated"`
+	// Generated/GeneratedSource: same OR-and-distinguish contract as
+	// TrackSummary above.
+	Generated       bool   `json:"generated"`
+	GeneratedSource string `json:"generated_source,omitempty"`
 	// Duplicate means a byte-identical track already existed server-side —
 	// the normal outcome when a push task is re-run.
 	Duplicate bool `json:"duplicate"`

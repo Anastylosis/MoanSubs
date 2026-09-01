@@ -44,6 +44,12 @@ type uploadFormValues struct {
 	// Kind/KindLabel: WP-K1, plumbed for WP-K2's <select>.
 	Kind      string
 	KindLabel string
+	// Authorship/Generated: migration 0026 (WP-authorship), plumbed for
+	// upload.html's radio group and checkbox. Generated arrives as a form
+	// checkbox value ("on"/"") rather than a bool, like every other
+	// checked/unchecked field this form carries.
+	Authorship string
+	Generated  string
 	// Supersedes: migration 0024 (WP-R3), a track id. Empty means today's
 	// plain-upload behaviour; WP-R4's "suggest a fix" link is what actually
 	// pre-fills this.
@@ -80,7 +86,10 @@ type uploadResultData struct {
 	TrackID   int64
 	ReleaseID int64
 	Generated bool
-	Duplicate bool
+	// GeneratedSource distinguishes marker detection from a bare
+	// declaration — see authorship.go's generatedSource doc comment.
+	GeneratedSource string
+	Duplicate       bool
 	// HasReleasePage gates the "view this release" link: store.
 	// CatalogueRelease 404s a release with no name metadata at all, so
 	// linking to one when the uploader gave neither a title nor a stem
@@ -215,11 +224,12 @@ func (s *Server) handleUploadSubmit(w http.ResponseWriter, r *http.Request) {
 		AllowOtherStashEndpoint: allowOther,
 		DetectedKind:            "",
 		Result: &uploadResultData{
-			TrackID:        resp.TrackID,
-			ReleaseID:      resp.ReleaseID,
-			Generated:      resp.Generated,
-			Duplicate:      resp.Duplicate,
-			HasReleasePage: strings.TrimSpace(values.Title) != "" || strings.TrimSpace(values.Stem) != "",
+			TrackID:         resp.TrackID,
+			ReleaseID:       resp.ReleaseID,
+			Generated:       resp.Generated,
+			GeneratedSource: resp.GeneratedSource,
+			Duplicate:       resp.Duplicate,
+			HasReleasePage:  strings.TrimSpace(values.Title) != "" || strings.TrimSpace(values.Stem) != "",
 		},
 	}, false)
 }
@@ -262,6 +272,8 @@ func formValuesFromRequest(r *http.Request) uploadFormValues {
 		StashEndpointOther: r.PostFormValue("stash_endpoint_other"),
 		Kind:               r.PostFormValue("kind"),
 		KindLabel:          r.PostFormValue("kind_label"),
+		Authorship:         r.PostFormValue("authorship"),
+		Generated:          r.PostFormValue("generated"),
 		Supersedes:         r.PostFormValue("supersedes"),
 	}
 }
@@ -329,6 +341,11 @@ func uploadRequestFromForm(r *http.Request, body string) (uploadRequest, *apiErr
 		StashIDs:   stashIDs,
 		Kind:       strings.TrimSpace(r.PostFormValue("kind")),
 		KindLabel:  r.PostFormValue("kind_label"),
+		Authorship: strings.TrimSpace(r.PostFormValue("authorship")),
+		// generated is a plain checkbox: any non-empty value means checked,
+		// matching how a browser encodes an <input type="checkbox"> — no
+		// value at all when unchecked.
+		Generated:  r.PostFormValue("generated") != "",
 		Supersedes: supersedes,
 	}, nil
 }

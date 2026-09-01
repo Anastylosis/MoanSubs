@@ -372,6 +372,23 @@ func (s *Store) GetAccountByName(ctx context.Context, name string) (*Account, er
 	return &a, nil
 }
 
+// AccountNameByID returns id's account name, or ErrNotFound. The single-name
+// counterpart to GetAccountByName's single-account lookup — used where a
+// caller already has an uploader_id and needs only the display name (e.g.
+// GET /api/v1/subtitles/{id}'s credited_to, migration 0026), not the
+// account's other fields.
+func (s *Store) AccountNameByID(ctx context.Context, id int64) (string, error) {
+	var name string
+	err := s.pool.QueryRow(ctx, `SELECT name FROM accounts WHERE id = $1`, id).Scan(&name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("store: AccountNameByID: %w", err)
+	}
+	return name, nil
+}
+
 // HashToken returns the SHA-256 hex digest of an API token — the only form
 // ever persisted or looked up against accounts.token_hash. Exported so the
 // API layer's auth middleware and this package's own CreateAccount hash a

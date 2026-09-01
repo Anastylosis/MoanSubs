@@ -563,6 +563,196 @@ func TestStore_GetTrackDetail_CarriesKind(t *testing.T) {
 	}
 }
 
+// -- Authorship / declared_generated (migration 0026, WP-authorship) -----
+
+// An empty Authorship on insert must default to "shared", the same
+// convention CreateSubtitleTrack already applies to Kind and License.
+func TestStore_CreateSubtitleTrack_AuthorshipDefaultsToShared(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7676767676767676"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	got, err := s.GetSubtitleTrack(ctx, id)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if got.Authorship != "shared" {
+		t.Errorf("got.Authorship = %q, want shared", got.Authorship)
+	}
+	if got.DeclaredGenerated {
+		t.Error("got.DeclaredGenerated = true, want false (default)")
+	}
+}
+
+func TestStore_CreateSubtitleTrack_AuthorshipAndDeclaredGeneratedStored(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7777777777777771"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+		Authorship: "credited", DeclaredGenerated: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	got, err := s.GetSubtitleTrack(ctx, id)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if got.Authorship != "credited" {
+		t.Errorf("got.Authorship = %q, want credited", got.Authorship)
+	}
+	if !got.DeclaredGenerated {
+		t.Error("got.DeclaredGenerated = false, want true")
+	}
+	// Generated (detection) is a separate column and must stay untouched by
+	// a declaration — the whole point of keeping the two apart.
+	if got.Generated {
+		t.Error("got.Generated = true, want false (declaration must not touch the detected column)")
+	}
+}
+
+// The migration's CHECK constraint is the last line of defense against a
+// bad authorship value reaching the database, independent of the API
+// layer's own validation.
+func TestStore_SubtitleTracksAuthorshipCheckConstraint(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7878787878787878"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	_, err = s.pool.Exec(ctx, `INSERT INTO subtitle_tracks (release_id, lang, body, authorship) VALUES ($1, 'en', 'x', 'anonymous')`, releaseID)
+	if err == nil {
+		t.Error("insert with authorship = 'anonymous' succeeded, want the authorship CHECK to reject it")
+	}
+}
+
+func TestStore_UpdateSubtitleTrackAuthorship(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7979797979797979"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	if err := s.UpdateSubtitleTrackAuthorship(ctx, id, "uncredited", true); err != nil {
+		t.Fatalf("UpdateSubtitleTrackAuthorship: %v", err)
+	}
+
+	got, err := s.GetSubtitleTrack(ctx, id)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if got.Authorship != "uncredited" {
+		t.Errorf("got.Authorship = %q, want uncredited", got.Authorship)
+	}
+	if !got.DeclaredGenerated {
+		t.Error("got.DeclaredGenerated = false, want true")
+	}
+	// Nothing else should have moved.
+	if got.Lang != "en" || got.Body == "" {
+		t.Errorf("UpdateSubtitleTrackAuthorship changed more than authorship/declared_generated: got %+v", got)
+	}
+}
+
+func TestStore_UpdateSubtitleTrackAuthorship_NotFound(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if err := s.UpdateSubtitleTrackAuthorship(ctx, 999999, "credited", false); !errors.Is(err, ErrNotFound) {
+		t.Errorf("UpdateSubtitleTrackAuthorship(999999): got %v, want ErrNotFound", err)
+	}
+}
+
+// TrackSummariesByReleaseIDs and GetTrackDetail must both carry Authorship/
+// DeclaredGenerated through — the lookup endpoints and /mod/track/{id} both
+// read through them.
+func TestStore_TrackSummariesByReleaseIDs_CarriesAuthorship(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7a7a7a7a7a7a7a7a"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	accountID, _, err := s.CreateAccount(ctx, "credited-uploader")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+		Authorship: "credited", DeclaredGenerated: true, UploaderID: &accountID,
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	got, err := s.TrackSummariesByReleaseIDs(ctx, []int64{releaseID})
+	if err != nil {
+		t.Fatalf("TrackSummariesByReleaseIDs: %v", err)
+	}
+	if len(got[releaseID]) != 1 || got[releaseID][0].ID != id {
+		t.Fatalf("got[releaseID] = %+v, want exactly track %d", got[releaseID], id)
+	}
+	summary := got[releaseID][0]
+	if summary.Authorship != "credited" || !summary.DeclaredGenerated {
+		t.Errorf("summary Authorship/DeclaredGenerated = %q/%v, want credited/true", summary.Authorship, summary.DeclaredGenerated)
+	}
+	if summary.UploaderName == nil || *summary.UploaderName != "credited-uploader" {
+		t.Errorf("summary.UploaderName = %v, want credited-uploader", summary.UploaderName)
+	}
+}
+
+func TestStore_GetTrackDetail_CarriesAuthorship(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7b7b7b7b7b7b7b7b"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+		Authorship: "uncredited", DeclaredGenerated: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	detail, err := s.GetTrackDetail(ctx, id)
+	if err != nil {
+		t.Fatalf("GetTrackDetail: %v", err)
+	}
+	if detail.Authorship != "uncredited" || !detail.DeclaredGenerated {
+		t.Errorf("detail Authorship/DeclaredGenerated = %q/%v, want uncredited/true", detail.Authorship, detail.DeclaredGenerated)
+	}
+}
+
 // -- Revision chains (migration 0024, WP-R1) -----------------------------
 
 func revBody(word string) string {

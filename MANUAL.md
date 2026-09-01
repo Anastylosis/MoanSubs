@@ -187,10 +187,13 @@ track's language tag plus a kind badge when the kind is not `default`
 — `cc`, `sdh`, `forced`, or the custom label for `other` — a logged-in
 visitor also gets up/down-vote forms per track, `POST /release/{id}/vote`,
 the same validation and rules as the API's `PUT`/`DELETE
-/api/v1/subtitles/{id}/vote`), and `/u/{name}` (an uploader's credited
+/api/v1/subtitles/{id}/vote`), and `/u/{name}` (an uploader's visible
 contributions, keyset-paginated exactly like `/browse` — 50 tracks at a
 time with an "older" link, rather than a heavy uploader's whole history in
-one page). `/login` (name + password only — there is no token-login
+one page — a track whose authorship is `uncredited` (migration 0026) never
+appears here at all, on any page, since that's exactly the credit its
+uploader declined; a `shared` track, not itself a claim of authorship,
+still does). `/login` (name + password only — there is no token-login
 form; an account with no password set, e.g. created purely via
 `POST /api/v1/accounts`, can't log in here until an admin runs
 `moansubs account set-password`) and `/me`
@@ -250,6 +253,16 @@ it detects bracketed sound cues like "(door slams)", musical-note glyphs,
 or all-caps speaker labels: a suggestion you can accept or override. The
 form explains the difference between CC and SDH since they're routinely
 conflated.
+"Authorship" (migration 0026) carries a three-way `authorship` radio group
+— "I'm sharing a file I found" (`shared`, the default), "I made this —
+credit me" (`credited`), "I made this — don't credit me" (`uncredited`) —
+and a "This subtitle is AI-generated" `generated` checkbox. Checking it can
+only ADD the AI-generated label the server already computes from the
+tool-marker detection it runs on every upload; it can never remove one, and
+leaving it unchecked never clears a label detection already set on a
+previous upload of the same track. `uncredited` records who made it for
+moderators, but that name never appears on any public page, including the
+uploader's own `/u/{name}`.
 "About the scene" also carries a `stash_id` text field and a
 `stash_endpoint` select — migration 0011's stash-box scene id, one
 per submission (the JSON API accepts up to 5; the form is for a person
@@ -705,7 +718,9 @@ buttons.
   There is no "Dismiss" on this table: it is derived straight from votes,
   so a withdrawn track simply stops qualifying and drops off it on its own.
 - `/mod/track/{id}` — one track's full detail (uploader, language,
-  generated flag, vote tally, withdrawn state) plus every vote cast on it
+  generated flag — labelled "detected" vs. "AI — declared by uploader" when
+  it's only a declaration, migration 0026 — authorship, vote tally,
+  withdrawn state) plus every vote cast on it
   with its reason/note/voter (`VotesForTrack`, the same data `track show`
   prints), a preview of its first 20 cues, and a Withdraw or Restore button
   depending on its current state. Also carries a kind-correction form

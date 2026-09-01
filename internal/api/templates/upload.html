@@ -1,7 +1,8 @@
 {{define "upload.html"}}
 {{if .Result}}
   <h1>{{if .Result.Duplicate}}Already in the catalogue{{else}}Uploaded{{end}}</h1>
-  {{if .Result.Generated}}<div class="notice">Detected as machine-generated, so it's labelled that way automatically — regardless of how it was described.</div>{{end}}
+  {{if eq .Result.GeneratedSource "declared"}}<div class="notice">Labelled AI-generated — you said so; nothing here confirms it, unlike the tool-marker detection below.</div>
+  {{else if .Result.Generated}}<div class="notice">Detected as machine-generated, so it's labelled that way automatically — regardless of how it was described.</div>{{end}}
   {{if .Result.Duplicate}}<p class="prose">A byte-identical subtitle already existed for this release and language, so nothing new was stored — the existing track is yours to point at.</p>{{end}}
   <div class="stats">
     <div><strong>#{{.Result.TrackID}}</strong>track</div>
@@ -89,7 +90,17 @@
       </div>
     </div>
 
-    <h3>5. About the scene <span class="hint" style="display:inline;font-weight:400">optional, but this is what makes it browsable</span></h3>
+    <h3>5. Authorship</h3>
+    <div class="stack">
+      <label><input type="radio" name="authorship" value="shared"{{if or (eq .Values.Authorship "") (eq .Values.Authorship "shared")}} checked{{end}}> I'm sharing a file I found</label>
+      <label><input type="radio" name="authorship" value="credited"{{if eq .Values.Authorship "credited"}} checked{{end}}> I made this — credit me</label>
+      <label><input type="radio" name="authorship" value="uncredited"{{if eq .Values.Authorship "uncredited"}} checked{{end}}> I made this — don't credit me</label>
+      <p class="hint" style="margin:0">"Credit me" shows your account name on this release's page and in lookups. "Don't credit me" still records that you made it (moderators can see it) but never shows it anywhere public, including your own /u page.</p>
+      <label><input type="checkbox" name="generated" value="on"{{if eq .Values.Generated "on"}} checked{{end}}> This subtitle is AI-generated</label>
+      <p class="hint" style="margin:0">Only checking this matters — it can add the AI-generated label but never remove one the server already detected on its own from the file itself.</p>
+    </div>
+
+    <h3>6. About the scene <span class="hint" style="display:inline;font-weight:400">optional, but this is what makes it browsable</span></h3>
     <p class="hint" style="margin:0">Without a title or filename the subtitle is still found by fingerprint from Stash, but it has no catalogue page. These only take effect the first time a release is seen.</p>
     <div class="two">
       <div>

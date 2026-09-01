@@ -259,3 +259,60 @@ func TestStore_VisibleTracksByAccount_ExcludesWithdrawn(t *testing.T) {
 		t.Fatalf("VisibleTracksByAccount = %+v, want exactly [%d]", got, visibleID)
 	}
 }
+
+// An uncredited track (migration 0026, WP-authorship) must never appear on
+// the public /u/{name} page — that would leak exactly the credit its
+// uploader declined. A shared track (the default, not an authorship claim)
+// keeps appearing, same as today.
+func TestStore_VisibleTracksByAccount_ExcludesUncredited(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	accountID, _, err := s.CreateAccount(ctx, "authorship-uploader")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	release, err := s.GetOrCreateRelease(ctx, Release{OSHash: mustOSHash(t, "1000000000000072"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("GetOrCreateRelease: %v", err)
+	}
+
+	sharedID, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: release.ID, Lang: "en", Body: "shared", UploaderID: &accountID, Authorship: "shared",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack (shared): %v", err)
+	}
+	creditedID, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: release.ID, Lang: "fr", Body: "credited", UploaderID: &accountID, Authorship: "credited",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack (credited): %v", err)
+	}
+	if _, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: release.ID, Lang: "de", Body: "uncredited", UploaderID: &accountID, Authorship: "uncredited",
+	}); err != nil {
+		t.Fatalf("CreateSubtitleTrack (uncredited): %v", err)
+	}
+
+	got, err := s.VisibleTracksByAccount(ctx, accountID, 0)
+	if err != nil {
+		t.Fatalf("VisibleTracksByAccount: %v", err)
+	}
+	gotIDs := map[int64]bool{}
+	for _, t := range got {
+		gotIDs[t.ID] = true
+	}
+	if len(got) != 2 || !gotIDs[sharedID] || !gotIDs[creditedID] {
+		t.Fatalf("VisibleTracksByAccount = %+v, want exactly [%d %d] (shared and credited, not uncredited)", got, sharedID, creditedID)
+	}
+
+	count, err := s.VisibleTrackCountByAccount(ctx, accountID)
+	if err != nil {
+		t.Fatalf("VisibleTrackCountByAccount: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("VisibleTrackCountByAccount = %d, want 2 (matching what the page actually lists)", count)
+	}
+}

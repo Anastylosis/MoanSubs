@@ -328,10 +328,15 @@ func (s *Server) handleModRemovalDismiss(w http.ResponseWriter, r *http.Request)
 // modTrackDetailView is TrackDetail with its optional fields resolved to
 // plain strings/bools, the same reasoning as modFlaggedRow above.
 type modTrackDetailView struct {
-	ID              int64
-	ReleaseID       int64
-	Lang            string
-	Generated       bool
+	ID        int64
+	ReleaseID int64
+	Lang      string
+	Generated bool
+	// GeneratedSource distinguishes marker detection from a bare uploader
+	// declaration — see authorship.go's generatedSource doc comment. A
+	// moderator gets the full picture regardless of the uploader's own
+	// public-credit choice, unlike the public pages.
+	GeneratedSource string
 	UploaderName    string
 	CreatedAt       time.Time
 	Withdrawn       bool
@@ -340,13 +345,18 @@ type modTrackDetailView struct {
 	// Kind/KindLabel: migration 0021 (WP-K1), correctable below.
 	Kind      string
 	KindLabel string
+	// Authorship: migration 0026 (WP-authorship) — shown, not correctable
+	// here (unlike Kind); mods already see UploaderName regardless of it.
+	Authorship string
 }
 
 func newModTrackDetailView(d *store.TrackDetail) modTrackDetailView {
 	v := modTrackDetailView{
-		ID: d.ID, ReleaseID: d.ReleaseID, Lang: d.Lang, Generated: d.Generated,
-		CreatedAt: d.CreatedAt, Up: d.Up, Down: d.Down, Withdrawn: d.WithdrawnAt != nil,
-		Kind: d.Kind,
+		ID: d.ID, ReleaseID: d.ReleaseID, Lang: d.Lang,
+		Generated:       d.Generated || d.DeclaredGenerated,
+		GeneratedSource: generatedSource(d.Generated, d.DeclaredGenerated),
+		CreatedAt:       d.CreatedAt, Up: d.Up, Down: d.Down, Withdrawn: d.WithdrawnAt != nil,
+		Kind: d.Kind, Authorship: d.Authorship,
 	}
 	if d.UploaderName != nil {
 		v.UploaderName = *d.UploaderName

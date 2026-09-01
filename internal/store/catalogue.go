@@ -157,6 +157,9 @@ type AccountTrackSummary struct {
 	Generated bool
 	Downloads int64
 	CreatedAt time.Time
+	// DeclaredGenerated: migration 0026 (WP-authorship), OR'd into Generated
+	// by the caller for display — see SubtitleTrackSummary's own comment.
+	DeclaredGenerated bool
 }
 
 // VisibleTracksByAccount returns up to CatalogueBrowsePageSize tracks
@@ -172,7 +175,11 @@ type AccountTrackSummary struct {
 // every track they had ever made in one response — a multi-MB page per
 // anonymous hit for a seed account with tens of thousands of uploads.
 func (s *Store) VisibleTracksByAccount(ctx context.Context, accountID, afterID int64) ([]AccountTrackSummary, error) {
-	conds := []string{`t.uploader_id = $1`, trackIsHead("t"), `r.withdrawn_at IS NULL`}
+	// authorship <> 'uncredited' (migration 0026, WP-authorship): this is
+	// the public /u/{name} page. An uncredited track must not appear here
+	// — that's exactly the credit its uploader declined — while a shared
+	// one still does, since sharing a file is not an authorship claim.
+	conds := []string{`t.uploader_id = $1`, trackIsHead("t"), `r.withdrawn_at IS NULL`, `t.authorship <> 'uncredited'`}
 	args := []any{accountID}
 
 	if afterID > 0 {
@@ -182,7 +189,7 @@ func (s *Store) VisibleTracksByAccount(ctx context.Context, accountID, afterID i
 
 	args = append(args, CatalogueBrowsePageSize)
 	query := `
-		SELECT t.id, t.release_id, t.lang, t.generated, t.downloads, t.created_at
+		SELECT t.id, t.release_id, t.lang, t.generated, t.downloads, t.created_at, t.declared_generated
 		FROM subtitle_tracks t
 		JOIN releases r ON r.id = t.release_id
 		WHERE ` + strings.Join(conds, " AND ") + `
@@ -198,7 +205,7 @@ func (s *Store) VisibleTracksByAccount(ctx context.Context, accountID, afterID i
 	var out []AccountTrackSummary
 	for rows.Next() {
 		var t AccountTrackSummary
-		if err := rows.Scan(&t.ID, &t.ReleaseID, &t.Lang, &t.Generated, &t.Downloads, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.ReleaseID, &t.Lang, &t.Generated, &t.Downloads, &t.CreatedAt, &t.DeclaredGenerated); err != nil {
 			return nil, fmt.Errorf("store: VisibleTracksByAccount: scanning: %w", err)
 		}
 		out = append(out, t)
@@ -216,11 +223,14 @@ func (s *Store) VisibleTracksByAccount(ctx context.Context, accountID, afterID i
 // every row just to count them.
 func (s *Store) VisibleTrackCountByAccount(ctx context.Context, accountID int64) (int, error) {
 	var n int
+	// authorship <> 'uncredited': matches VisibleTracksByAccount's own
+	// filter above, or "N subtitles contributed" would count a track the
+	// page then doesn't list.
 	err := s.pool.QueryRow(ctx, `
 		SELECT COUNT(*)
 		FROM subtitle_tracks t
 		JOIN releases r ON r.id = t.release_id
-		WHERE t.uploader_id = $1 AND `+trackIsHead("t")+` AND r.withdrawn_at IS NULL`, accountID).Scan(&n)
+		WHERE t.uploader_id = $1 AND `+trackIsHead("t")+` AND r.withdrawn_at IS NULL AND t.authorship <> 'uncredited'`, accountID).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("store: VisibleTrackCountByAccount: %w", err)
 	}

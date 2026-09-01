@@ -21,16 +21,26 @@ import (
 // catalogueTrack is one visible track as shown on a catalogue page (browse,
 // search, release) — badge-worthy fields only, no body.
 type catalogueTrack struct {
-	ID        int64
-	Lang      string
-	Generated bool
-	Downloads int64
+	ID   int64
+	Lang string
+	// Generated/GeneratedSource: migration 0026 (WP-authorship). Generated
+	// is detection OR declaration; GeneratedSource ("provenance"/"declared"/
+	// "") is what lets the template show a visibly distinct label for a
+	// bare declaration instead of the marker-backed badge — see
+	// authorship.go's generatedSource doc comment.
+	Generated       bool
+	GeneratedSource string
+	Downloads       int64
 	// Up/Down are migration 0008's vote counts (WP-C3), shown on the
 	// release page next to each track.
 	Up        int
 	Down      int
 	Kind      string
 	KindLabel *string
+	// CreditedTo: migration 0026 (WP-authorship), "" unless the track's
+	// authorship is "credited" — see authorship.go's creditedTo doc
+	// comment. Rendered as "by <name>" on the release page.
+	CreditedTo string
 	// IsOwn and MyVote are the release page's per-track viewer state
 	// (WP-C5): populated only by renderReleasePage, for a logged-in
 	// viewer, after buildCatalogueRelease returns — browse and search
@@ -329,9 +339,12 @@ func buildCatalogueRelease(r store.Release, tracks []store.SubtitleTrackSummary,
 	out.Tracks = make([]catalogueTrack, 0, len(tracks))
 	for _, t := range tracks {
 		out.Tracks = append(out.Tracks, catalogueTrack{
-			ID: t.ID, Lang: t.Lang, Generated: t.Generated, Downloads: t.Downloads,
-			Up: t.Up, Down: t.Down,
+			ID: t.ID, Lang: t.Lang,
+			Generated: t.Generated || t.DeclaredGenerated, GeneratedSource: generatedSource(t.Generated, t.DeclaredGenerated),
+			Downloads: t.Downloads,
+			Up:        t.Up, Down: t.Down,
 			Kind: t.Kind, KindLabel: t.KindLabel,
+			CreditedTo: creditedTo(t.Authorship, t.UploaderName),
 		})
 	}
 	return out
@@ -689,14 +702,17 @@ type proposalForm struct {
 // absence ("sync unknown"), and zero are different claims, and presenting
 // an unknown as zero would imply a fit nobody has checked.
 type siblingTrackView struct {
-	TrackID    int64
-	ReleaseID  int64
-	Lang       string
-	Generated  bool
-	Downloads  int64
-	SyncKnown  bool
-	OffsetText string // e.g. "+3.08s", only meaningful when SyncKnown
-	SourceText string // manual / duration-delta / measured
+	TrackID   int64
+	ReleaseID int64
+	Lang      string
+	// Generated/GeneratedSource: same OR-and-distinguish contract as
+	// catalogueTrack above.
+	Generated       bool
+	GeneratedSource string
+	Downloads       int64
+	SyncKnown       bool
+	OffsetText      string // e.g. "+3.08s", only meaningful when SyncKnown
+	SourceText      string // manual / duration-delta / measured
 	// Misfits is migration 0025's standing "didn't fit" report count on
 	// this pairing — surfaced only on the mod page (mod_release.html),
 	// never the public release page, mirroring how votes never show
@@ -947,8 +963,14 @@ type uploaderTrack struct {
 	ID        int64
 	ReleaseID int64
 	Lang      string
-	Generated bool
-	Downloads int64
+	// Generated/GeneratedSource: same OR-and-distinguish contract as
+	// catalogueTrack above. An uncredited track never reaches this page at
+	// all (store.VisibleTracksByAccount already filters it out), so there
+	// is no CreditedTo field here to leak — the page's own subject already
+	// is the credited name.
+	Generated       bool
+	GeneratedSource string
+	Downloads       int64
 }
 
 // uploaderPageData is /u/{name}'s template data.
@@ -975,6 +997,14 @@ type uploaderPageData struct {
 // page, same after= cursor and "older" link): a seed account with tens of
 // thousands of uploads used to make this page every visitor's whole
 // history in one response, a multi-MB reply to an anonymous hit.
+//
+// CRITICAL (migration 0026, WP-authorship): store.VisibleTracksByAccount
+// already excludes every track this account marked "uncredited" — this is
+// the ONE page an uncredited uploader's name and their track are both
+// present in the database at once, so surfacing that track here would leak
+// exactly the credit they declined to take. A "shared" track (the default,
+// no authorship claim either way) still appears — sharing a file someone
+// else made is not the same act as declining credit for one you made.
 func (s *Server) handleUploaderPage(w http.ResponseWriter, r *http.Request) {
 	s.setCatalogueRobots(w)
 
@@ -1023,7 +1053,9 @@ func (s *Server) handleUploaderPage(w http.ResponseWriter, r *http.Request) {
 	rendered := make([]uploaderTrack, 0, len(tracks))
 	for _, t := range tracks {
 		rendered = append(rendered, uploaderTrack{
-			ID: t.ID, ReleaseID: t.ReleaseID, Lang: t.Lang, Generated: t.Generated, Downloads: t.Downloads,
+			ID: t.ID, ReleaseID: t.ReleaseID, Lang: t.Lang,
+			Generated: t.Generated || t.DeclaredGenerated, GeneratedSource: generatedSource(t.Generated, t.DeclaredGenerated),
+			Downloads: t.Downloads,
 		})
 	}
 
@@ -1054,8 +1086,9 @@ func (s *Server) siblingViews(ctx context.Context, releaseID int64) []siblingTra
 	for _, t := range sib {
 		v := siblingTrackView{
 			TrackID: t.TrackID, ReleaseID: t.ReleaseID, Lang: t.Lang,
-			Generated: t.Generated, Downloads: t.Downloads,
-			Misfits: t.Misfits,
+			Generated: t.Generated || t.DeclaredGenerated, GeneratedSource: generatedSource(t.Generated, t.DeclaredGenerated),
+			Downloads: t.Downloads,
+			Misfits:   t.Misfits,
 		}
 		if t.OffsetMs != nil {
 			v.SyncKnown = true
