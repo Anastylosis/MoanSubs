@@ -24,6 +24,15 @@ downloads — so the best-regarded subtitle for a scene tends to surface on
 its own. A track picking up enough net downvotes, or even a single
 **spam** vote, gets flagged for a moderator to look at.
 
+A second, narrower signal exists alongside votes: whether a subtitle
+authored for a different cut of a scene actually lined up once someone
+watched it with the download applied — no timing numbers, just a fit or
+a miss. Enough independent fits mark that pairing sync-verified wherever
+it's looked up; a single miss withholds the label and reaches a
+moderator instead, the same as a bad vote does. There's no website
+control for this yet — it's an authenticated API call today, with a
+MoanDrop UI planned for a later release.
+
 ## Correcting a release's title
 
 Any logged-in account can open **Correct the details** on a release page

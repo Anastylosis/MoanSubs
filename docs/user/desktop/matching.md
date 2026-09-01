@@ -22,9 +22,12 @@ exchange for a wider fuzzy-match radius, the same trade-off the plugin's
 
 ## Reading a result
 
-The server holds no titles — a release is a fingerprint, nothing else —
-so each candidate card is labeled with what a lookup *does* carry:
-resolution, runtime, and video codec, e.g. `1080p · 1:34:12 · h264`.
+When a release has a title — one a person curated, or one derived from a
+cleaned-up upload filename when nobody has — the candidate card shows it.
+Otherwise it falls back to what a lookup always carries: resolution,
+runtime, and video codec, e.g. `1080p · 1:34:12 · h264`. A MoanDrop older
+than the release that added title support only ever shows the descriptor,
+even against a server that now has titles.
 
 Underneath, a line of evidence explains why it matched:
 
@@ -38,6 +41,12 @@ Underneath, a line of evidence explains why it matched:
   or `... sync unknown` — the same kind of cross-cut offer, but with
   nothing measured. Try it, but don't expect it to line up.
 
+"Verified" here is a moderator's own measurement, not anything this
+release of MoanDrop reports back itself. A future release will let you
+say, after actually watching it, whether a cross-cut subtitle fit — that
+feeds a separate sync-verified signal the server shows in lookups once
+enough independent people agree.
+
 Each track under a candidate lists its language and, for anything but
 the plain `default` kind, a short kind label (`cc`, `sdh`, `forced`, or a
 custom one for `other`) — see [Subtitle kinds](../kinds.md) for what
@@ -45,6 +54,10 @@ those mean. A track marked **AI** was machine-transcribed and
 unreviewed; human-made tracks always sort first, but most of the
 database is AI-transcribed, so expect to see the badge often. It's
 usually accurate, but can mishear names and slang.
+
+Each track also carries +1/-1 buttons — see
+[Voting and settings](voting-and-settings.md) for what voting does and
+what it needs.
 
 ## Downloading
 
@@ -70,12 +83,15 @@ script can tell those apart without parsing output.
 
 ## The tray icon
 
-Closing the window doesn't quit MoanDrop — it hides to the system tray,
-so the drop target is a click away without keeping a window open. Quit
-from the File menu or the tray icon's own entry. On GNOME, the tray icon
-needs the AppIndicator extension installed; without it, a hidden window
-has no tray icon to bring it back, and running `moandrop` again is the
-only way to reach it.
+By default, closing the window doesn't quit MoanDrop — it hides to the
+system tray, so the drop target is a click away without keeping a window
+open. Quit from the File menu or the tray icon's own entry. Whether
+closing the window hides it or quits outright is a
+[Settings](voting-and-settings.md#settings) choice: on GNOME, the tray
+icon needs the AppIndicator extension installed, and without it a hidden
+window has no tray icon to bring it back — switch that setting to quit
+outright there, since running `moandrop` again is otherwise the only way
+to reach it.
 
 ## Right-click integration
 

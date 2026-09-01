@@ -37,6 +37,7 @@ nav:
       - Installing MoanDrop: desktop/index.md
       - Finding subtitles: desktop/matching.md
       - Sharing what you have: desktop/sharing.md
+      - Voting and settings: desktop/voting-and-settings.md
   - Website:
       - Browsing and registering: web/index.md
       - Uploading from the browser: web/upload.md

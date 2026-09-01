@@ -4,8 +4,10 @@
 moansubs if you don't run Stash. It's one binary that's both a
 drag-and-drop window and a command-line tool — no Stash, no account
 needed just to find and download. See
-[Finding subtitles](matching.md) for how it actually works, and
-[Sharing what you have](sharing.md) for pushing subtitles back.
+[Finding subtitles](matching.md) for how it actually works,
+[Sharing what you have](sharing.md) for pushing subtitles back, and
+[Voting and settings](voting-and-settings.md) for voting and the
+Settings dialog.
 
 ## Install
 

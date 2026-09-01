@@ -23,6 +23,10 @@ know what to check:
   down-vote it with the **out of sync** reason — see
   [Votes and stash-box](web/votes-and-stashbox.md). That's exactly the
   signal that gets a bad track corrected or removed.
+- If a cross-cut candidate was offered with `sync unverified` or `sync
+  unknown` and it genuinely didn't fit, that's not a bug — nobody had
+  confirmed it yet. A future MoanDrop release will let you report that
+  directly; today, a down-vote is the way to flag it.
 
 ## Why did my caption save as `.pt.srt` instead of `.pt-BR.srt`?
 
