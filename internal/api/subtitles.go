@@ -411,7 +411,17 @@ func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 // stated corrects, omitted leaves it alone. declaredGenerated instead is
 // OR'd in unconditionally — never cleared, whether or not this request
 // stated one — since a later upload can only ADD the AI-generated
-// declaration, matching detection's own one-way "generated" flag.
+// declaration, matching detection's own one-way "generated" flag. The
+// authorship/declaredGenerated correction itself is delegated to
+// UpdateSubtitleTrackAuthorship's single atomic SQL statement rather than
+// computed here from the GetSubtitleTrack read below: that read is a plain
+// SELECT, not FOR UPDATE, so deciding the new declared_generated value in
+// Go from it and writing that decision back would be a stale-read-then-
+// blind-write — two concurrent identical re-uploads could race each other
+// into clobbering a flag the other just set. The store call gets exactly
+// what this request itself contributes (a possible new authorship, and
+// whether THIS request declares generated) and does the OR/COALESCE in the
+// same statement the write happens in.
 func (s *Server) duplicateTrackResponse(ctx context.Context, existingID, releaseID int64, kind, kindLabel string, kindGiven bool, authorship string, authorshipGiven, declaredGenerated bool) (*uploadResponse, *apiError) {
 	existing, err := s.Store.GetSubtitleTrack(ctx, existingID)
 	if err != nil {
@@ -429,13 +439,18 @@ func (s *Server) duplicateTrackResponse(ctx context.Context, existingID, release
 		}
 	}
 
-	newAuthorship := existing.Authorship
-	if authorshipGiven {
-		newAuthorship = authorship
-	}
-	newDeclaredGenerated := existing.DeclaredGenerated || declaredGenerated
-	if newAuthorship != existing.Authorship || newDeclaredGenerated != existing.DeclaredGenerated {
-		if err := s.Store.UpdateSubtitleTrackAuthorship(ctx, existingID, newAuthorship, newDeclaredGenerated); err != nil {
+	// Nothing to write when neither input could change anything: an absent
+	// authorship COALESCEs to itself and `declared_generated OR false` is a
+	// no-op regardless of the row's current state, so skipping the
+	// statement here is safe (not a staleness risk) and just saves a write.
+	newDeclaredGenerated := existing.DeclaredGenerated
+	if authorshipGiven || declaredGenerated {
+		var authorshipPtr *string
+		if authorshipGiven {
+			authorshipPtr = &authorship
+		}
+		_, newDeclaredGenerated, err = s.Store.UpdateSubtitleTrackAuthorship(ctx, existingID, authorshipPtr, declaredGenerated)
+		if err != nil {
 			log.Printf("api: UpdateSubtitleTrackAuthorship: %v", err)
 			return nil, &apiError{http.StatusInternalServerError, "internal error"}
 		}
@@ -789,10 +804,14 @@ type getSubtitleResponse struct {
 	// Kind/KindLabel: migration 0021 (WP-K1), additive.
 	Kind      string  `json:"kind"`
 	KindLabel *string `json:"kind_label,omitempty"`
-	// Authorship: migration 0026 (WP-authorship), additive. CreditedTo is
-	// the uploader's account name, present only when Authorship is
-	// "credited" — see authorship.go's creditedTo doc comment.
-	Authorship string `json:"authorship"`
+	// CreditedTo: migration 0026 (WP-authorship), the uploader's account
+	// name, present only when the track's authorship is "credited" — see
+	// authorship.go's creditedTo doc comment. Authorship itself is
+	// deliberately NOT a field here: it is upload-request-only and
+	// mod-page-visible, never on this public, anonymously-readable
+	// response — an "uncredited" track's authorship value must not be
+	// learnable by walking sequential track ids, which is exactly what
+	// exposing it unconditionally here would let an anonymous caller do.
 	CreditedTo string `json:"credited_to,omitempty"`
 	// OffsetMs is the shift applied to this body because the caller asked
 	// for it timed against another release (for_release). Zero means none
@@ -941,7 +960,6 @@ func (s *Server) handleGetSubtitle(w http.ResponseWriter, r *http.Request) {
 		Down:            track.Down,
 		Kind:            track.Kind,
 		KindLabel:       track.KindLabel,
-		Authorship:      track.Authorship,
 		CreditedTo:      creditedName,
 		OffsetMs:        appliedOffset,
 		OffsetFrom:      offsetSource,

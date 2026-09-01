@@ -284,8 +284,10 @@ func TestUpload_AuthorshipAndGeneratedRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTrack: %v", err)
 	}
-	if track.Authorship != "credited" || track.CreditedTo != "authorship-pusher" {
-		t.Errorf("GetTrack Authorship/CreditedTo = %q/%q, want credited/authorship-pusher", track.Authorship, track.CreditedTo)
+	// Authorship itself is deliberately not on the public GetTrack response
+	// (only CreditedTo is) — see client.Track's doc comment.
+	if track.CreditedTo != "authorship-pusher" {
+		t.Errorf("GetTrack CreditedTo = %q, want authorship-pusher", track.CreditedTo)
 	}
 	if !track.Generated || track.GeneratedSource != "declared" {
 		t.Errorf("GetTrack Generated/GeneratedSource = %v/%q, want true/declared", track.Generated, track.GeneratedSource)

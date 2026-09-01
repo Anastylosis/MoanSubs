@@ -660,8 +660,13 @@ func TestStore_UpdateSubtitleTrackAuthorship(t *testing.T) {
 		t.Fatalf("CreateSubtitleTrack: %v", err)
 	}
 
-	if err := s.UpdateSubtitleTrackAuthorship(ctx, id, "uncredited", true); err != nil {
+	uncredited := "uncredited"
+	newAuthorship, newDeclaredGenerated, err := s.UpdateSubtitleTrackAuthorship(ctx, id, &uncredited, true)
+	if err != nil {
 		t.Fatalf("UpdateSubtitleTrackAuthorship: %v", err)
+	}
+	if newAuthorship != "uncredited" || !newDeclaredGenerated {
+		t.Errorf("returned authorship/declared_generated = %q/%v, want uncredited/true", newAuthorship, newDeclaredGenerated)
 	}
 
 	got, err := s.GetSubtitleTrack(ctx, id)
@@ -684,8 +689,89 @@ func TestStore_UpdateSubtitleTrackAuthorship_NotFound(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	if err := s.UpdateSubtitleTrackAuthorship(ctx, 999999, "credited", false); !errors.Is(err, ErrNotFound) {
+	credited := "credited"
+	if _, _, err := s.UpdateSubtitleTrackAuthorship(ctx, 999999, &credited, false); !errors.Is(err, ErrNotFound) {
 		t.Errorf("UpdateSubtitleTrackAuthorship(999999): got %v, want ErrNotFound", err)
+	}
+}
+
+// The atomic OR: once declared_generated is true, calling the update again
+// with declare=false must never clear it back to false — this is the
+// "never clear" invariant enforced IN THE SQL STATEMENT ITSELF
+// (declared_generated OR $2), not by a Go-side read-then-write, which is
+// exactly what closes the race two concurrent re-uploads could otherwise
+// hit (see duplicateTrackResponse's doc comment, internal/api/subtitles.go).
+func TestStore_UpdateSubtitleTrackAuthorship_DeclaredGeneratedNeverClears(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7c7c7c7c7c7c7c7c"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	if _, declared, err := s.UpdateSubtitleTrackAuthorship(ctx, id, nil, true); err != nil || !declared {
+		t.Fatalf("first UpdateSubtitleTrackAuthorship (declare=true): declared=%v, err=%v, want true/nil", declared, err)
+	}
+
+	// declare=false on the SAME row must leave the flag set — this is the
+	// call shape a plain (non-declaring) re-upload makes.
+	_, declared, err := s.UpdateSubtitleTrackAuthorship(ctx, id, nil, false)
+	if err != nil {
+		t.Fatalf("second UpdateSubtitleTrackAuthorship (declare=false): %v", err)
+	}
+	if !declared {
+		t.Error("declared_generated = false after declare=false on an already-true row, want true (never cleared)")
+	}
+
+	got, err := s.GetSubtitleTrack(ctx, id)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if !got.DeclaredGenerated {
+		t.Error("stored DeclaredGenerated = false, want true (never cleared)")
+	}
+}
+
+// authorship = nil must leave the stored value untouched (COALESCE), the
+// SQL-level counterpart of ingest's "omitted authorship on re-upload does
+// not reset to shared" rule.
+func TestStore_UpdateSubtitleTrackAuthorship_NilAuthorshipLeavesValueAlone(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7d7d7d7d7d7d7d7d"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+		Authorship: "credited",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	newAuthorship, _, err := s.UpdateSubtitleTrackAuthorship(ctx, id, nil, false)
+	if err != nil {
+		t.Fatalf("UpdateSubtitleTrackAuthorship(nil authorship): %v", err)
+	}
+	if newAuthorship != "credited" {
+		t.Errorf("returned authorship = %q, want credited (nil must leave it alone)", newAuthorship)
+	}
+
+	got, err := s.GetSubtitleTrack(ctx, id)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if got.Authorship != "credited" {
+		t.Errorf("got.Authorship = %q, want credited (nil authorship must not reset it)", got.Authorship)
 	}
 }
 

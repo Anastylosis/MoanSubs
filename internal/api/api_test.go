@@ -1160,9 +1160,6 @@ func TestUpload_Authorship_DefaultsToShared(t *testing.T) {
 	}
 	defer func() { _ = getResp.Body.Close() }()
 	got := decodeJSON[getSubtitleResponse](t, getResp)
-	if got.Authorship != "shared" {
-		t.Errorf("Authorship = %q, want shared", got.Authorship)
-	}
 	if got.CreditedTo != "" {
 		t.Errorf("CreditedTo = %q, want empty for shared", got.CreditedTo)
 	}
@@ -1198,39 +1195,60 @@ func TestUpload_Authorship_CreditedStoresCreditedTo(t *testing.T) {
 	}
 	defer func() { _ = getResp.Body.Close() }()
 	got := decodeJSON[getSubtitleResponse](t, getResp)
-	if got.Authorship != "credited" {
-		t.Errorf("Authorship = %q, want credited", got.Authorship)
-	}
 	if got.CreditedTo != "uploader" {
 		t.Errorf("CreditedTo = %q, want %q (newTestServer's account name)", got.CreditedTo, "uploader")
 	}
 }
 
-// An uncredited track records authorship (moderators can see it) but must
-// never carry a credited_to on any public response — the whole point of
-// declining credit.
-func TestUpload_Authorship_UncreditedHasNoCreditedTo(t *testing.T) {
+// GET /api/v1/subtitles/{id} is public and anonymous — CRITICAL that its
+// `authorship` value is never on the wire at all, for EITHER an uncredited
+// or a credited track: an anonymous caller who can enumerate sequential
+// track ids must not be able to learn which ones are "uncredited" by
+// reading a raw field, which is exactly the credit that authorship's
+// uploader declined to give. `credited_to` (present only for credited,
+// checked elsewhere) is the only public trace of authorship that exists.
+func TestUpload_Authorship_NeverOnPublicGetResponse(t *testing.T) {
 	ts, _, token := newTestServer(t)
-	resp := doUpload(t, ts, token, map[string]any{
-		"oshash": "b3b3b3b3b3b3b3b3", "duration_ms": 12000, "lang": "en", "body": basicSRT,
-		"authorship": "uncredited",
-	})
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("status = %d, want 201", resp.StatusCode)
-	}
-	created := decodeJSON[uploadResponse](t, resp)
 
-	getResp, err := http.Get(ts.URL + "/api/v1/subtitles/" + strconv.FormatInt(created.TrackID, 10))
-	if err != nil {
-		t.Fatalf("GET subtitle: %v", err)
-	}
-	defer func() { _ = getResp.Body.Close() }()
-	got := decodeJSON[getSubtitleResponse](t, getResp)
-	if got.Authorship != "uncredited" {
-		t.Errorf("Authorship = %q, want uncredited", got.Authorship)
-	}
-	if got.CreditedTo != "" {
-		t.Errorf("CreditedTo = %q, want empty (declined credit must never surface)", got.CreditedTo)
+	for _, tc := range []struct {
+		name       string
+		oshash     string
+		authorship string
+	}{
+		{"uncredited", "b3b3b3b3b3b3b3b3", "uncredited"},
+		{"credited", "b3b3b3b3b3b3b3b4", "credited"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := doUpload(t, ts, token, map[string]any{
+				"oshash": tc.oshash, "duration_ms": 12000, "lang": "en", "body": basicSRT,
+				"authorship": tc.authorship,
+			})
+			if resp.StatusCode != http.StatusCreated {
+				t.Fatalf("status = %d, want 201", resp.StatusCode)
+			}
+			created := decodeJSON[uploadResponse](t, resp)
+
+			getResp, err := http.Get(ts.URL + "/api/v1/subtitles/" + strconv.FormatInt(created.TrackID, 10))
+			if err != nil {
+				t.Fatalf("GET subtitle: %v", err)
+			}
+			defer func() { _ = getResp.Body.Close() }()
+			var buf bytes.Buffer
+			if _, err := buf.ReadFrom(getResp.Body); err != nil {
+				t.Fatalf("reading body: %v", err)
+			}
+
+			var asMap map[string]any
+			if err := json.Unmarshal(buf.Bytes(), &asMap); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if _, present := asMap["authorship"]; present {
+				t.Errorf("response has an \"authorship\" key, want none at all: %s", buf.String())
+			}
+			if strings.Contains(buf.String(), `"authorship"`) {
+				t.Errorf("raw body contains the literal string \"authorship\": %s", buf.String())
+			}
+		})
 	}
 }
 

@@ -529,19 +529,30 @@ func (s *Store) UpdateSubtitleTrackKind(ctx context.Context, id int64, kind stri
 
 // UpdateSubtitleTrackAuthorship corrects authorship/declared_generated in
 // place — the re-upload idempotency path's authorship/generated-declaration
-// counterpart to UpdateSubtitleTrackKind above. Callers are responsible for
-// the "never clear declared_generated" rule (ingest ORs it in before
-// calling); this just writes what it's given. Returns ErrNotFound when no
-// such track exists.
-func (s *Store) UpdateSubtitleTrackAuthorship(ctx context.Context, id int64, authorship string, declaredGenerated bool) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE subtitle_tracks SET authorship = $1, declared_generated = $2 WHERE id = $3`, authorship, declaredGenerated, id)
+// counterpart to UpdateSubtitleTrackKind above. authorship nil leaves the
+// stored value alone (COALESCE), matching an omitted authorship on
+// re-upload; non-nil replaces it. declare is OR'd into declared_generated
+// IN THE SAME STATEMENT — this is the "never clear declared_generated" rule
+// enforced atomically in SQL, not as a Go-side read-then-write: two
+// concurrent byte-identical re-uploads racing a stale GetSubtitleTrack read
+// against this UPDATE could otherwise let one clobber a flag the other just
+// set. Returns the row's resulting authorship/declared_generated so callers
+// don't need a second read for the response, and ErrNotFound when no such
+// track exists.
+func (s *Store) UpdateSubtitleTrackAuthorship(ctx context.Context, id int64, authorship *string, declare bool) (newAuthorship string, newDeclaredGenerated bool, err error) {
+	err = s.pool.QueryRow(ctx, `
+		UPDATE subtitle_tracks
+		SET authorship = COALESCE($1, authorship), declared_generated = declared_generated OR $2
+		WHERE id = $3
+		RETURNING authorship, declared_generated`, authorship, declare, id,
+	).Scan(&newAuthorship, &newDeclaredGenerated)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, ErrNotFound
+	}
 	if err != nil {
-		return fmt.Errorf("store: UpdateSubtitleTrackAuthorship: %w", err)
+		return "", false, fmt.Errorf("store: UpdateSubtitleTrackAuthorship: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return newAuthorship, newDeclaredGenerated, nil
 }
 
 // WithdrawTrack marks track id withdrawn with reason, hiding it from every

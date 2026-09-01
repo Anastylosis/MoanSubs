@@ -171,10 +171,10 @@ type Track struct {
 	Down      int     `json:"down"`
 	Kind      string  `json:"kind"`
 	KindLabel *string `json:"kind_label,omitempty"`
-	// Authorship/CreditedTo: same contract as TrackSummary above. Authorship
-	// is always present on a server that has the field (like Kind above),
-	// defaulting to "shared".
-	Authorship string `json:"authorship"`
+	// CreditedTo: same contract as TrackSummary above. Authorship itself is
+	// deliberately not a field here — it's a public, anonymously-readable
+	// response, and authorship is upload-request-only plus mod-page-visible
+	// server-side (see the server's getSubtitleResponse doc comment).
 	CreditedTo string `json:"credited_to,omitempty"`
 }
 
