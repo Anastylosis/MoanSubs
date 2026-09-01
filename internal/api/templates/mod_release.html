@@ -140,7 +140,7 @@ usually where you can see why.</p>
 <h3>Sync of the other encodes' subtitles against this release</h3>
 <p class="hint">A positive offset delays the subtitle, which is the case when <em>this</em> encode carries extra footage at the head. Leave the box empty and save to go back to "sync unknown". Nothing derives this automatically — two subtitle files usually agree with each other while both disagree with the video.</p>
 <table>
-  <thead><tr><th>Track</th><th>Language</th><th>From</th><th>Current</th><th>Set (ms)</th></tr></thead>
+  <thead><tr><th>Track</th><th>Language</th><th>From</th><th>Current</th><th>Reported</th><th>Set (ms)</th></tr></thead>
   <tbody>
   {{range $t := .Siblings}}
   <tr>
@@ -148,6 +148,7 @@ usually where you can see why.</p>
     <td><span class="tag">{{$t.Lang}}</span></td>
     <td><a href="/mod/release/{{$t.ReleaseID}}">release {{$t.ReleaseID}}</a></td>
     <td>{{if $t.SyncKnown}}{{$t.OffsetText}}{{if $t.SourceText}} <span class="hint" style="display:inline">{{$t.SourceText}}</span>{{end}}{{else}}<span class="hint" style="display:inline">sync unknown</span>{{end}}</td>
+    <td>{{if $t.Misfits}}<span class="down">{{$t.Misfits}} misfit{{if ne $t.Misfits 1}}s{{end}} reported</span>{{end}}</td>
     <td>
       <form method="post" action="/mod/release/{{$.Release.ID}}/work/offset" class="inline">
         <input type="hidden" name="track_id" value="{{$t.TrackID}}">

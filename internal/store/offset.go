@@ -101,6 +101,11 @@ type SiblingTrack struct {
 	DurationMs *int64 // the sibling encode's runtime, for showing the delta
 	OffsetMs   *int64 // nil means sync unknown, which is NOT the same as 0
 	Source     *string
+	// Fits/Misfits are migration 0025's standing fit reports against this
+	// exact pairing (the sibling track played against the release being
+	// looked up) — additive alongside OffsetMs/Source, never affecting them.
+	Fits    int
+	Misfits int
 }
 
 // SiblingTracks returns visible tracks from the other releases of
@@ -112,13 +117,15 @@ type SiblingTrack struct {
 func (s *Store) SiblingTracks(ctx context.Context, releaseID int64) ([]SiblingTrack, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT t.id, t.release_id, t.lang, t.generated, t.downloads,
-		       sib.duration_ms, o.offset_ms, o.offset_source
+		       sib.duration_ms, o.offset_ms, o.offset_source,
+		       COALESCE(fit_counts.fits, 0), COALESCE(fit_counts.misfits, 0)
 		FROM releases self
 		JOIN releases sib
 		  ON sib.work_id = self.work_id AND sib.id <> self.id
 		JOIN subtitle_tracks t ON t.release_id = sib.id
 		LEFT JOIN track_release_offsets o
 		  ON o.track_id = t.id AND o.release_id = self.id
+		`+fitCountsJoin("self.id")+`
 		WHERE self.id = $1
 		  AND self.work_id IS NOT NULL
 		  AND sib.withdrawn_at IS NULL
@@ -133,7 +140,8 @@ func (s *Store) SiblingTracks(ctx context.Context, releaseID int64) ([]SiblingTr
 	for rows.Next() {
 		var st SiblingTrack
 		if err := rows.Scan(&st.TrackID, &st.ReleaseID, &st.Lang, &st.Generated,
-			&st.Downloads, &st.DurationMs, &st.OffsetMs, &st.Source); err != nil {
+			&st.Downloads, &st.DurationMs, &st.OffsetMs, &st.Source,
+			&st.Fits, &st.Misfits); err != nil {
 			return nil, fmt.Errorf("store: SiblingTracks: scanning: %w", err)
 		}
 		out = append(out, st)

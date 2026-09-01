@@ -91,6 +91,12 @@ const MetadataRateLimitPerHour = 60
 // script can't grind a track's score by hammering re-votes.
 const VoteRateLimitPerHour = 60
 
+// FitRateLimitPerHour is the per-account budget for PUT/DELETE
+// /api/v1/subtitles/{id}/fit (WP-fit), mirroring VoteRateLimitPerHour: a
+// separate budget so a burst of fit reports can't eat into (or be eaten
+// into by) the same account's vote budget.
+const FitRateLimitPerHour = 60
+
 const RemovalRateLimitPerHour = 5
 
 // RevisionRateLimitPerHour is the per-account budget for a supersede
@@ -314,7 +320,10 @@ type Server struct {
 	// VoteLimiter is the per-account limiter for PUT/DELETE
 	// /api/v1/subtitles/{id}/vote (WP-C3), also exported for the same
 	// reason as Limiter.
-	VoteLimiter    *RateLimiter
+	VoteLimiter *RateLimiter
+	// FitLimiter is the per-account limiter for PUT/DELETE
+	// /api/v1/subtitles/{id}/fit (WP-fit), separate from VoteLimiter.
+	FitLimiter     *RateLimiter
 	RemovalLimiter *RateLimiter
 
 	// AutoConfirm lets a trusted account's stash-box-backed metadata pin
@@ -427,6 +436,7 @@ func NewServer(s *store.Store) *Server {
 		Version:               "dev",
 		Stats:                 NewStats(s),
 		VoteLimiter:           NewRateLimiter(VoteRateLimitPerHour),
+		FitLimiter:            NewRateLimiter(FitRateLimitPerHour),
 		RemovalLimiter:        NewRateLimiter(RemovalRateLimitPerHour),
 		MetadataLimiter:       NewRateLimiter(MetadataRateLimitPerHour),
 		StashBoxLimiter:       NewRateLimiter(StashBoxRateLimitPerHour),
@@ -518,6 +528,8 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("PUT /api/v1/subtitles/{id}/vote", s.handleVotePut)
 	mux.HandleFunc("DELETE /api/v1/subtitles/{id}/vote", s.handleVoteDelete)
 	mux.HandleFunc("GET /api/v1/subtitles/{id}/votes", s.handleListVotes)
+	mux.HandleFunc("PUT /api/v1/subtitles/{id}/fit", s.handleFitPut)
+	mux.HandleFunc("DELETE /api/v1/subtitles/{id}/fit", s.handleFitDelete)
 	mux.HandleFunc("GET /api/v1/lookup/oshash/{prefix}", s.handleLookupOshashPrefix)
 	mux.HandleFunc("GET /api/v1/lookup/phash/{block}/{val}", s.handleLookupPhashBlock)
 	mux.HandleFunc("GET /api/v1/lookup/stash/{ehash}/{stash_id}", s.handleLookupStash)

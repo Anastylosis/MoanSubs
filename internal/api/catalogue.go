@@ -697,6 +697,12 @@ type siblingTrackView struct {
 	SyncKnown  bool
 	OffsetText string // e.g. "+3.08s", only meaningful when SyncKnown
 	SourceText string // manual / duration-delta / measured
+	// Misfits is migration 0025's standing "didn't fit" report count on
+	// this pairing — surfaced only on the mod page (mod_release.html),
+	// never the public release page, mirroring how votes never show
+	// per-account detail there either: just the number, for a moderator to
+	// notice and go look, not a rebuttal for the public to read.
+	Misfits int
 }
 
 // handleReleasePage implements GET /release/{id} (WP-C2): title/stem/
@@ -1049,6 +1055,7 @@ func (s *Server) siblingViews(ctx context.Context, releaseID int64) []siblingTra
 		v := siblingTrackView{
 			TrackID: t.TrackID, ReleaseID: t.ReleaseID, Lang: t.Lang,
 			Generated: t.Generated, Downloads: t.Downloads,
+			Misfits: t.Misfits,
 		}
 		if t.OffsetMs != nil {
 			v.SyncKnown = true

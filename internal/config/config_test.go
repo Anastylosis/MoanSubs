@@ -165,6 +165,7 @@ func TestExampleConfig_IsValidAndStatesTheDefaults(t *testing.T) {
 		"MOANSUBS_STATEMENT_TIMEOUT":       "30s",
 		"MOANSUBS_UPLOAD_RATE_PER_HOUR":    strconv.Itoa(api.UploadRateLimitPerHour),
 		"MOANSUBS_VOTE_RATE_PER_HOUR":      strconv.Itoa(api.VoteRateLimitPerHour),
+		"MOANSUBS_FIT_RATE_PER_HOUR":       strconv.Itoa(api.FitRateLimitPerHour),
 		"MOANSUBS_METADATA_RATE_PER_HOUR":  strconv.Itoa(api.MetadataRateLimitPerHour),
 		"MOANSUBS_SEARCH_RATE_PER_MINUTE":  strconv.Itoa(api.SearchRateLimitPerMinute),
 		"MOANSUBS_REGISTER_RATE_PER_HOUR":  strconv.Itoa(api.RegisterRateLimitPerHour),

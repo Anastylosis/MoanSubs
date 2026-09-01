@@ -42,6 +42,14 @@ type lookupTrackSummary struct {
 	// are the chain's totals, not this row's own.
 	Revision int   `json:"revision"`
 	RootID   int64 `json:"root_id"`
+	// Fits/Misfits/SyncVerified: migration 0025 (WP-fit), additive. These
+	// are reports against the track's OWN release — meaningful because even
+	// a track's home encode can drift (a bad auto-generated timing, most
+	// often), so "checked against the file it was made for" is still worth
+	// a client knowing, not just siblings.
+	Fits         int  `json:"fits"`
+	Misfits      int  `json:"misfits"`
+	SyncVerified bool `json:"sync_verified"`
 }
 
 // lookupStashID is one stash-box scene identity as echoed on a release
@@ -102,6 +110,15 @@ type lookupSibling struct {
 	Downloads  int64   `json:"downloads"`
 	OffsetMs   *int64  `json:"offset_ms"`
 	OffsetFrom *string `json:"offset_source,omitempty"`
+	// Fits/Misfits/SyncVerified: migration 0025 (WP-fit), additive.
+	// SyncVerified is true only once at least store.SyncVerifiedMinFits
+	// distinct accounts reported a fit AND none reported a misfit — a
+	// single credible misfit withholds the label regardless of how many
+	// fits came in, the same "a wrong offset is worse than none" reasoning
+	// that keeps offsets themselves out of client hands entirely.
+	Fits         int  `json:"fits"`
+	Misfits      int  `json:"misfits"`
+	SyncVerified bool `json:"sync_verified"`
 }
 
 // lookupReleases fetches track summaries and stash ids for releases in two
@@ -140,6 +157,7 @@ func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) (
 		summaries := tracksByRelease[r.ID]
 		tracks := make([]lookupTrackSummary, 0, len(summaries))
 		for _, t := range summaries {
+			fitCounts := store.FitCounts{Fits: t.Fits, Misfits: t.Misfits}
 			tracks = append(tracks, lookupTrackSummary{
 				ID:            t.ID,
 				Lang:          t.Lang,
@@ -154,6 +172,9 @@ func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) (
 				KindLabel:     t.KindLabel,
 				Revision:      t.Revision,
 				RootID:        t.RootID,
+				Fits:          t.Fits,
+				Misfits:       t.Misfits,
+				SyncVerified:  fitCounts.SyncVerified(),
 			})
 		}
 
@@ -164,10 +185,12 @@ func (s *Server) lookupReleases(ctx context.Context, releases []store.Release) (
 			log.Printf("api: SiblingTracks(%d): %v", r.ID, serr)
 		} else {
 			for _, t := range sib {
+				fitCounts := store.FitCounts{Fits: t.Fits, Misfits: t.Misfits}
 				siblings = append(siblings, lookupSibling{
 					ID: t.TrackID, ReleaseID: t.ReleaseID, Lang: t.Lang,
 					Generated: t.Generated, Downloads: t.Downloads,
 					OffsetMs: t.OffsetMs, OffsetFrom: t.Source,
+					Fits: t.Fits, Misfits: t.Misfits, SyncVerified: fitCounts.SyncVerified(),
 				})
 			}
 		}

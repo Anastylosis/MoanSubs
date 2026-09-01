@@ -66,6 +66,12 @@ type TrackSummary struct {
 	Down      int     `json:"down"`
 	Kind      string  `json:"kind"`
 	KindLabel *string `json:"kind_label,omitempty"`
+	// Fits/Misfits/SyncVerified are migration 0025's standing fit reports
+	// against this track's own release (see Sibling for the other-release
+	// case) — same additive-field contract as Up/Down above.
+	Fits         int  `json:"fits"`
+	Misfits      int  `json:"misfits"`
+	SyncVerified bool `json:"sync_verified"`
 }
 
 // StashID is one stash-box scene identity (migration 0011, WP-C9a) — sent
@@ -112,6 +118,13 @@ type Sibling struct {
 	Downloads  int64   `json:"downloads"`
 	OffsetMs   *int64  `json:"offset_ms"`
 	OffsetFrom *string `json:"offset_source,omitempty"`
+	// Fits/Misfits/SyncVerified are migration 0025's standing fit reports
+	// against this pairing — present on any server that has the "fit"
+	// feature (GET /api/v1/version), zero-valued and safely ignorable on
+	// one that predates it.
+	Fits         int  `json:"fits"`
+	Misfits      int  `json:"misfits"`
+	SyncVerified bool `json:"sync_verified"`
 }
 
 // Track is a full subtitle track as returned by GET /api/v1/subtitles/{id}.
@@ -651,6 +664,64 @@ func (c *Client) VoteCounts(ctx context.Context, trackID int64) (up, down int, e
 		return 0, 0, err
 	}
 	return res.Up, res.Down, nil
+}
+
+// fitRequest is PUT /api/v1/subtitles/{id}/fit's JSON body (API.md "Works
+// and sibling subtitles"). There is no offset field: a caller can only ever
+// say whether a pairing lined up as served, never move it.
+type fitRequest struct {
+	ReleaseID int64 `json:"release_id"`
+	Fits      bool  `json:"fits"`
+}
+
+// fitResponse is the PUT's 200 body: the pairing's refreshed standing
+// reports.
+type fitResponse struct {
+	Fits         int  `json:"fits"`
+	Misfits      int  `json:"misfits"`
+	SyncVerified bool `json:"sync_verified"`
+}
+
+// ReportFit casts, or replaces, the caller's own standing report on whether
+// trackID fit releaseID as served — the track's own release, or a sibling
+// release grouped into the same work; the server rejects any other
+// pairing. Requires the upload token, same Bearer auth as Vote.
+func (c *Client) ReportFit(ctx context.Context, trackID, releaseID int64, fits bool) (fitsCount, misfits int, err error) {
+	if c.Token == "" {
+		return 0, 0, fmt.Errorf("client: no upload token configured — create an account on the server and paste its token into the plugin settings")
+	}
+	b, err := json.Marshal(fitRequest{ReleaseID: releaseID, Fits: fits})
+	if err != nil {
+		return 0, 0, fmt.Errorf("client: marshalling fit report: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPut,
+		fmt.Sprintf("%s/api/v1/subtitles/%d/fit", c.BaseURL, trackID), bytes.NewReader(b))
+	if err != nil {
+		return 0, 0, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+	var res fitResponse
+	if err := c.doJSONError(httpReq, &res); err != nil {
+		return 0, 0, err
+	}
+	return res.Fits, res.Misfits, nil
+}
+
+// RetractFit retracts the caller's own fit report on (trackID, releaseID),
+// if any — idempotent, same as the server's DELETE. Requires the upload
+// token.
+func (c *Client) RetractFit(ctx context.Context, trackID, releaseID int64) error {
+	if c.Token == "" {
+		return fmt.Errorf("client: no upload token configured — create an account on the server and paste its token into the plugin settings")
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodDelete,
+		fmt.Sprintf("%s/api/v1/subtitles/%d/fit?release_id=%d", c.BaseURL, trackID, releaseID), nil)
+	if err != nil {
+		return err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+	return c.doJSONError(httpReq, nil)
 }
 
 func (c *Client) post(ctx context.Context, path string, body, out any) error {

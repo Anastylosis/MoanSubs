@@ -304,6 +304,13 @@ type SubtitleTrackSummary struct {
 	// across the whole chain, not this row's own counts.
 	Revision int
 	RootID   int64
+	// Fits/Misfits are migration 0025's standing fit reports against this
+	// track's own release. Unlike Up/Down these are NOT chain-summed: a fit
+	// report is evidence about one specific rendered body's timing, and
+	// blending revisions together would credit a fixed track with reports
+	// that were about the file it replaced.
+	Fits    int
+	Misfits int
 }
 
 // TrackSummariesByReleaseIDs returns the current head of every subtitle
@@ -327,7 +334,8 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 
 	rows, err := s.pool.Query(ctx, `
 		SELECT t.id, t.release_id, t.lang, t.generated, t.license, t.provenance IS NOT NULL, t.created_at,
-			agg.downloads, agg.up, agg.down, t.kind, t.kind_label, t.revision, t.root_id
+			agg.downloads, agg.up, agg.down, t.kind, t.kind_label, t.revision, t.root_id,
+			COALESCE(fit_counts.fits, 0), COALESCE(fit_counts.misfits, 0)
 		FROM subtitle_tracks t
 		JOIN LATERAL (
 			SELECT COALESCE(SUM(c.downloads), 0) AS downloads,
@@ -335,6 +343,7 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 			FROM subtitle_tracks c
 			WHERE c.root_id = t.root_id AND c.withdrawn_at IS NULL
 		) agg ON true
+		`+fitCountsJoin("t.release_id")+`
 		WHERE t.release_id = ANY($1) AND `+trackIsHead("t")+`
 		ORDER BY t.release_id, t.generated ASC, (agg.up - agg.down) DESC, agg.downloads DESC,
 			array_position(ARRAY['default','cc','sdh','forced','other'], t.kind), t.id ASC`, releaseIDs)
@@ -349,7 +358,8 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 			releaseID int64
 		)
 		if err := rows.Scan(&t.ID, &releaseID, &t.Lang, &t.Generated, &t.License, &t.HasProvenance, &t.CreatedAt,
-			&t.Downloads, &t.Up, &t.Down, &t.Kind, &t.KindLabel, &t.Revision, &t.RootID); err != nil {
+			&t.Downloads, &t.Up, &t.Down, &t.Kind, &t.KindLabel, &t.Revision, &t.RootID,
+			&t.Fits, &t.Misfits); err != nil {
 			return nil, fmt.Errorf("store: TrackSummariesByReleaseIDs: scanning: %w", err)
 		}
 		out[releaseID] = append(out[releaseID], t)

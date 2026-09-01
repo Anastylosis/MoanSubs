@@ -226,6 +226,9 @@ revisions:
 #                     raised: 1,000 files at 30/h takes a day and a half.
 # vote_per_hour     — generous for a person triaging their own downloads,
 #                     tight enough to stop a script grinding a score.
+# fit_per_hour      — its own budget, separate from vote_per_hour, for
+#                     PUT/DELETE .../fit (a fit report carries no offset —
+#                     it can only ever mislabel a pairing, never move it).
 # metadata_per_hour — POST /api/v1/metadata, up to 25 scenes per request,
 #                     so a large library fits comfortably. Bounded because
 #                     each entry costs a derivation, and a grouped release
@@ -243,10 +246,11 @@ revisions:
 #                     upload_per_hour: superseding twenty tracks in an
 #                     hour is the vandalism signature, uploading twenty is
 #                     ordinary seeding.
-# (MOANSUBS_UPLOAD_RATE_PER_HOUR, _VOTE_, _METADATA_, _SEARCH_, _REGISTER_, _LOGIN_, _REMOVAL_, _REVISION_)
+# (MOANSUBS_UPLOAD_RATE_PER_HOUR, _VOTE_, _FIT_, _METADATA_, _SEARCH_, _REGISTER_, _LOGIN_, _REMOVAL_, _REVISION_)
 rate_limits:
   upload_per_hour: 30
   vote_per_hour: 60
+  fit_per_hour: 60
   metadata_per_hour: 60
   search_per_minute: 30
   register_per_hour: 5

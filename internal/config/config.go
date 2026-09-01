@@ -73,6 +73,7 @@ type Invites struct {
 type RateLimits struct {
 	UploadPerHour   *int `yaml:"upload_per_hour"`
 	VotePerHour     *int `yaml:"vote_per_hour"`
+	FitPerHour      *int `yaml:"fit_per_hour"`
 	MetadataPerHour *int `yaml:"metadata_per_hour"`
 	SearchPerMinute *int `yaml:"search_per_minute"`
 	RegisterPerHour *int `yaml:"register_per_hour"`
@@ -165,6 +166,7 @@ func (f *File) env() map[string]string {
 
 	setInt("MOANSUBS_UPLOAD_RATE_PER_HOUR", f.RateLimits.UploadPerHour)
 	setInt("MOANSUBS_VOTE_RATE_PER_HOUR", f.RateLimits.VotePerHour)
+	setInt("MOANSUBS_FIT_RATE_PER_HOUR", f.RateLimits.FitPerHour)
 	setInt("MOANSUBS_METADATA_RATE_PER_HOUR", f.RateLimits.MetadataPerHour)
 	setInt("MOANSUBS_SEARCH_RATE_PER_MINUTE", f.RateLimits.SearchPerMinute)
 	setInt("MOANSUBS_REGISTER_RATE_PER_HOUR", f.RateLimits.RegisterPerHour)

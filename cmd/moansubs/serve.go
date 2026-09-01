@@ -186,6 +186,17 @@ var serveCmd = &cobra.Command{
 			voteRate = n
 		}
 
+		// Per-account fit-report budget (WP-fit), separate from voteRate so
+		// one can't be exhausted by hammering the other.
+		fitRate := api.FitRateLimitPerHour
+		if v := os.Getenv("MOANSUBS_FIT_RATE_PER_HOUR"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_FIT_RATE_PER_HOUR %q", v)
+			}
+			fitRate = n
+		}
+
 		removalRate := api.RemovalRateLimitPerHour
 		if v := os.Getenv("MOANSUBS_REMOVAL_RATE_PER_HOUR"); v != "" {
 			n, err := strconv.Atoi(v)
@@ -456,6 +467,7 @@ var serveCmd = &cobra.Command{
 		apiSrv.InvitesCap = invitesCap
 		apiSrv.DumpURL = dumpURL
 		apiSrv.VoteLimiter = api.NewRateLimiter(voteRate)
+		apiSrv.FitLimiter = api.NewRateLimiter(fitRate)
 		apiSrv.RemovalLimiter = api.NewRateLimiter(removalRate)
 		apiSrv.MetadataLimiter = api.NewRateLimiter(metadataRate)
 		apiSrv.RevisionLimiter = api.NewRateLimiter(revisionRate)

@@ -44,6 +44,8 @@ the full session/CSRF model.
   - [`DELETE /api/v1/subtitles/{id}/vote` *(auth required)*](#delete-apiv1subtitlesidvote-auth-required)
   - [`GET /api/v1/subtitles/{id}/votes`](#get-apiv1subtitlesidvotes)
 - [Works and sibling subtitles](#works-and-sibling-subtitles)
+  - [`PUT /api/v1/subtitles/{id}/fit` *(auth required)*](#put-apiv1subtitlesidfit-auth-required)
+  - [`DELETE /api/v1/subtitles/{id}/fit` *(auth required)*](#delete-apiv1subtitlesidfit-auth-required)
 
 ## The bucket contract
 
@@ -307,7 +309,8 @@ what the score was computed against, including a date disagreement via
   "tracks": [{"id": 1, "lang": "pt-BR", "generated": false,
               "license": "CC0", "has_provenance": false,
               "downloads": 42, "up": 3, "down": 0, "created_at": "...",
-              "kind": "default", "kind_label": null}],
+              "kind": "default", "kind_label": null,
+              "fits": 2, "misfits": 0, "sync_verified": true}],
   "title": "Some Scene (1080p)",
   "stash_ids": [{"endpoint": "https://stashdb.org/graphql",
                  "stash_id": "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"}]
@@ -323,6 +326,11 @@ do its tracks, even the ones not individually marked.
 `downloads` (migration 0006) is additive: a plugin built before it simply
 ignores the field. See `GET /api/v1/subtitles/{id}` for what increments it.
 `up`/`down` (migration 0008, "Votes" below) are additive the same way.
+`fits`/`misfits`/`sync_verified` (migration 0025, "Works and sibling
+subtitles" below) are additive too, reported against the track's own
+release — a track can still drift out of sync with the exact file it was
+authored for, most often a bad auto-generated timing, so this is worth
+knowing even outside the sibling case.
 `stash_ids` (migration 0011) is additive too — always present,
 `[]` when the release carries none — and lists every stash-box scene id
 ever attached to the release, not just the one a `/lookup/stash` call
@@ -743,7 +751,8 @@ ungrouped, and is deliberately separate from `tracks` so a client can tell
 ```json
 "siblings": [
   {"id": 665, "release_id": 662, "lang": "es", "generated": false,
-   "downloads": 3, "offset_ms": 3080, "offset_source": "measured"}
+   "downloads": 3, "offset_ms": 3080, "offset_source": "measured",
+   "fits": 2, "misfits": 0, "sync_verified": true}
 ]
 ```
 
@@ -761,3 +770,57 @@ Why phash cannot do this instead: Stash samples 25 frames at fixed
 fractions of a video's duration, so a trimmed intro moves every sample.
 Two copies of one film measured 14 bits apart with 0 of 5 MIH blocks
 matching, well outside the distance the bucket scheme can retrieve.
+
+### Fit reports
+
+`offset_ms` above is either a moderator's own measurement or nobody's; an
+ordinary account can never set one — **an offset is never applied without
+evidence, because a wrong offset is worse than no offset at all** (silently
+desynced is harder to notice than simply missing). What an ordinary account
+*can* do is report whether a pairing fit **as the server actually served
+it** — with whatever offset was applied, often none — after actually
+watching it. This can never move a cue for anyone; the worst a dishonest
+report can do is mislabel a pairing, and it does so under the reporting
+account's own name, accountably, the same as a vote.
+
+### `PUT /api/v1/subtitles/{id}/fit` *(auth required)*
+
+```json
+{"release_id": 662, "fits": true}
+```
+
+Bearer or session (Origin-checked exactly like `PUT .../vote`). There is no
+offset field in the request — see above. `release_id` must be either
+trackID's own release, or a release grouped into the same work (i.e. a
+pairing this track's `siblings` entry actually lists); any other id is
+rejected. Re-reporting replaces the caller's previous report on this exact
+pairing rather than adding a second one, same as a re-vote.
+
+- `200` `{"fits": 2, "misfits": 0, "sync_verified": true}` — the pairing's
+  refreshed standing reports. `sync_verified` is `true` only once at least
+  2 *distinct* accounts have reported a fit **and none** has reported a
+  misfit (one credible misfit withholds the label outright, regardless of
+  how many fits came in first) — one account's word isn't enough to relabel
+  sync for everyone, but a single account's *doubt* is enough to withhold
+  the label.
+- `400` — `release_id` missing/non-positive, or not a pairing this track
+  offers (not its own release and not a same-work sibling).
+- `401` — missing or invalid auth.
+- `403` — a session-cookie call whose Origin/Referer doesn't match this
+  node's host.
+- `404` — no track with that id.
+- `410` `{"error":"track withdrawn"}` / `{"error":"release withdrawn"}` —
+  same cases as `PUT .../vote`, checked against both the track's own
+  release and, when different, the `release_id` in the request.
+- `429` — over the per-account fit-report budget
+  (`MOANSUBS_FIT_RATE_PER_HOUR`, default 60).
+
+### `DELETE /api/v1/subtitles/{id}/fit` *(auth required)*
+
+Retracts the caller's own fit report on `?release_id=N`, if any, and
+recomputes the pairing's counts. Same auth and rate limit as the `PUT`
+above.
+
+- `204` — retracted (or there was nothing to retract: idempotent, so a
+  second `DELETE` in a row is not an error).
+- `400` — `release_id` query parameter missing or non-positive.
