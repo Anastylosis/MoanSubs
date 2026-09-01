@@ -208,6 +208,7 @@ func (s *Server) handleUploadSubmit(w http.ResponseWriter, r *http.Request) {
 
 	resp, aerr := s.ingest(r.Context(), ares.Account, req)
 	if aerr != nil {
+		applyAPIErrorHeaders(w, aerr)
 		s.renderUploadForm(w, r, ares, aerr.status, aerr.msg, values, "")
 		return
 	}
@@ -287,7 +288,7 @@ func formValuesFromRequest(r *http.Request) uploadFormValues {
 func uploadRequestFromForm(r *http.Request, body string) (uploadRequest, *apiError) {
 	durationMs, err := parseFormDurationMs(r.PostFormValue("duration_ms"))
 	if err != nil {
-		return uploadRequest{}, &apiError{http.StatusBadRequest, err.Error()}
+		return uploadRequest{}, &apiError{http.StatusBadRequest, err.Error(), 0}
 	}
 
 	lang := strings.TrimSpace(r.PostFormValue("lang"))
@@ -321,7 +322,7 @@ func uploadRequestFromForm(r *http.Request, body string) (uploadRequest, *apiErr
 	if v := strings.TrimSpace(r.PostFormValue("supersedes")); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || n <= 0 {
-			return uploadRequest{}, &apiError{http.StatusBadRequest, "supersedes must be a positive track id"}
+			return uploadRequest{}, &apiError{http.StatusBadRequest, "supersedes must be a positive track id", 0}
 		}
 		supersedes = n
 	}

@@ -161,20 +161,20 @@ func samePtrString(a, b *string) bool {
 func parseUploadStashIDs(ids []stashIDInput, allowedEndpoints []string) ([]store.ReleaseStashID, *apiError) {
 	if len(ids) > maxUploadStashIDs {
 		return nil, &apiError{http.StatusBadRequest,
-			fmt.Sprintf("stash_ids: at most %d per request", maxUploadStashIDs)}
+			fmt.Sprintf("stash_ids: at most %d per request", maxUploadStashIDs), 0}
 	}
 	out := make([]store.ReleaseStashID, 0, len(ids))
 	for _, sid := range ids {
 		endpoint, err := hash.NormalizeStashEndpoint(sid.Endpoint)
 		if err != nil {
-			return nil, &apiError{http.StatusBadRequest, "stash_ids: " + err.Error()}
+			return nil, &apiError{http.StatusBadRequest, "stash_ids: " + err.Error(), 0}
 		}
 		if !stashEndpointAllowed(allowedEndpoints, endpoint) {
-			return nil, &apiError{http.StatusBadRequest, "stash_ids: endpoint not accepted by this node"}
+			return nil, &apiError{http.StatusBadRequest, "stash_ids: endpoint not accepted by this node", 0}
 		}
 		id, err := hash.ParseStashID(sid.StashID)
 		if err != nil {
-			return nil, &apiError{http.StatusBadRequest, "stash_ids: " + err.Error()}
+			return nil, &apiError{http.StatusBadRequest, "stash_ids: " + err.Error(), 0}
 		}
 		out = append(out, store.ReleaseStashID{
 			Endpoint: endpoint,
@@ -198,10 +198,10 @@ func validateNameField(field, raw string, maxRunes int) (*string, *apiError) {
 		return nil, nil
 	}
 	if hasControlChar(trimmed) {
-		return nil, &apiError{http.StatusBadRequest, field + ": control characters are not allowed"}
+		return nil, &apiError{http.StatusBadRequest, field + ": control characters are not allowed", 0}
 	}
 	if utf8.RuneCountInString(trimmed) > maxRunes {
-		return nil, &apiError{http.StatusBadRequest, fmt.Sprintf("%s: at most %d characters", field, maxRunes)}
+		return nil, &apiError{http.StatusBadRequest, fmt.Sprintf("%s: at most %d characters", field, maxRunes), 0}
 	}
 	return &trimmed, nil
 }
@@ -219,16 +219,16 @@ func validatePerformers(performers []string) ([]string, *apiError) {
 			continue
 		}
 		if hasControlChar(trimmed) {
-			return nil, &apiError{http.StatusBadRequest, "performers: control characters are not allowed"}
+			return nil, &apiError{http.StatusBadRequest, "performers: control characters are not allowed", 0}
 		}
 		if utf8.RuneCountInString(trimmed) > MaxPerformerLen {
 			return nil, &apiError{http.StatusBadRequest,
-				fmt.Sprintf("performers: each name at most %d characters", MaxPerformerLen)}
+				fmt.Sprintf("performers: each name at most %d characters", MaxPerformerLen), 0}
 		}
 		out = append(out, trimmed)
 	}
 	if len(out) > MaxPerformers {
-		return nil, &apiError{http.StatusBadRequest, fmt.Sprintf("performers: at most %d entries", MaxPerformers)}
+		return nil, &apiError{http.StatusBadRequest, fmt.Sprintf("performers: at most %d entries", MaxPerformers), 0}
 	}
 	return out, nil
 }
@@ -330,7 +330,7 @@ func checkRuntimeFit(rendered string, durationMs int64) *apiError {
 	score, delta := subs.RuntimeFit(subRuntime, time.Duration(durationMs)*time.Millisecond)
 	if score == 0 && delta < 0 {
 		return &apiError{http.StatusBadRequest,
-			"subtitle runs past the end of the video: its last cue ends after duration_ms"}
+			"subtitle runs past the end of the video: its last cue ends after duration_ms", 0}
 	}
 	if score < 1 {
 		log.Printf("api: weak runtime fit for upload (score=%.2f delta=%v duration_ms=%d subtitle_runtime=%v), accepting anyway",
@@ -392,7 +392,7 @@ func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 
 	resp, aerr := s.ingest(ctx, account, req)
 	if aerr != nil {
-		writeError(w, aerr.status, aerr.msg)
+		writeAPIError(w, aerr)
 		return
 	}
 
@@ -426,16 +426,16 @@ func (s *Server) duplicateTrackResponse(ctx context.Context, existingID, release
 	existing, err := s.Store.GetSubtitleTrack(ctx, existingID)
 	if err != nil {
 		log.Printf("api: GetSubtitleTrack (duplicate check): %v", err)
-		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+		return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 	}
 	if existing.WithdrawnAt != nil {
-		return nil, &apiError{http.StatusGone, "track withdrawn"}
+		return nil, &apiError{http.StatusGone, "track withdrawn", 0}
 	}
 	newLabel := optString(kindLabel)
 	if kindGiven && (kind != existing.Kind || !samePtrString(newLabel, existing.KindLabel)) {
 		if err := s.Store.UpdateSubtitleTrackKind(ctx, existingID, kind, newLabel); err != nil {
 			log.Printf("api: UpdateSubtitleTrackKind: %v", err)
-			return nil, &apiError{http.StatusInternalServerError, "internal error"}
+			return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 		}
 	}
 
@@ -452,7 +452,7 @@ func (s *Server) duplicateTrackResponse(ctx context.Context, existingID, release
 		_, newDeclaredGenerated, err = s.Store.UpdateSubtitleTrackAuthorship(ctx, existingID, authorshipPtr, declaredGenerated)
 		if err != nil {
 			log.Printf("api: UpdateSubtitleTrackAuthorship: %v", err)
-			return nil, &apiError{http.StatusInternalServerError, "internal error"}
+			return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 		}
 	}
 
@@ -476,35 +476,36 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	// Keyed by account id rather than the raw token or its hash — an
 	// integer is a cheaper map key and there's no reason to keep copies of
 	// even the hashed secret lying around longer than needed.
-	if !s.Limiter.Allow(strconv.FormatInt(account.ID, 10)) {
-		return nil, &apiError{http.StatusTooManyRequests, "upload rate limit exceeded"}
+	key := strconv.FormatInt(account.ID, 10)
+	if !s.Limiter.Allow(key) {
+		return nil, rateLimitError(s.Limiter, key, "upload rate limit exceeded")
 	}
 
 	oshash, err := hash.ParseOSHash(req.OSHash)
 	if err != nil {
-		return nil, &apiError{http.StatusBadRequest, err.Error()}
+		return nil, &apiError{http.StatusBadRequest, err.Error(), 0}
 	}
 	var phash *hash.PHash
 	if req.PHash != "" {
 		p, err := hash.ParsePHash(req.PHash)
 		if err != nil {
-			return nil, &apiError{http.StatusBadRequest, err.Error()}
+			return nil, &apiError{http.StatusBadRequest, err.Error(), 0}
 		}
 		phash = &p
 	}
 	var md5 *string
 	if req.MD5 != "" {
 		if !md5Pattern.MatchString(req.MD5) {
-			return nil, &apiError{http.StatusBadRequest, "md5: want 32 hex characters"}
+			return nil, &apiError{http.StatusBadRequest, "md5: want 32 hex characters", 0}
 		}
 		v := strings.ToLower(req.MD5)
 		md5 = &v
 	}
 	if req.DurationMs <= 0 {
-		return nil, &apiError{http.StatusBadRequest, "duration_ms must be > 0"}
+		return nil, &apiError{http.StatusBadRequest, "duration_ms must be > 0", 0}
 	}
 	if req.Lang == "" {
-		return nil, &apiError{http.StatusBadRequest, "lang is required"}
+		return nil, &apiError{http.StatusBadRequest, "lang is required", 0}
 	}
 	// Canonicalise rather than merely validate (WP-P2): "en_US"/"EN" and
 	// "en-US"/"en" must store and dedupe as the same tag, and "und"/
@@ -514,24 +515,24 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	// not req.Lang, is what gets stored and compared from here on.
 	canonicalLang, _, err := subtitle.CanonicalLang(req.Lang)
 	if err != nil {
-		return nil, &apiError{http.StatusBadRequest, fmt.Sprintf("lang: no usable base language in %q", req.Lang)}
+		return nil, &apiError{http.StatusBadRequest, fmt.Sprintf("lang: no usable base language in %q", req.Lang), 0}
 	}
 	if req.Body == "" {
-		return nil, &apiError{http.StatusBadRequest, "body is required"}
+		return nil, &apiError{http.StatusBadRequest, "body is required", 0}
 	}
 	kind, kindLabel, err := subtitle.NormalizeKind(req.Kind, req.KindLabel)
 	if err != nil {
-		return nil, &apiError{http.StatusBadRequest, err.Error()}
+		return nil, &apiError{http.StatusBadRequest, err.Error(), 0}
 	}
 	authorship, err := subtitle.NormalizeAuthorship(req.Authorship)
 	if err != nil {
-		return nil, &apiError{http.StatusBadRequest, err.Error()}
+		return nil, &apiError{http.StatusBadRequest, err.Error(), 0}
 	}
 
 	rawBody := []byte(req.Body)
 	cues, err := subtitle.Parse(rawBody)
 	if err != nil {
-		return nil, &apiError{http.StatusBadRequest, "unparseable subtitle: " + err.Error()}
+		return nil, &apiError{http.StatusBadRequest, "unparseable subtitle: " + err.Error(), 0}
 	}
 	rendered := subtitle.RenderSRT(cues)
 
@@ -554,7 +555,7 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	}
 
 	if req.Date != "" && !datePattern.MatchString(req.Date) {
-		return nil, &apiError{http.StatusBadRequest, "date: want YYYY-MM-DD"}
+		return nil, &apiError{http.StatusBadRequest, "date: want YYYY-MM-DD", 0}
 	}
 	// WP-P3: title/stem/studio/performers are validated and capped before
 	// GetOrCreateRelease ever sees them — see validateReleaseNameMetadata's
@@ -583,7 +584,7 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	})
 	if err != nil {
 		log.Printf("api: GetOrCreateRelease: %v", err)
-		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+		return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 	}
 
 	// A withdrawn release stays findable by GetOrCreateRelease (it's still
@@ -591,7 +592,7 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	// upload didn't land, rather than silently accepting a new track under
 	// content that was taken down (WP-A1).
 	if release.WithdrawnAt != nil {
-		return nil, &apiError{http.StatusGone, "release withdrawn"}
+		return nil, &apiError{http.StatusGone, "release withdrawn", 0}
 	}
 
 	// Stash ids are release-level, not track-level, and additive like name
@@ -600,7 +601,7 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	if len(stashIDs) > 0 {
 		if err := s.Store.AddReleaseStashIDs(ctx, release.ID, stashIDs, &account.ID); err != nil {
 			log.Printf("api: AddReleaseStashIDs: %v", err)
-			return nil, &apiError{http.StatusInternalServerError, "internal error"}
+			return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 		}
 	}
 
@@ -612,7 +613,7 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	// library) must be safe to re-run without doubling every track.
 	if existingID, err := s.Store.FindIdenticalTrack(ctx, release.ID, canonicalLang, rendered); err != nil {
 		log.Printf("api: FindIdenticalTrack: %v", err)
-		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+		return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 	} else if existingID != 0 {
 		return s.duplicateTrackResponse(ctx, existingID, release.ID, kind, kindLabel, req.Kind != "", authorship, req.Authorship != "", req.Generated)
 	}
@@ -639,7 +640,7 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	trackID, err := s.Store.CreateSubtitleTrack(ctx, track)
 	if err != nil {
 		log.Printf("api: CreateSubtitleTrack: %v", err)
-		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+		return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 	}
 
 	return &uploadResponse{
@@ -655,36 +656,37 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 // from its stored body, then either supersedes it or falls back to an
 // ordinary new track with the reason stated.
 func (s *Server) ingestSupersede(ctx context.Context, account *store.Account, targetID, releaseID int64, lang string, proposed []subtitle.Cue, track store.SubtitleTrack) (*uploadResponse, *apiError) {
-	if !s.RevisionLimiter.Allow(strconv.FormatInt(account.ID, 10)) {
-		return nil, &apiError{http.StatusTooManyRequests, "revision rate limit exceeded"}
+	key := strconv.FormatInt(account.ID, 10)
+	if !s.RevisionLimiter.Allow(key) {
+		return nil, rateLimitError(s.RevisionLimiter, key, "revision rate limit exceeded")
 	}
 
 	target, err := s.Store.GetSubtitleTrack(ctx, targetID)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil, &apiError{http.StatusNotFound, "supersedes: no such track"}
+		return nil, &apiError{http.StatusNotFound, "supersedes: no such track", 0}
 	}
 	if err != nil {
 		log.Printf("api: GetSubtitleTrack (supersedes target): %v", err)
-		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+		return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 	}
 	if target.ReleaseID != releaseID || target.Lang != lang {
-		return nil, &apiError{http.StatusBadRequest, "supersedes: release/lang must match the track being superseded"}
+		return nil, &apiError{http.StatusBadRequest, "supersedes: release/lang must match the track being superseded", 0}
 	}
 
 	if target.WithdrawnAt != nil {
-		return nil, &apiError{http.StatusConflict, "supersedes: track is withdrawn"}
+		return nil, &apiError{http.StatusConflict, "supersedes: track is withdrawn", 0}
 	}
 	if target.RevisionLocked {
-		return nil, &apiError{http.StatusLocked, "supersedes: track's chain is revision-locked"}
+		return nil, &apiError{http.StatusLocked, "supersedes: track's chain is revision-locked", 0}
 	}
 	if msg, ok := s.notHeadRefusal(ctx, target); !ok {
-		return nil, &apiError{http.StatusConflict, msg}
+		return nil, &apiError{http.StatusConflict, msg, 0}
 	}
 
 	targetCues, err := subtitle.Parse([]byte(target.Body))
 	if err != nil {
 		log.Printf("api: parsing stored body of track %d: %v", target.ID, err)
-		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+		return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 	}
 	report := subtitle.Divergence(targetCues, proposed)
 
@@ -698,15 +700,15 @@ func (s *Server) ingestSupersede(ctx context.Context, account *store.Account, ta
 	newID, newRevision, err := s.Store.SupersedeTrack(ctx, target.ID, track)
 	switch {
 	case errors.Is(err, store.ErrTrackWithdrawn):
-		return nil, &apiError{http.StatusConflict, "supersedes: track is withdrawn"}
+		return nil, &apiError{http.StatusConflict, "supersedes: track is withdrawn", 0}
 	case errors.Is(err, store.ErrTrackLocked):
-		return nil, &apiError{http.StatusLocked, "supersedes: track's chain is revision-locked"}
+		return nil, &apiError{http.StatusLocked, "supersedes: track's chain is revision-locked", 0}
 	case errors.Is(err, store.ErrNotHead):
 		msg, _ := s.notHeadRefusal(ctx, target)
-		return nil, &apiError{http.StatusConflict, msg}
+		return nil, &apiError{http.StatusConflict, msg, 0}
 	case err != nil:
 		log.Printf("api: SupersedeTrack: %v", err)
-		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+		return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 	}
 
 	return &uploadResponse{
@@ -728,7 +730,7 @@ func (s *Server) plainTrackWithDecline(ctx context.Context, track store.Subtitle
 	trackID, err := s.Store.CreateSubtitleTrack(ctx, track)
 	if err != nil {
 		log.Printf("api: CreateSubtitleTrack (declined supersede): %v", err)
-		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+		return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 	}
 	resp := &uploadResponse{
 		TrackID:          trackID,

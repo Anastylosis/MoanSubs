@@ -178,9 +178,9 @@ func downloadAllOK(t *testing.T, v any) *downloadAllStats {
 // values and restores the package defaults on cleanup.
 func setDownloadTuning(t *testing.T, chunkSize int, backoff time.Duration) {
 	t.Helper()
-	origChunk, origBackoff := downloadLookupChunkSize, downloadBackoffBase
-	downloadLookupChunkSize, downloadBackoffBase = chunkSize, backoff
-	t.Cleanup(func() { downloadLookupChunkSize, downloadBackoffBase = origChunk, origBackoff })
+	origChunk, origBackoff := downloadLookupChunkSize, retryBackoffBase
+	downloadLookupChunkSize, retryBackoffBase = chunkSize, backoff
+	t.Cleanup(func() { downloadLookupChunkSize, retryBackoffBase = origChunk, origBackoff })
 }
 
 // A dry run must report exactly what it would do without touching the
@@ -368,7 +368,7 @@ func TestDownloadAll_RequiresLanguageConfiguration(t *testing.T) {
 // Many scenes must resolve in a bounded number of lookup calls, not one per
 // scene — the whole reason the bulk task exists.
 func TestDownloadAll_BatchChunking(t *testing.T) {
-	setDownloadTuning(t, 2, downloadBackoffBase)
+	setDownloadTuning(t, 2, retryBackoffBase)
 
 	var scenes []bulkFakeScene
 	hits := map[string]bulkRelease{}
@@ -409,7 +409,7 @@ func TestDownloadAll_BatchChunking(t *testing.T) {
 // already written stays written, the count is truthful, and later scenes
 // are never even looked up.
 func TestDownloadAll_StopMidRunLeavesConsistentState(t *testing.T) {
-	setDownloadTuning(t, 1, downloadBackoffBase)
+	setDownloadTuning(t, 1, retryBackoffBase)
 
 	var scenes []bulkFakeScene
 	hits := map[string]bulkRelease{}

@@ -61,10 +61,10 @@ func (s *Server) stashBoxHasKeyMap(ctx context.Context, accountID int64) map[str
 func (s *Server) resolveStashBoxEndpoint(raw string) (string, *apiError) {
 	norm, err := hash.NormalizeStashEndpoint(raw)
 	if err != nil {
-		return "", &apiError{http.StatusBadRequest, err.Error()}
+		return "", &apiError{http.StatusBadRequest, err.Error(), 0}
 	}
 	if !stashEndpointAllowed(s.StashEndpoints, norm) {
-		return "", &apiError{http.StatusBadRequest, "endpoint is not accepted by this node"}
+		return "", &apiError{http.StatusBadRequest, "endpoint is not accepted by this node", 0}
 	}
 	return norm, nil
 }
@@ -77,10 +77,10 @@ func (s *Server) stashBoxClientFor(ctx context.Context, accountID int64, endpoin
 	key, ok, err := s.Store.StashBoxKey(ctx, accountID, endpoint)
 	if err != nil {
 		log.Printf("api: StashBoxKey: %v", err)
-		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+		return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 	}
 	if !ok {
-		return nil, &apiError{http.StatusBadRequest, "no personal key set for " + endpoint + " — set one on /me"}
+		return nil, &apiError{http.StatusBadRequest, "no personal key set for " + endpoint + " — set one on /me", 0}
 	}
 	return stashbox.New(endpoint, key), nil
 }
@@ -91,11 +91,11 @@ func (s *Server) stashBoxClientFor(ctx context.Context, accountID int64, endpoin
 func stashBoxAPIError(endpoint string, err error) *apiError {
 	switch {
 	case errors.Is(err, stashbox.ErrUnauthorized):
-		return &apiError{http.StatusBadGateway, endpoint + " rejected the stash-box key (401) — set a fresh one on /me"}
+		return &apiError{http.StatusBadGateway, endpoint + " rejected the stash-box key (401) — set a fresh one on /me", 0}
 	case errors.Is(err, stashbox.ErrRateLimited):
-		return &apiError{http.StatusTooManyRequests, endpoint + " is asking you to slow down (429)"}
+		return &apiError{http.StatusTooManyRequests, endpoint + " is asking you to slow down (429)", 0}
 	default:
-		return &apiError{http.StatusBadGateway, fmt.Sprintf("looking up %s: %v", endpoint, err)}
+		return &apiError{http.StatusBadGateway, fmt.Sprintf("looking up %s: %v", endpoint, err), 0}
 	}
 }
 
@@ -110,7 +110,7 @@ func (s *Server) lookupStashBoxScenes(ctx context.Context, accountID int64, endp
 	if stashID = strings.TrimSpace(stashID); stashID != "" {
 		id, err := hash.ParseStashID(stashID)
 		if err != nil {
-			return nil, &apiError{http.StatusBadRequest, err.Error()}
+			return nil, &apiError{http.StatusBadRequest, err.Error(), 0}
 		}
 		scene, err := client.FindScene(ctx, id)
 		if err != nil {
@@ -127,7 +127,7 @@ func (s *Server) lookupStashBoxScenes(ctx context.Context, accountID int64, endp
 		algorithm, value = "PHASH", phash
 	}
 	if value == "" {
-		return nil, &apiError{http.StatusBadRequest, "nothing to look up: need a stash-box id, oshash, or phash"}
+		return nil, &apiError{http.StatusBadRequest, "nothing to look up: need a stash-box id, oshash, or phash", 0}
 	}
 	scenes, err := client.FindSceneByFingerprint(ctx, algorithm, value, int(durationMs))
 	if err != nil {
@@ -266,8 +266,9 @@ func (s *Server) handleStashBoxLookupAPI(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	if !s.StashBoxLimiter.Allow(strconv.FormatInt(account.ID, 10)) {
-		writeError(w, http.StatusTooManyRequests, "stash-box lookup rate limit exceeded")
+	key := strconv.FormatInt(account.ID, 10)
+	if !s.StashBoxLimiter.Allow(key) {
+		writeRateLimited(w, s.StashBoxLimiter, key, "stash-box lookup rate limit exceeded")
 		return
 	}
 
@@ -279,13 +280,13 @@ func (s *Server) handleStashBoxLookupAPI(w http.ResponseWriter, r *http.Request)
 
 	endpoint, aerr := s.resolveStashBoxEndpoint(req.Endpoint)
 	if aerr != nil {
-		writeError(w, aerr.status, aerr.msg)
+		writeAPIError(w, aerr)
 		return
 	}
 
 	scenes, aerr := s.lookupStashBoxScenes(r.Context(), account.ID, endpoint, req.StashID, req.OSHash, req.PHash, req.DurationMs)
 	if aerr != nil {
-		writeError(w, aerr.status, aerr.msg)
+		writeAPIError(w, aerr)
 		return
 	}
 	writeJSON(w, http.StatusOK, stashBoxLookupResponse{Scenes: toStashBoxSceneJSON(scenes)})
@@ -313,13 +314,16 @@ func (s *Server) handleReleaseStashBoxFind(w http.ResponseWriter, r *http.Reques
 		s.renderReleasePage(w, withAuth(r, ares), id, http.StatusBadRequest, "could not read the submitted form")
 		return
 	}
-	if !s.StashBoxLimiter.Allow(strconv.FormatInt(ares.Account.ID, 10)) {
+	key := strconv.FormatInt(ares.Account.ID, 10)
+	if !s.StashBoxLimiter.Allow(key) {
+		setRetryAfter(w, s.StashBoxLimiter.RetryAfter(key))
 		s.renderReleasePage(w, withAuth(r, ares), id, http.StatusTooManyRequests, "stash-box lookup rate limit exceeded")
 		return
 	}
 
 	endpoint, aerr := s.resolveStashBoxEndpoint(r.FormValue("endpoint"))
 	if aerr != nil {
+		applyAPIErrorHeaders(w, aerr)
 		s.renderReleasePage(w, withAuth(r, ares), id, aerr.status, aerr.msg)
 		return
 	}
@@ -350,6 +354,7 @@ func (s *Server) handleReleaseStashBoxFind(w http.ResponseWriter, r *http.Reques
 	scenes, aerr := s.lookupStashBoxScenes(r.Context(), ares.Account.ID, endpoint,
 		r.FormValue("stash_id"), release.OSHash.String(), phash, release.DurationMs)
 	if aerr != nil {
+		applyAPIErrorHeaders(w, aerr)
 		s.renderReleasePage(w, withAuth(r, ares), id, aerr.status, aerr.msg)
 		return
 	}

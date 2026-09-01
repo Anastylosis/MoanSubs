@@ -280,6 +280,9 @@ func TestVote_RateLimitExceeded(t *testing.T) {
 	if second.StatusCode != http.StatusTooManyRequests {
 		t.Errorf("second vote status = %d, want 429", second.StatusCode)
 	}
+	if got := second.Header.Get("Retry-After"); got == "" {
+		t.Error("429 vote response has no Retry-After header")
+	}
 }
 
 func TestListVotes_ReasonsAndNotesPublic(t *testing.T) {

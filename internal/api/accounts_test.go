@@ -159,8 +159,12 @@ func TestRegisterAccount_RateLimited(t *testing.T) {
 	if resp := doRegister(t, ts, "first"); resp.StatusCode != http.StatusCreated {
 		t.Fatalf("first registration = %d, want 201", resp.StatusCode)
 	}
-	if resp := doRegister(t, ts, "second"); resp.StatusCode != http.StatusTooManyRequests {
+	resp := doRegister(t, ts, "second")
+	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Errorf("second registration = %d, want 429", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Retry-After"); got == "" {
+		t.Error("429 registration response has no Retry-After header")
 	}
 }
 

@@ -204,7 +204,10 @@ Needs an upload token (Settings above), and stops immediately without one
 rather than failing file by file. Safe to re-run: the server reports a
 duplicate instead of storing a second copy. Suffix-less captions
 (`<stem>.srt`) and non-language suffixes are skipped, and the server
-additionally rejects subtitles whose timing contradicts the video.
+additionally rejects subtitles whose timing contradicts the video. Like
+every other bulk task, a 429 from the server backs off and retries — it
+sleeps exactly the server's own `Retry-After` when one is sent, and never
+counts a retry that eventually succeeds against the reported error count.
 
 Each file's **kind** is inferred from a Plex/Emby-style filename suffix —
 `.en.sdh.srt`, `.en.cc.srt`, `.en.forced.srt` — falling back to `default`
@@ -251,7 +254,9 @@ Safe to re-run (existing captions are left alone by default) and
 `Stop`-able mid-run: cancelling lands between chunks, never mid-write, so
 whatever was already written stays written and the reported counts are
 exact for what actually happened. A 429 from the server backs off and
-retries rather than hammering it.
+retries rather than hammering it — sleeping exactly the server's own
+`Retry-After` when one is sent, doubling delays only as a fallback for an
+older server that doesn't send one.
 
 Reports how many sidecars were written per language, plus scenes with no
 match. Like every download, **captions are read-only in GraphQL and only
@@ -352,7 +357,7 @@ What the plugin logs, and at which level:
 | Level | What appears |
 |---|---|
 | Error | Probe could not reach the server or read its version — the one failure Probe exists to surface |
-| Warning | Anything that silently degraded: a scene's phash was unparseable, stash ids were dropped, the name-match fallback was skipped or failed, a language was written as a bare subtag, a push or badge failed for one scene, a bulk download backed off on a 429 or failed a track |
+| Warning | Anything that silently degraded: a scene's phash was unparseable, stash ids were dropped, the name-match fallback was skipped or failed, a language was written as a bare subtag, a push or badge failed for one scene, a bulk push or download backed off on a 429 or failed a track |
 | Info | The running commentary of a task that is working: candidate counts, files written, per-file push results, the push and bulk-download summaries |
 
 So a node at `Warning` still surfaces every failure and every silent
@@ -380,12 +385,13 @@ verbose too.
   plugin binary predates the log-envelope fix; update it.
 - **Uploads fail with 429**: you hit the server's per-token upload budget;
   the operator can raise `MOANSUBS_UPLOAD_RATE_PER_HOUR` (MANUAL.md).
-- **Download subtitles logs "rate limited (429), backing off"**: the bulk
-  download task hit the server's per-IP lookup budget. It backs off and
-  retries on its own; this Warning-level line is normal progress, not a
-  stuck task, unless it keeps recurring for the same scene after several
-  retries — in which case the task gives up on that scene and counts it as
-  an error rather than retrying forever.
+- **A bulk task logs "rate limited (429), backing off"**: Push subtitles
+  or Download subtitles hit the server's per-token or per-IP budget. It
+  backs off and retries on its own — honoring the server's own
+  `Retry-After` wait when one is sent — and this Warning-level line is
+  normal progress, not a stuck task, unless it keeps recurring for the
+  same scene after several retries — in which case the task gives up on
+  that scene and counts it as an error rather than retrying forever.
 - **Against an old node**: the plugin checks `GET /api/v1/version` before
   trying the **Name match** fallback. A pre-0.2 node has no version
   endpoint at all (404), which is treated the same as a current node that

@@ -117,6 +117,9 @@ func TestReleaseRemoval_RateLimitExceeded(t *testing.T) {
 	if second.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("second removal request status = %d, want 429", second.StatusCode)
 	}
+	if got := second.Header.Get("Retry-After"); got == "" {
+		t.Error("429 removal response has no Retry-After header")
+	}
 }
 
 func TestReleaseRemoval_LoggedIn_RecordsAccount(t *testing.T) {

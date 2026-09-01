@@ -1,8 +1,10 @@
 package api
 
 import (
+	"math"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -193,6 +195,67 @@ func (l *RateLimiter) Allow(key string) bool {
 	}
 	b.tokens--
 	return true
+}
+
+// RetryAfter reports how long until key's bucket next holds a full token,
+// reading the same refill math Allow uses so a denial's Retry-After is
+// derived, never guessed. Read-only — it consumes nothing, so it is safe to
+// call right after a denied Allow without racing its own answer. A key with
+// no bucket yet, or one that already has a token, has nothing to wait for.
+func (l *RateLimiter) RetryAfter(key string) time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	b, ok := l.buckets[key]
+	if !ok {
+		return 0
+	}
+	tokens := b.tokens
+	if elapsed := l.now().Sub(b.last).Seconds(); elapsed > 0 {
+		tokens += elapsed * l.rate
+		if tokens > l.burst {
+			tokens = l.burst
+		}
+	}
+	if tokens >= 1 {
+		return 0
+	}
+	return time.Duration((1 - tokens) / l.rate * float64(time.Second))
+}
+
+// retryAfterSeconds converts a wait into the Retry-After header's wire
+// format: whole seconds, rounded up so a client is never told to retry
+// before its slot actually opens, floored at 1 so a 429 never claims to
+// already be over.
+func retryAfterSeconds(d time.Duration) int {
+	secs := int(math.Ceil(d.Seconds()))
+	if secs < 1 {
+		return 1
+	}
+	return secs
+}
+
+// setRetryAfter sets the Retry-After header in that format — the one place
+// its wire format is decided, so every 429 site agrees on it.
+func setRetryAfter(w http.ResponseWriter, d time.Duration) {
+	w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds(d)))
+}
+
+// writeRateLimited writes a 429 whose Retry-After is limiter's own answer
+// for key, right after limiter denied it — the JSON shape for every
+// endpoint that checks its limiter and renders straight to w, with no
+// apiError in between.
+func writeRateLimited(w http.ResponseWriter, limiter *RateLimiter, key, msg string) {
+	setRetryAfter(w, limiter.RetryAfter(key))
+	writeError(w, http.StatusTooManyRequests, msg)
+}
+
+// rateLimitError builds the 429 apiError for a denied Allow, carrying an
+// honest Retry-After from limiter's own state for key — the shape for
+// every endpoint whose limiter check reports through an apiError rather
+// than writing to a ResponseWriter directly.
+func rateLimitError(limiter *RateLimiter, key, msg string) *apiError {
+	return &apiError{http.StatusTooManyRequests, msg, limiter.RetryAfter(key)}
 }
 
 // prune drops every bucket idle long enough to have refilled completely —

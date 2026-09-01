@@ -79,8 +79,9 @@ func (s *Server) handleContributeMetadata(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	if !s.MetadataLimiter.Allow(strconv.FormatInt(account.ID, 10)) {
-		writeError(w, http.StatusTooManyRequests, "metadata rate limit exceeded")
+	key := strconv.FormatInt(account.ID, 10)
+	if !s.MetadataLimiter.Allow(key) {
+		writeRateLimited(w, s.MetadataLimiter, key, "metadata rate limit exceeded")
 		return
 	}
 
@@ -190,11 +191,11 @@ func (s *Server) resolveMetadataRelease(ctx context.Context, e metadataEntry) (*
 		return rel, nil
 	}
 	if e.OSHash == "" {
-		return nil, &apiError{http.StatusBadRequest, "entry needs release_id or oshash"}
+		return nil, &apiError{http.StatusBadRequest, "entry needs release_id or oshash", 0}
 	}
 	oh, herr := hash.ParseOSHash(e.OSHash)
 	if herr != nil {
-		return nil, &apiError{http.StatusBadRequest, "oshash: " + herr.Error()}
+		return nil, &apiError{http.StatusBadRequest, "oshash: " + herr.Error(), 0}
 	}
 	rel, err := s.Store.GetReleaseByOshash(ctx, oh)
 	if err != nil {

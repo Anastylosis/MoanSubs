@@ -194,7 +194,12 @@ func (a *app) pushScene(ctx context.Context, scene *stash.Scene, dryRun bool, on
 			req.Kind = kind
 			req.KindLabel = kindLabel
 		}
-		res, err := a.ms.Upload(ctx, req)
+		var res *client.UploadResult
+		err = a.withRetry429(ctx, func() error {
+			var uerr error
+			res, uerr = a.ms.Upload(ctx, req)
+			return uerr
+		})
 		if err != nil {
 			st.Errors++
 			st.note("uploading %s: %v", sc.Path, err)

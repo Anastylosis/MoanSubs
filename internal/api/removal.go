@@ -93,7 +93,9 @@ func (s *Server) handleReleaseRemoval(w http.ResponseWriter, r *http.Request) {
 	}
 	r = withAuth(r, ares)
 
-	if !s.RemovalLimiter.Allow(limiterKey(s.clientIP(r))) {
+	key := limiterKey(s.clientIP(r))
+	if !s.RemovalLimiter.Allow(key) {
+		setRetryAfter(w, s.RemovalLimiter.RetryAfter(key))
 		s.renderReleasePage(w, r, releaseID, http.StatusTooManyRequests, "too many removal requests from this address, try again later")
 		return
 	}

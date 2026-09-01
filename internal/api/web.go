@@ -404,6 +404,7 @@ func (s *Server) handleRegisterSubmit(w http.ResponseWriter, r *http.Request) {
 
 	got, rerr := s.register(r.Context(), s.clientIP(r), name, invite, password, true)
 	if rerr != nil {
+		applyAPIErrorHeaders(w, rerr)
 		s.renderPage(w, r, rerr.status, "register.html", registerData{
 			Title: "Register", Open: s.OpenForStrangers(), InviteRequired: inviteRequired,
 			Name: name, Invite: invite, Error: rerr.msg,

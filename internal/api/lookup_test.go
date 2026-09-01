@@ -539,6 +539,9 @@ func TestLookup_RateLimitExceeded(t *testing.T) {
 	if second.StatusCode != http.StatusTooManyRequests {
 		t.Errorf("second GET status = %d, want 429", second.StatusCode)
 	}
+	if got := second.Header.Get("Retry-After"); got == "" {
+		t.Error("429 response has no Retry-After header")
+	}
 }
 
 // -- end-to-end MIH client flow -------------------------------------------

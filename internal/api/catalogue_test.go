@@ -156,6 +156,9 @@ func TestSearch_RateLimitExceeded(t *testing.T) {
 	if !strings.Contains(body, "too many") {
 		t.Errorf("429 page does not explain itself: %s", body)
 	}
+	if got := second.Header.Get("Retry-After"); got == "" {
+		t.Error("429 page has no Retry-After header")
+	}
 }
 
 // TestSearch_LongQueryIsTruncatedNotRejected covers WP-P3: a 10 KiB q must

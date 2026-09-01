@@ -3,12 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"slices"
 	"sort"
 	"strings"
-	"time"
 
 	stash "github.com/Anastylosis/stash-go"
 
@@ -21,14 +19,6 @@ import (
 // var (not const) so a test can shrink it instead of creating hundreds of
 // scenes to observe chunking.
 var downloadLookupChunkSize = 25
-
-// downloadBackoffBase is slept, doubling each retry, after a 429 from the
-// moansubs server; a var so tests don't wait out real backoff delays.
-var downloadBackoffBase = 2 * time.Second
-
-// maxDownloadRetries bounds the 429 backoff loop: back off, don't grind
-// forever against a server that keeps saying no.
-const maxDownloadRetries = 5
 
 // downloadAllStats is the bulk download task's output.
 type downloadAllStats struct {
@@ -318,29 +308,4 @@ func (a *app) downloadTrack(ctx context.Context, scenePath string, t client.Trac
 	}
 	st.downloaded(lang.Base)
 	logInfo("download_all: wrote %s", path)
-}
-
-// withRetry429 runs fn, backing off and retrying only on a 429 from the
-// moansubs server — every other error, including ctx cancellation, returns
-// immediately. Grinding a rate limit by hammering it at full speed would
-// make the situation worse for every other client sharing that budget.
-func (a *app) withRetry429(ctx context.Context, fn func() error) error {
-	delay := downloadBackoffBase
-	for attempt := 0; ; attempt++ {
-		err := fn()
-		if err == nil {
-			return nil
-		}
-		status, ok := client.StatusCode(err)
-		if !ok || status != http.StatusTooManyRequests || attempt >= maxDownloadRetries {
-			return err
-		}
-		logWarning("download_all: rate limited (429), backing off %s", delay)
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(delay):
-		}
-		delay *= 2
-	}
 }

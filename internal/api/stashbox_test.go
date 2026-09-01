@@ -350,6 +350,12 @@ func TestStashBoxLookupAPI_RateLimitedSurfaces429(t *testing.T) {
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("lookup against a 429 box = %d, want 429", resp.StatusCode)
 	}
+	// This 429 is a passthrough of the third party's own rate limit, not
+	// ours — we have no window to derive a wait from, so no Retry-After is
+	// set rather than guessing one.
+	if got := resp.Header.Get("Retry-After"); got != "" {
+		t.Errorf("Retry-After = %q, want unset for a stash-box passthrough 429", got)
+	}
 }
 
 func TestStashBoxLookupAPI_OwnRateLimitApplies(t *testing.T) {
@@ -372,8 +378,12 @@ func TestStashBoxLookupAPI_OwnRateLimitApplies(t *testing.T) {
 	for i := 0; i < StashBoxRateLimitPerHour; i++ {
 		doStashBoxLookup(t, ts, token, req)
 	}
-	if resp := doStashBoxLookup(t, ts, token, req); resp.StatusCode != http.StatusTooManyRequests {
+	resp := doStashBoxLookup(t, ts, token, req)
+	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Errorf("lookup past the per-account budget = %d, want 429", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Retry-After"); got == "" {
+		t.Error("429 from our own StashBoxLimiter has no Retry-After header")
 	}
 }
 

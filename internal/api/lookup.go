@@ -265,8 +265,9 @@ var ehashPattern = regexp.MustCompile(`^[0-9a-f]{12}$`)
 // handleLookupOshashPrefix implements GET /api/v1/lookup/oshash/{prefix}
 // (PLAN.md "Lookup: bucketed by default"). Anonymous, IP rate-limited.
 func (s *Server) handleLookupOshashPrefix(w http.ResponseWriter, r *http.Request) {
-	if !s.LookupLimiter.Allow(limiterKey(s.clientIP(r))) {
-		writeError(w, http.StatusTooManyRequests, "lookup rate limit exceeded")
+	key := limiterKey(s.clientIP(r))
+	if !s.LookupLimiter.Allow(key) {
+		writeRateLimited(w, s.LookupLimiter, key, "lookup rate limit exceeded")
 		return
 	}
 
@@ -311,8 +312,9 @@ func phashBlockMax(blockIndex int) uint64 {
 // handleLookupPhashBlock implements GET /api/v1/lookup/phash/{block}/{val}
 // (PLAN.md "Lookup: bucketed by default"). Anonymous, IP rate-limited.
 func (s *Server) handleLookupPhashBlock(w http.ResponseWriter, r *http.Request) {
-	if !s.LookupLimiter.Allow(limiterKey(s.clientIP(r))) {
-		writeError(w, http.StatusTooManyRequests, "lookup rate limit exceeded")
+	key := limiterKey(s.clientIP(r))
+	if !s.LookupLimiter.Allow(key) {
+		writeRateLimited(w, s.LookupLimiter, key, "lookup rate limit exceeded")
 		return
 	}
 
@@ -358,8 +360,9 @@ func (s *Server) handleLookupPhashBlock(w http.ResponseWriter, r *http.Request) 
 // itself on this path, only the hash a client already derived from it.
 // Anonymous, IP rate-limited like the other lookups.
 func (s *Server) handleLookupStash(w http.ResponseWriter, r *http.Request) {
-	if !s.LookupLimiter.Allow(limiterKey(s.clientIP(r))) {
-		writeError(w, http.StatusTooManyRequests, "lookup rate limit exceeded")
+	key := limiterKey(s.clientIP(r))
+	if !s.LookupLimiter.Allow(key) {
+		writeRateLimited(w, s.LookupLimiter, key, "lookup rate limit exceeded")
 		return
 	}
 
@@ -447,8 +450,9 @@ func stashResultKey(ehash, stashID string) string {
 // returning partial results, so a client can't mistake a validation
 // rejection for "this bucket happens to be empty".
 func (s *Server) handleLookupBatch(w http.ResponseWriter, r *http.Request) {
-	if !s.LookupLimiter.Allow(limiterKey(s.clientIP(r))) {
-		writeError(w, http.StatusTooManyRequests, "lookup rate limit exceeded")
+	key := limiterKey(s.clientIP(r))
+	if !s.LookupLimiter.Allow(key) {
+		writeRateLimited(w, s.LookupLimiter, key, "lookup rate limit exceeded")
 		return
 	}
 
@@ -613,8 +617,9 @@ type exactLookupResponse struct {
 // via the store's bit_count path (LookupByPHashFuzzy), gated at maxDistance.
 // Results from both are unioned and deduplicated by release id.
 func (s *Server) handleLookupExact(w http.ResponseWriter, r *http.Request) {
-	if !s.LookupLimiter.Allow(limiterKey(s.clientIP(r))) {
-		writeError(w, http.StatusTooManyRequests, "lookup rate limit exceeded")
+	key := limiterKey(s.clientIP(r))
+	if !s.LookupLimiter.Allow(key) {
+		writeRateLimited(w, s.LookupLimiter, key, "lookup rate limit exceeded")
 		return
 	}
 

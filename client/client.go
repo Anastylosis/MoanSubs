@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -782,6 +783,12 @@ func (c *Client) post(ctx context.Context, path string, body, out any) error {
 type httpStatusError struct {
 	status int
 	err    error
+	// retryAfter is the response's Retry-After header, parsed as whole
+	// seconds (the only form the server emits) — zero when the header was
+	// absent or in a form this client doesn't parse (an HTTP-date is
+	// ignored rather than rejected: a caller with nothing to go on just
+	// falls back to its own backoff schedule).
+	retryAfter time.Duration
 }
 
 func (e *httpStatusError) Error() string { return e.err.Error() }
@@ -797,6 +804,36 @@ func StatusCode(err error) (int, bool) {
 		return se.status, true
 	}
 	return 0, false
+}
+
+// RetryAfter extracts the response's Retry-After wait from an error this
+// client returned, when the server sent one. Absent (ok == false, or a
+// zero duration returned alongside true) means the caller has nothing to
+// go on and should fall back to its own backoff schedule rather than
+// guess.
+func RetryAfter(err error) (time.Duration, bool) {
+	var se *httpStatusError
+	if errors.As(err, &se) && se.retryAfter > 0 {
+		return se.retryAfter, true
+	}
+	return 0, false
+}
+
+// parseRetryAfter parses the Retry-After header's integer-seconds form —
+// the only form the server emits (WP-backoff). An HTTP-date value (the
+// header's other legal form) is ignored rather than rejected: this client
+// only ever talks to this project's own server, so there is nothing to
+// gain from parsing a shape it never sends.
+func parseRetryAfter(h http.Header) time.Duration {
+	v := strings.TrimSpace(h.Get("Retry-After"))
+	if v == "" {
+		return 0
+	}
+	secs, err := strconv.Atoi(v)
+	if err != nil || secs < 0 {
+		return 0
+	}
+	return time.Duration(secs) * time.Second
 }
 
 func (c *Client) do(req *http.Request, out any) error {
@@ -819,18 +856,20 @@ func (c *Client) doRaw(req *http.Request, out any, preferJSONError bool) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		retryAfter := parseRetryAfter(resp.Header)
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if preferJSONError {
 			var body struct {
 				Error string `json:"error"`
 			}
 			if json.Unmarshal(b, &body) == nil && body.Error != "" {
-				return &httpStatusError{status: resp.StatusCode, err: errors.New(body.Error)}
+				return &httpStatusError{status: resp.StatusCode, err: errors.New(body.Error), retryAfter: retryAfter}
 			}
 		}
 		return &httpStatusError{
-			status: resp.StatusCode,
-			err:    fmt.Errorf("client: %s: HTTP %d: %s", req.URL.Path, resp.StatusCode, strings.TrimSpace(string(b))),
+			status:     resp.StatusCode,
+			err:        fmt.Errorf("client: %s: HTTP %d: %s", req.URL.Path, resp.StatusCode, strings.TrimSpace(string(b))),
+			retryAfter: retryAfter,
 		}
 	}
 	if out != nil {

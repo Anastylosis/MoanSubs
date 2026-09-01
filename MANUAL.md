@@ -333,6 +333,15 @@ The per-IP lookup rate limit (300/min) is compiled in; it is deliberately
 generous because browsing a scene wall fires lookups continuously, and the
 batch endpoint is the intended pressure valve.
 
+Every `429` this node emits (lookup, upload, vote, fit, registration,
+login, search, removal, metadata, and this node's own stash-box budget)
+carries a `Retry-After` header — the exact wait, in whole seconds rounded
+up, derived from that limiter's own refill state (API.md). The one
+exception is the stash-box passthrough just above: a `429` there is the
+third party's own rate limit forwarded verbatim, and this node has no
+window of its own to derive a wait from, so no header is added rather than
+guessing one.
+
 ### `moansubs migrate`
 
 Applies pending migrations and exits. Useful for pre-flighting an upgrade;

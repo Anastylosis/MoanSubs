@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Anastylosis/MoanSubs/client"
 	stash "github.com/Anastylosis/stash-go"
@@ -738,5 +740,68 @@ func TestMsclientStashIDs_WildcardAllowsAnyEndpoint(t *testing.T) {
 	got := a.clientStashIDs(context.Background(), ids, "test-scene-id")
 	if len(got) != 1 {
 		t.Fatalf("clientStashIDs returned %d entries, want 1 (wildcard allows any endpoint)", len(got))
+	}
+}
+
+// -- withRetry429 --------------------------------------------------------
+
+// A 429 that names its own Retry-After is obeyed exactly, not the doubling
+// fallback: retryBackoffBase is set to something obviously longer than the
+// server's 1-second header, so the wrong path would make this test far
+// slower than the ~1s it should actually take.
+func TestWithRetry429_HonorsServerRetryAfterExactly(t *testing.T) {
+	orig := retryBackoffBase
+	retryBackoffBase = 5 * time.Second
+	t.Cleanup(func() { retryBackoffBase = orig })
+
+	var hits atomic.Int64
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/version", func(w http.ResponseWriter, r *http.Request) {
+		if hits.Add(1) == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"version": "1.0.0"})
+	})
+	ms := httptest.NewServer(mux)
+	defer ms.Close()
+
+	a := &app{ms: client.New(ms.URL, "")}
+	start := time.Now()
+	err := a.withRetry429(context.Background(), func() error {
+		_, verr := a.ms.Version(context.Background())
+		return verr
+	})
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("withRetry429: %v", err)
+	}
+	if hits.Load() != 2 {
+		t.Errorf("attempts = %d, want 2 (one 429 then success)", hits.Load())
+	}
+	// Generous window around the server's 1s header, but tight enough that
+	// falling back to retryBackoffBase's 5s would fail it.
+	if elapsed < 900*time.Millisecond || elapsed > 3*time.Second {
+		t.Errorf("elapsed = %v, want ~1s (the server's Retry-After), not retryBackoffBase's 5s fallback", elapsed)
+	}
+}
+
+// Every other error, including one that never carries a status at all,
+// returns immediately with no retry.
+func TestWithRetry429_NonRateLimitErrorNotRetried(t *testing.T) {
+	a := &app{}
+	var calls int
+	want := context.Canceled // any non-nil, non-429 error
+	err := a.withRetry429(context.Background(), func() error {
+		calls++
+		return want
+	})
+	if !errors.Is(err, want) {
+		t.Errorf("withRetry429 = %v, want the fn's own error unwrapped", err)
+	}
+	if calls != 1 {
+		t.Errorf("fn called %d times, want 1 (no retry for a non-429 error)", calls)
 	}
 }

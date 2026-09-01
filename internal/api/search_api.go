@@ -49,8 +49,9 @@ func (s *Server) handleSearchAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.SearchLimiter.Allow(limiterKey(s.clientIP(r))) {
-		writeError(w, http.StatusTooManyRequests, "too many searches — try again in a minute")
+	key := limiterKey(s.clientIP(r))
+	if !s.SearchLimiter.Allow(key) {
+		writeRateLimited(w, s.SearchLimiter, key, "too many searches — try again in a minute")
 		return
 	}
 

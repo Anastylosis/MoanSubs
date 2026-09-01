@@ -71,8 +71,9 @@ func clampQueryInt(r *http.Request, name string, def, lo, hi int) int {
 // account, no event finer than a date — see store/trending.go). Anonymous,
 // IP rate-limited like the other lookups.
 func (s *Server) handleTrending(w http.ResponseWriter, r *http.Request) {
-	if !s.LookupLimiter.Allow(limiterKey(s.clientIP(r))) {
-		writeError(w, http.StatusTooManyRequests, "lookup rate limit exceeded")
+	key := limiterKey(s.clientIP(r))
+	if !s.LookupLimiter.Allow(key) {
+		writeRateLimited(w, s.LookupLimiter, key, "lookup rate limit exceeded")
 		return
 	}
 

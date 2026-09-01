@@ -127,23 +127,23 @@ func validateVoteRequest(req voteRequest) (value int16, reason, note *string, er
 func (s *Server) trackForVote(ctx context.Context, id int64) (*store.SubtitleTrack, *apiError) {
 	track, err := s.Store.GetSubtitleTrack(ctx, id)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil, &apiError{http.StatusNotFound, "no such subtitle track"}
+		return nil, &apiError{http.StatusNotFound, "no such subtitle track", 0}
 	}
 	if err != nil {
 		log.Printf("api: GetSubtitleTrack (vote): %v", err)
-		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+		return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 	}
 	if track.WithdrawnAt != nil {
-		return nil, &apiError{http.StatusGone, "track withdrawn"}
+		return nil, &apiError{http.StatusGone, "track withdrawn", 0}
 	}
 
 	release, err := s.Store.GetReleaseByID(ctx, track.ReleaseID)
 	if err != nil {
 		log.Printf("api: GetReleaseByID (vote): %v", err)
-		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+		return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 	}
 	if release.WithdrawnAt != nil {
-		return nil, &apiError{http.StatusGone, "release withdrawn"}
+		return nil, &apiError{http.StatusGone, "release withdrawn", 0}
 	}
 	return track, nil
 }
@@ -154,13 +154,14 @@ func (s *Server) trackForVote(ctx context.Context, id int64) (*store.SubtitleTra
 // exactly the same rules rather than a second copy of them, the same shape
 // subtitles.go's ingest is shared between the JSON and web upload paths.
 func (s *Server) castVote(ctx context.Context, account *store.Account, trackID int64, req voteRequest) (*voteResponse, *apiError) {
-	if !s.VoteLimiter.Allow(strconv.FormatInt(account.ID, 10)) {
-		return nil, &apiError{http.StatusTooManyRequests, "vote rate limit exceeded"}
+	key := strconv.FormatInt(account.ID, 10)
+	if !s.VoteLimiter.Allow(key) {
+		return nil, rateLimitError(s.VoteLimiter, key, "vote rate limit exceeded")
 	}
 
 	value, reason, note, err := validateVoteRequest(req)
 	if err != nil {
-		return nil, &apiError{http.StatusBadRequest, err.Error()}
+		return nil, &apiError{http.StatusBadRequest, err.Error(), 0}
 	}
 
 	track, aerr := s.trackForVote(ctx, trackID)
@@ -170,13 +171,13 @@ func (s *Server) castVote(ctx context.Context, account *store.Account, trackID i
 	// A mirror-imported track (uploader_id NULL) has no uploader to protect
 	// from itself — anyone may vote on it (WP-C3 spec).
 	if track.UploaderID != nil && *track.UploaderID == account.ID {
-		return nil, &apiError{http.StatusBadRequest, "cannot vote on your own upload"}
+		return nil, &apiError{http.StatusBadRequest, "cannot vote on your own upload", 0}
 	}
 
 	up, down, err := s.Store.UpsertVote(ctx, trackID, account.ID, value, reason, note)
 	if err != nil {
 		log.Printf("api: UpsertVote: %v", err)
-		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+		return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 	}
 
 	return &voteResponse{
@@ -190,8 +191,9 @@ func (s *Server) castVote(ctx context.Context, account *store.Account, trackID i
 // same way castVote is shared with the up/down path. Idempotent like the
 // DELETE it backs: no existing vote is not an error.
 func (s *Server) retractVote(ctx context.Context, account *store.Account, trackID int64) *apiError {
-	if !s.VoteLimiter.Allow(strconv.FormatInt(account.ID, 10)) {
-		return &apiError{http.StatusTooManyRequests, "vote rate limit exceeded"}
+	key := strconv.FormatInt(account.ID, 10)
+	if !s.VoteLimiter.Allow(key) {
+		return rateLimitError(s.VoteLimiter, key, "vote rate limit exceeded")
 	}
 
 	if _, aerr := s.trackForVote(ctx, trackID); aerr != nil {
@@ -200,7 +202,7 @@ func (s *Server) retractVote(ctx context.Context, account *store.Account, trackI
 
 	if _, _, err := s.Store.RetractVote(ctx, trackID, account.ID); err != nil {
 		log.Printf("api: RetractVote: %v", err)
-		return &apiError{http.StatusInternalServerError, "internal error"}
+		return &apiError{http.StatusInternalServerError, "internal error", 0}
 	}
 	return nil
 }
@@ -230,7 +232,7 @@ func (s *Server) handleVotePut(w http.ResponseWriter, r *http.Request) {
 
 	resp, aerr := s.castVote(r.Context(), account, id, req)
 	if aerr != nil {
-		writeError(w, aerr.status, aerr.msg)
+		writeAPIError(w, aerr)
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -252,7 +254,7 @@ func (s *Server) handleVoteDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if aerr := s.retractVote(r.Context(), account, id); aerr != nil {
-		writeError(w, aerr.status, aerr.msg)
+		writeAPIError(w, aerr)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -293,7 +295,7 @@ func (s *Server) handleListVotes(w http.ResponseWriter, r *http.Request) {
 
 	track, aerr := s.trackForVote(r.Context(), id)
 	if aerr != nil {
-		writeError(w, aerr.status, aerr.msg)
+		writeAPIError(w, aerr)
 		return
 	}
 

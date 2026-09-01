@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Anastylosis/MoanSubs/hash"
 	"github.com/Anastylosis/MoanSubs/internal/api"
@@ -870,5 +871,78 @@ func TestVersion_OldServer404(t *testing.T) {
 	}
 	if len(v.Features) != 0 {
 		t.Errorf("Features = %v, want empty", v.Features)
+	}
+}
+
+// -- RetryAfter --------------------------------------------------------
+
+// A 429 carrying the server's Retry-After (WP-backoff: integer seconds)
+// surfaces through both StatusCode and RetryAfter.
+func TestRetryAfter_ParsesSecondsFrom429(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "7")
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	c := New(ts.URL, "")
+	_, err := c.Version(context.Background())
+	if err == nil {
+		t.Fatal("Version against a 429 server: err = nil, want an error")
+	}
+	if status, ok := StatusCode(err); !ok || status != http.StatusTooManyRequests {
+		t.Errorf("StatusCode = %d, %v, want 429, true", status, ok)
+	}
+	if d, ok := RetryAfter(err); !ok || d != 7*time.Second {
+		t.Errorf("RetryAfter = %v, %v, want 7s, true", d, ok)
+	}
+}
+
+// No Retry-After header: RetryAfter reports absence rather than a zero
+// duration a caller might mistake for "retry immediately".
+func TestRetryAfter_AbsentWhenHeaderMissing(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/version", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	c := New(ts.URL, "")
+	_, err := c.Version(context.Background())
+	if d, ok := RetryAfter(err); ok || d != 0 {
+		t.Errorf("RetryAfter = %v, %v, want 0, false with no header", d, ok)
+	}
+}
+
+// An HTTP-date Retry-After (the header's other legal form, which this
+// server never emits) is ignored politely rather than mishandled — the
+// caller just gets "absent" and falls back to its own backoff.
+func TestRetryAfter_IgnoresHTTPDateForm(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "Wed, 21 Oct 2026 07:28:00 GMT")
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	c := New(ts.URL, "")
+	_, err := c.Version(context.Background())
+	if d, ok := RetryAfter(err); ok || d != 0 {
+		t.Errorf("RetryAfter = %v, %v, want 0, false for an HTTP-date value", d, ok)
+	}
+}
+
+// RetryAfter on an error this client didn't produce (or on a plain nil)
+// reports absence rather than panicking.
+func TestRetryAfter_NonHTTPStatusError(t *testing.T) {
+	if d, ok := RetryAfter(errors.New("not an httpStatusError")); ok || d != 0 {
+		t.Errorf("RetryAfter = %v, %v, want 0, false", d, ok)
+	}
+	if d, ok := RetryAfter(nil); ok || d != 0 {
+		t.Errorf("RetryAfter(nil) = %v, %v, want 0, false", d, ok)
 	}
 }

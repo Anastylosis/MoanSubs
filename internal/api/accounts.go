@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/Anastylosis/MoanSubs/internal/store"
@@ -92,6 +93,31 @@ func validatePassword(pw string) error {
 type apiError struct {
 	status int
 	msg    string
+	// retryAfter is a 429's honest wait, from the limiter that denied the
+	// request (RateLimiter.RetryAfter) — always > 0 when set, since it is
+	// only ever read right after a denial. Zero means either a non-429
+	// error or a 429 with no derivable wait (a passthrough of a third
+	// party's rate limit, e.g. stash-box's own 429): applyAPIErrorHeaders
+	// leaves Retry-After off rather than guess one.
+	retryAfter time.Duration
+}
+
+// applyAPIErrorHeaders sets any headers aerr's contents imply, before it is
+// rendered by whichever of writeError/renderPage/renderReleasePage/
+// renderUploadForm the caller is about to use — today that is only a rate
+// limit's Retry-After.
+func applyAPIErrorHeaders(w http.ResponseWriter, aerr *apiError) {
+	if aerr.retryAfter > 0 {
+		setRetryAfter(w, aerr.retryAfter)
+	}
+}
+
+// writeAPIError renders aerr as a JSON error body, honoring
+// applyAPIErrorHeaders first — the one place "writeError(w, aerr.status,
+// aerr.msg)" should be spelled from here on.
+func writeAPIError(w http.ResponseWriter, aerr *apiError) {
+	applyAPIErrorHeaders(w, aerr)
+	writeError(w, aerr.status, aerr.msg)
 }
 
 // register is the whole of registration — gate, rate limit, validate,
@@ -114,29 +140,30 @@ type apiError struct {
 // attempts, so there's no separate limiter to keep in sync with this one.
 func (s *Server) register(ctx context.Context, ip, rawName, rawInvite, rawPassword string, passwordRequired bool) (*registerResponse, *apiError) {
 	if !s.OpenForStrangers() {
-		return nil, &apiError{http.StatusForbidden, "registration is closed on this node; ask the operator for an account"}
+		return nil, &apiError{http.StatusForbidden, "registration is closed on this node; ask the operator for an account", 0}
 	}
-	if !s.RegisterLimiter.Allow(limiterKey(ip)) {
-		return nil, &apiError{http.StatusTooManyRequests, "registration rate limit exceeded"}
+	key := limiterKey(ip)
+	if !s.RegisterLimiter.Allow(key) {
+		return nil, rateLimitError(s.RegisterLimiter, key, "registration rate limit exceeded")
 	}
 
 	name, err := validateAccountName(rawName)
 	if err != nil {
-		return nil, &apiError{http.StatusBadRequest, err.Error()}
+		return nil, &apiError{http.StatusBadRequest, err.Error(), 0}
 	}
 
 	if rawPassword == "" && passwordRequired {
-		return nil, &apiError{http.StatusBadRequest, "password is required"}
+		return nil, &apiError{http.StatusBadRequest, "password is required", 0}
 	}
 	if rawPassword != "" {
 		if err := validatePassword(rawPassword); err != nil {
-			return nil, &apiError{http.StatusBadRequest, err.Error()}
+			return nil, &apiError{http.StatusBadRequest, err.Error(), 0}
 		}
 	}
 
 	invite := strings.TrimSpace(rawInvite)
 	if s.Registration == RegistrationInvite && invite == "" {
-		return nil, &apiError{http.StatusForbidden, "invite code is not valid"}
+		return nil, &apiError{http.StatusForbidden, "invite code is not valid", 0}
 	}
 
 	var (
@@ -151,7 +178,7 @@ func (s *Server) register(ctx context.Context, ip, rawName, rawInvite, rawPasswo
 		h, err := store.HashPassword(rawPassword)
 		if err != nil {
 			log.Printf("api: HashPassword: %v", err)
-			return nil, &apiError{http.StatusInternalServerError, "internal error"}
+			return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 		}
 		pwHash = h
 	}
@@ -163,7 +190,7 @@ func (s *Server) register(ctx context.Context, ip, rawName, rawInvite, rawPasswo
 		}
 		if errors.Is(createErr, store.ErrInviteInvalid) {
 			if s.Registration == RegistrationInvite {
-				return nil, &apiError{http.StatusForbidden, "invite code is not valid"}
+				return nil, &apiError{http.StatusForbidden, "invite code is not valid", 0}
 			}
 			// Open mode: a bad code riding along with an otherwise valid
 			// registration doesn't block it — here the code is
@@ -183,10 +210,10 @@ func (s *Server) register(ctx context.Context, ip, rawName, rawInvite, rawPasswo
 	}
 	if createErr != nil {
 		if errors.Is(createErr, store.ErrNameTaken) {
-			return nil, &apiError{http.StatusConflict, "that name is already taken"}
+			return nil, &apiError{http.StatusConflict, "that name is already taken", 0}
 		}
 		log.Printf("api: CreateAccount: %v", createErr)
-		return nil, &apiError{http.StatusInternalServerError, "internal error"}
+		return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 	}
 	return &registerResponse{ID: id, Name: name, Token: token}, nil
 }
@@ -204,7 +231,7 @@ func (s *Server) handleRegisterAccount(w http.ResponseWriter, r *http.Request) {
 
 	got, rerr := s.register(r.Context(), s.clientIP(r), req.Name, req.Invite, req.Password, false)
 	if rerr != nil {
-		writeError(w, rerr.status, rerr.msg)
+		writeAPIError(w, rerr)
 		return
 	}
 

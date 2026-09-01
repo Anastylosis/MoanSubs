@@ -5,9 +5,174 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
+
+// A key that has never been seen has nothing to wait for — Allow would
+// grant it a full bucket, so RetryAfter must agree.
+func TestRateLimiterRetryAfter_NoBucketIsZero(t *testing.T) {
+	l := NewRateLimiterPerMinute(60)
+	if got := l.RetryAfter("never-seen"); got != 0 {
+		t.Errorf("RetryAfter for an unseen key = %v, want 0", got)
+	}
+}
+
+// A bucket that still holds a token has nothing to wait for either.
+func TestRateLimiterRetryAfter_ZeroWhenTokenAvailable(t *testing.T) {
+	l := NewRateLimiterPerMinute(60)
+	l.Allow("k") // spends one of 60, tokens still well above 1
+	if got := l.RetryAfter("k"); got != 0 {
+		t.Errorf("RetryAfter with tokens still available = %v, want 0", got)
+	}
+}
+
+// The core honesty claim: a denied Allow's RetryAfter is the exact wait
+// until the next slot, derived from the limiter's own refill math — not a
+// guess. Exhaust a 1-token/sec bucket, read the reported wait, and confirm
+// Allow is still refused one instant before it and granted exactly at it.
+func TestRateLimiterRetryAfter_ExactBoundary(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	l := NewRateLimiterPerMinute(60) // 60/min == exactly 1 token/sec
+	l.now = func() time.Time { return now }
+
+	for range 60 {
+		if !l.Allow("k") {
+			t.Fatal("expected the first 60 calls to succeed (full burst)")
+		}
+	}
+	if l.Allow("k") {
+		t.Fatal("61st call should be denied, bucket exhausted")
+	}
+
+	wait := l.RetryAfter("k")
+	if wait != time.Second {
+		t.Fatalf("RetryAfter = %v, want exactly 1s (empty bucket, 1 token/sec)", wait)
+	}
+
+	// Short of the reported wait: RetryAfter (read-only, doesn't perturb
+	// the bucket) must still report time left.
+	now = now.Add(wait - time.Millisecond)
+	if got := l.RetryAfter("k"); got <= 0 {
+		t.Errorf("RetryAfter = %v at now-1ms, want still > 0", got)
+	}
+
+	// Exactly at the reported wait: the slot has opened.
+	now = now.Add(time.Millisecond)
+	if !l.Allow("k") {
+		t.Error("Allow denied exactly at RetryAfter's reported boundary")
+	}
+}
+
+// retryAfterSeconds is the one place the Retry-After wire format is
+// decided: whole seconds, rounded up so a client is never told to retry
+// before its slot opens, floored at 1 so a 429 never claims to already be
+// over.
+func TestRetryAfterSeconds_RoundsUpWithFloor(t *testing.T) {
+	cases := []struct {
+		d    time.Duration
+		want int
+	}{
+		{0, 1},
+		{time.Millisecond, 1},
+		{999 * time.Millisecond, 1},
+		{time.Second, 1},
+		{time.Second + time.Millisecond, 2},
+		{59500 * time.Millisecond, 60},
+	}
+	for _, c := range cases {
+		if got := retryAfterSeconds(c.d); got != c.want {
+			t.Errorf("retryAfterSeconds(%v) = %d, want %d", c.d, got, c.want)
+		}
+	}
+}
+
+func TestSetRetryAfter_SetsHeaderInSeconds(t *testing.T) {
+	w := httptest.NewRecorder()
+	setRetryAfter(w, 2500*time.Millisecond)
+	if got := w.Header().Get("Retry-After"); got != "3" {
+		t.Errorf("Retry-After header = %q, want %q", got, "3")
+	}
+}
+
+// writeRateLimited is the JSON shape used by endpoints with no apiError in
+// between: it must both 429 and set Retry-After from limiter's own state.
+func TestWriteRateLimited_SetsStatusAndHeader(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	l := NewRateLimiterPerMinute(60)
+	l.now = func() time.Time { return now }
+	for range 60 {
+		l.Allow("k")
+	}
+
+	w := httptest.NewRecorder()
+	writeRateLimited(w, l, "k", "too many requests")
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want 429", w.Code)
+	}
+	if got := w.Header().Get("Retry-After"); got != "1" {
+		t.Errorf("Retry-After = %q, want %q", got, "1")
+	}
+}
+
+// applyAPIErrorHeaders is the only place a rendered apiError's Retry-After
+// gets onto the wire: present when the apiError carries one (a rate-limit
+// denial), absent otherwise — including a 429 with no derivable wait (the
+// stash-box passthrough case), which must never guess.
+func TestApplyAPIErrorHeaders(t *testing.T) {
+	w := httptest.NewRecorder()
+	applyAPIErrorHeaders(w, &apiError{http.StatusBadRequest, "bad", 0})
+	if got := w.Header().Get("Retry-After"); got != "" {
+		t.Errorf("Retry-After = %q, want unset for a non-rate-limit error", got)
+	}
+
+	w2 := httptest.NewRecorder()
+	applyAPIErrorHeaders(w2, &apiError{http.StatusTooManyRequests, "passthrough 429, no known wait", 0})
+	if got := w2.Header().Get("Retry-After"); got != "" {
+		t.Errorf("Retry-After = %q, want unset for a 429 apiError with retryAfter == 0", got)
+	}
+
+	w3 := httptest.NewRecorder()
+	applyAPIErrorHeaders(w3, &apiError{http.StatusTooManyRequests, "slow down", 2 * time.Second})
+	if got := w3.Header().Get("Retry-After"); got != "2" {
+		t.Errorf("Retry-After = %q, want %q", got, "2")
+	}
+}
+
+func TestWriteAPIError_RendersBodyAndHeader(t *testing.T) {
+	w := httptest.NewRecorder()
+	writeAPIError(w, &apiError{http.StatusTooManyRequests, "slow down", 5 * time.Second})
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want 429", w.Code)
+	}
+	if got := w.Header().Get("Retry-After"); got != "5" {
+		t.Errorf("Retry-After = %q, want %q", got, "5")
+	}
+	if body := w.Body.String(); !strings.Contains(body, "slow down") {
+		t.Errorf("body = %q, want it to mention the message", body)
+	}
+}
+
+// rateLimitError is what every limiter-denial apiError site builds: the
+// 429 status plus limiter's own RetryAfter for key, computed the same way
+// writeRateLimited computes it for the header-only sites.
+func TestRateLimitError_CarriesLimitersRetryAfter(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	l := NewRateLimiterPerMinute(60)
+	l.now = func() time.Time { return now }
+	for range 60 {
+		l.Allow("k")
+	}
+
+	aerr := rateLimitError(l, "k", "vote rate limit exceeded")
+	if aerr.status != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want 429", aerr.status)
+	}
+	if aerr.retryAfter != time.Second {
+		t.Errorf("retryAfter = %v, want 1s", aerr.retryAfter)
+	}
+}
 
 // clientIP is a pure function of a Server's TrustedProxyCIDRs, so unlike
 // the rest of this package's tests it needs no DATABASE_URL / DB-backed

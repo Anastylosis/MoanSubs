@@ -589,7 +589,9 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.SearchLimiter.Allow(limiterKey(s.clientIP(r))) {
+	key := limiterKey(s.clientIP(r))
+	if !s.SearchLimiter.Allow(key) {
+		setRetryAfter(w, s.SearchLimiter.RetryAfter(key))
 		s.renderPage(w, r, http.StatusTooManyRequests, "search.html", searchPageData{
 			Title: "Search", Q: q, Lang: lang, Error: "too many searches — try again in a minute",
 		}, false)
@@ -1020,6 +1022,7 @@ func (s *Server) handleReleaseVote(w http.ResponseWriter, r *http.Request) {
 		_, aerr = s.castVote(ctx, ares.Account, trackID, req)
 	}
 	if aerr != nil {
+		applyAPIErrorHeaders(w, aerr)
 		s.renderReleasePage(w, withAuth(r, ares), releaseID, aerr.status, aerr.msg)
 		return
 	}
@@ -1079,9 +1082,10 @@ func (s *Server) handleReleaseFit(w http.ResponseWriter, r *http.Request) {
 	case -1:
 		_, aerr = s.castFit(ctx, ares.Account, trackID, fitRequest{ReleaseID: releaseID, Fits: false})
 	default:
-		aerr = &apiError{http.StatusBadRequest, "value must be 1, -1 or 0"}
+		aerr = &apiError{http.StatusBadRequest, "value must be 1, -1 or 0", 0}
 	}
 	if aerr != nil {
+		applyAPIErrorHeaders(w, aerr)
 		s.renderReleasePage(w, withAuth(r, ares), releaseID, aerr.status, aerr.msg)
 		return
 	}

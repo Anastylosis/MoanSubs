@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Anastylosis/MoanSubs/client"
 	stash "github.com/Anastylosis/stash-go"
@@ -369,5 +370,56 @@ func TestPush_KindOverrideValidated(t *testing.T) {
 				t.Fatal("push with a bad kind override: got nil error, want a rejection")
 			}
 		})
+	}
+}
+
+// The gap WP-backoff closes: push's Upload call used to hit the server
+// with no retry at all. A 429 on it must now back off and retry, and a
+// retry that eventually succeeds must not count against Errors.
+func TestPush_RetriesUploadOn429ThenSucceeds(t *testing.T) {
+	orig := retryBackoffBase
+	retryBackoffBase = time.Millisecond
+	t.Cleanup(func() { retryBackoffBase = orig })
+
+	scenePath := sceneFile(t, "clip.mp4")
+	dir := filepath.Dir(scenePath)
+	if err := os.WriteFile(filepath.Join(dir, "clip.en.srt"), []byte(testSRT), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	scans := 0
+	st := downloadStash(t, "1", scenePath, &scans)
+	defer st.Close()
+
+	var uploadHits atomic.Int64
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/subtitles", func(w http.ResponseWriter, r *http.Request) {
+		if uploadHits.Add(1) == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":"rate limited"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"track_id": 1, "release_id": 1})
+	})
+	ms := httptest.NewServer(mux)
+	defer ms.Close()
+
+	a := &app{stash: stash.NewClient(st.URL), ms: client.New(ms.URL, "tok")}
+	v, err := a.push(context.Background(), "1", false, "", "", "")
+	if err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	res, ok := v.(*pushStats)
+	if !ok {
+		t.Fatalf("push returned %T, want *pushStats", v)
+	}
+	if uploadHits.Load() != 2 {
+		t.Errorf("upload attempts = %d, want 2 (one 429 then success)", uploadHits.Load())
+	}
+	if res.Uploaded != 1 {
+		t.Errorf("Uploaded = %d, want 1", res.Uploaded)
+	}
+	if res.Errors != 0 {
+		t.Errorf("Errors = %d, want 0 — a 429 that eventually succeeds is not an error", res.Errors)
 	}
 }

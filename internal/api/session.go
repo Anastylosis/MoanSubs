@@ -124,7 +124,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.LoginLimiter.Allow(limiterKey(s.clientIP(r))) {
+	key := limiterKey(s.clientIP(r))
+	if !s.LoginLimiter.Allow(key) {
+		setRetryAfter(w, s.LoginLimiter.RetryAfter(key))
 		s.renderPage(w, r, http.StatusTooManyRequests, "login.html", loginData{
 			Title: "Log in", Error: "too many login attempts, try again later",
 		}, true)

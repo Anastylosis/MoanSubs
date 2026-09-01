@@ -22,6 +22,52 @@ import (
 // (moansubs.yml → "moansubs"); it keys this plugin's settings map.
 const pluginID = "moansubs"
 
+// retryBackoffBase is the fallback doubling delay for a 429 with no
+// Retry-After (an older server, or a passthrough failure with no known
+// wait) — the starting point before it doubles each retry. A var so
+// tests don't wait out real backoff delays.
+var retryBackoffBase = 2 * time.Second
+
+// maxRetry429Attempts bounds withRetry429's loop: back off, don't grind
+// forever against a server that keeps saying no.
+const maxRetry429Attempts = 5
+
+// withRetry429 runs fn, backing off and retrying only on a 429 from the
+// moansubs server — every other error, including ctx cancellation, returns
+// immediately. Shared by the bulk download and bulk push tasks, the two
+// places that call the server once per item in a loop and could otherwise
+// hammer it at full speed, making things worse for every other client
+// sharing that budget.
+//
+// A 429 that names its own Retry-After is obeyed exactly — the server
+// knows its window better than a client-side guess ever could. Only a 429
+// with no header (an older server, WP-backoff predates it) falls back to
+// the doubling schedule.
+func (a *app) withRetry429(ctx context.Context, fn func() error) error {
+	delay := retryBackoffBase
+	for attempt := 0; ; attempt++ {
+		err := fn()
+		if err == nil {
+			return nil
+		}
+		status, ok := client.StatusCode(err)
+		if !ok || status != http.StatusTooManyRequests || attempt >= maxRetry429Attempts {
+			return err
+		}
+		wait := delay
+		if ra, ok := client.RetryAfter(err); ok {
+			wait = ra
+		}
+		logWarning("rate limited (429), backing off %s", wait)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(wait):
+		}
+		delay *= 2
+	}
+}
+
 // DefaultServerURL is the public moansubs node, used when the server_url
 // setting is empty or whitespace.
 const DefaultServerURL = "https://moansubs.org"

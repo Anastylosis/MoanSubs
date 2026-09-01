@@ -602,6 +602,9 @@ func TestUpload_RateLimitExceeded(t *testing.T) {
 	if second.StatusCode != http.StatusTooManyRequests {
 		t.Errorf("second upload status = %d, want 429", second.StatusCode)
 	}
+	if got := second.Header.Get("Retry-After"); got == "" {
+		t.Error("429 upload response has no Retry-After header")
+	}
 }
 
 // -- GET /api/v1/subtitles/{id} ------------------------------------------

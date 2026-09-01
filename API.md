@@ -8,6 +8,14 @@ Uploads require `Authorization: Bearer <account token>` (rate-limited per
 token, default 30/hour — see MANUAL.md). Get a token by registering
 (below) or, on an invite-only node, from the operator.
 
+Every `429` carries a `Retry-After` header: whole seconds, rounded up,
+computed from the limiter's own refill state rather than a fixed guess —
+the exact wait until that key's bucket next has a slot. A well-behaved
+bulk client (the plugin's bulk push/pull tasks included) sleeps exactly
+that long before retrying rather than polling or guessing its own
+backoff: the goal is to space requests to fit the budget, not to grind
+against it and hope.
+
 State-changing routes also accept the `moansubs_session` cookie a browser
 gets from `POST /login`, as an alternative to `Authorization: Bearer`.
 Bearer wins when both are sent. A cookie-authenticated call additionally
