@@ -154,6 +154,42 @@ func (s *Store) RetractFitReport(ctx context.Context, trackID, releaseID, accoun
 	return counts, nil
 }
 
+// FitReportsByAccountForTracks returns accountID's own fit report (true =
+// fits, false = doesn't fit) for each of trackIDs against releaseID, keyed
+// by track id — the release page's per-track "your report" state,
+// mirroring VotesByAccountForTracks (vote.go). A single releaseID serves
+// every pairing the page shows in one query: whether trackID is the
+// release's own track or a sibling's, a fit report against it is always
+// scoped to exactly the release being viewed.
+func (s *Store) FitReportsByAccountForTracks(ctx context.Context, accountID, releaseID int64, trackIDs []int64) (map[int64]bool, error) {
+	out := make(map[int64]bool, len(trackIDs))
+	if len(trackIDs) == 0 {
+		return out, nil
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT track_id, fits FROM track_release_fit_reports
+		WHERE account_id = $1 AND release_id = $2 AND track_id = ANY($3)`,
+		accountID, releaseID, trackIDs)
+	if err != nil {
+		return nil, fmt.Errorf("store: FitReportsByAccountForTracks: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id int64
+		var fits bool
+		if err := rows.Scan(&id, &fits); err != nil {
+			return nil, fmt.Errorf("store: FitReportsByAccountForTracks: scanning: %w", err)
+		}
+		out[id] = fits
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: FitReportsByAccountForTracks: %w", err)
+	}
+	return out, nil
+}
+
 // MisfitPairing is one (track, release) pairing that carries at least one
 // standing "didn't fit" report — /mod/flagged's misfit queue (mirroring
 // FlaggedTrack/ListFlaggedTracks): counts only, never which accounts filed

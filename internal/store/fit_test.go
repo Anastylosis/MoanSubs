@@ -119,6 +119,56 @@ func TestFitCounts_SyncVerified_Threshold(t *testing.T) {
 	}
 }
 
+// FitReportsByAccountForTracks is the release page's "your report" state
+// (mirrors VotesByAccountForTracks): one query, keyed by track id, scoped
+// to exactly one release.
+func TestStore_FitReportsByAccountForTracks(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	trackID, releaseID, reporterID := fitFixture(t, s, "f5f5f5f5f5f5f5f5")
+
+	// A second track on the same release, never reported on — must be
+	// absent from the result, not merely false.
+	otherTrackID, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: releaseID, Lang: "fr", Body: "1\n00:00:01,000 --> 00:00:02,000\nsalut\n\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	if _, err := s.UpsertFitReport(ctx, trackID, releaseID, reporterID, false); err != nil {
+		t.Fatalf("UpsertFitReport: %v", err)
+	}
+
+	got, err := s.FitReportsByAccountForTracks(ctx, reporterID, releaseID, []int64{trackID, otherTrackID})
+	if err != nil {
+		t.Fatalf("FitReportsByAccountForTracks: %v", err)
+	}
+	if fits, ok := got[trackID]; !ok || fits {
+		t.Errorf("got[trackID] = %v, %v, want false, true", fits, ok)
+	}
+	if _, ok := got[otherTrackID]; ok {
+		t.Error("an unreported track must be absent from the map, not present with a zero value")
+	}
+}
+
+// An empty trackIDs slice must short-circuit rather than issue a query
+// with an empty ANY($) array — mirrors VotesByAccountForTracks's own
+// early return.
+func TestStore_FitReportsByAccountForTracks_EmptyTrackIDs(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	_, releaseID, reporterID := fitFixture(t, s, "f6f6f6f6f6f6f6f6")
+
+	got, err := s.FitReportsByAccountForTracks(ctx, reporterID, releaseID, nil)
+	if err != nil {
+		t.Fatalf("FitReportsByAccountForTracks: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("got = %+v, want empty", got)
+	}
+}
+
 func TestStore_ValidFitPairing_OwnReleaseAlwaysValid(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()

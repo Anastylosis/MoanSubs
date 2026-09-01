@@ -1,6 +1,12 @@
 package api
 
-import "github.com/Anastylosis/MoanSubs/internal/subtitle"
+import (
+	"encoding/json"
+	"strings"
+
+	"github.com/Anastylosis/MoanSubs/internal/provenance"
+	"github.com/Anastylosis/MoanSubs/internal/subtitle"
+)
 
 // creditedTo returns the name to show as "by <name>" for a track, or "" to
 // show nothing — the single choke point every public-facing rendering path
@@ -29,4 +35,44 @@ func generatedSource(detected, declared bool) string {
 	default:
 		return ""
 	}
+}
+
+// provenanceLine renders a compact human-readable line from a track's
+// stored provenance jsonb, for the release page's badge explainer — tool
+// and version, the ASR model, and, when the track was machine-translated
+// (mt_model present, per Provenance.Translated), that fact stated
+// explicitly: a machine translation of a machine transcription is
+// materially worse than either, and the reader deserves to know which one
+// they're looking at (PLAN.md "AI-generated disclosure"). Reuses
+// internal/provenance's own Provenance shape rather than re-deriving field
+// names — never rendered for anything but source == "provenance": a bare
+// declared-generated track carries no structured claim to unparse.
+func provenanceLine(source string, raw []byte) string {
+	if source != "provenance" || len(raw) == 0 {
+		return ""
+	}
+	var p provenance.Provenance
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return ""
+	}
+
+	var parts []string
+	if p.Tool != "" {
+		tool := p.Tool
+		if p.Version != "" {
+			tool += " " + p.Version
+		}
+		parts = append(parts, tool)
+	}
+	if p.ASRModel != "" {
+		parts = append(parts, "transcribed with "+p.ASRModel)
+	}
+	if p.Translated() {
+		mt := "machine-translated " + p.Src + "→" + p.Dst
+		if p.MTModel != "" {
+			mt += " with " + p.MTModel
+		}
+		parts = append(parts, mt)
+	}
+	return strings.Join(parts, " · ")
 }

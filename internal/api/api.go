@@ -513,6 +513,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("GET /search", s.page(s.handleSearch))
 	mux.HandleFunc("GET /release/{id}", s.page(s.handleReleasePage))
 	mux.HandleFunc("POST /release/{id}/vote", s.page(s.handleReleaseVote))
+	mux.HandleFunc("POST /release/{id}/fit", s.page(s.handleReleaseFit))
 	mux.HandleFunc("POST /release/{id}/metadata", s.page(s.handleReleaseProposeMetadata))
 	mux.HandleFunc("POST /release/{id}/removal", s.page(s.handleReleaseRemoval))
 	mux.HandleFunc("POST /release/{id}/stashbox/find", s.page(s.handleReleaseStashBoxFind))

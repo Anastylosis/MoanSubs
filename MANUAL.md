@@ -187,7 +187,15 @@ track's language tag plus a kind badge when the kind is not `default`
 — `cc`, `sdh`, `forced`, or the custom label for `other` — a logged-in
 visitor also gets up/down-vote forms per track, `POST /release/{id}/vote`,
 the same validation and rules as the API's `PUT`/`DELETE
-/api/v1/subtitles/{id}/vote`), and `/u/{name}` (an uploader's visible
+/api/v1/subtitles/{id}/vote`, and — for both a release's own tracks and its
+work-siblings — fits/misfits counts, a "sync verified" marker, and
+fits/doesn't-fit report forms, `POST /release/{id}/fit`, onto the same
+`UpsertFitReport`/`RetractFitReport` store calls
+`PUT`/`DELETE /api/v1/subtitles/{id}/fit` use; a track whose `generated`
+came from marker detection also gets a compact provenance line next to its
+badge — tool, version, the ASR model, and an explicit "machine-translated"
+note when `mt_model` is set, since that combination is worse than either
+alone), and `/u/{name}` (an uploader's visible
 contributions, keyset-paginated exactly like `/browse` — 50 tracks at a
 time with an "older" link, rather than a heavy uploader's whole history in
 one page — a track whose authorship is `uncredited` (migration 0026) never

@@ -335,6 +335,11 @@ type SubtitleTrackSummary struct {
 	// that were about the file it replaced.
 	Fits    int
 	Misfits int
+	// Provenance is the raw structured jsonb (WP-authorship's HasProvenance
+	// says only whether one exists; the release page's badge explainer
+	// needs the fields themselves, so this rides along on the same
+	// batched query rather than a second one per release).
+	Provenance []byte
 }
 
 // TrackSummariesByReleaseIDs returns the current head of every subtitle
@@ -360,7 +365,7 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 		SELECT t.id, t.release_id, t.lang, t.generated, t.license, t.provenance IS NOT NULL, t.created_at,
 			agg.downloads, agg.up, agg.down, t.kind, t.kind_label, t.revision, t.root_id,
 			COALESCE(fit_counts.fits, 0), COALESCE(fit_counts.misfits, 0),
-			t.authorship, t.declared_generated, a.name
+			t.authorship, t.declared_generated, a.name, t.provenance
 		FROM subtitle_tracks t
 		JOIN LATERAL (
 			SELECT COALESCE(SUM(c.downloads), 0) AS downloads,
@@ -385,7 +390,7 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 		)
 		if err := rows.Scan(&t.ID, &releaseID, &t.Lang, &t.Generated, &t.License, &t.HasProvenance, &t.CreatedAt,
 			&t.Downloads, &t.Up, &t.Down, &t.Kind, &t.KindLabel, &t.Revision, &t.RootID,
-			&t.Fits, &t.Misfits, &t.Authorship, &t.DeclaredGenerated, &t.UploaderName); err != nil {
+			&t.Fits, &t.Misfits, &t.Authorship, &t.DeclaredGenerated, &t.UploaderName, &t.Provenance); err != nil {
 			return nil, fmt.Errorf("store: TrackSummariesByReleaseIDs: scanning: %w", err)
 		}
 		out[releaseID] = append(out[releaseID], t)

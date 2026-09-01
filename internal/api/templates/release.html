@@ -95,11 +95,11 @@
 <p class="empty">No subtitles are visible for this release right now.</p>
 {{else}}
 <table>
-  <thead><tr><th>Language</th><th>File</th><th class="n">Downloads</th><th class="n">Votes</th><th>{{if $.LoggedIn}}Your vote{{else}}&nbsp;{{end}}</th></tr></thead>
+  <thead><tr><th>Language</th><th>File</th><th class="n">Downloads</th><th class="n">Votes</th><th>{{if $.LoggedIn}}Your vote{{else}}&nbsp;{{end}}</th><th class="n">Fits</th><th>{{if $.LoggedIn}}Your report{{else}}&nbsp;{{end}}</th></tr></thead>
   <tbody>
   {{range $t := .Release.Tracks}}
   <tr>
-    <td><span class="tag{{if $t.Generated}} auto{{end}}">{{$t.Lang}}</span>{{if ne $t.Kind "default"}}<span class="tag">{{if eq $t.Kind "other"}}{{$t.KindLabel}}{{else}}{{$t.Kind}}{{end}}</span>{{end}}{{if eq $t.GeneratedSource "declared"}} <span class="hint" style="display:inline" title="The uploader said so; nothing here confirms it, unlike marker-based detection.">AI — declared by uploader</span>{{else if $t.Generated}} <span class="hint" style="display:inline" title="Detected from the file's own embedded marker and structured tool/model metadata.">machine-generated</span>{{end}}{{if $t.CreditedTo}} <span class="hint" style="display:inline">by {{$t.CreditedTo}}</span>{{end}}</td>
+    <td><span class="tag{{if $t.Generated}} auto{{end}}">{{$t.Lang}}</span>{{if ne $t.Kind "default"}}<span class="tag">{{if eq $t.Kind "other"}}{{$t.KindLabel}}{{else}}{{$t.Kind}}{{end}}</span>{{end}}{{if eq $t.GeneratedSource "declared"}} <span class="hint" style="display:inline" title="The uploader said so; nothing here confirms it, unlike marker-based detection.">AI — declared by uploader</span>{{else if $t.Generated}} <span class="hint" style="display:inline" title="Detected from the file's own embedded marker and structured tool/model metadata.">machine-generated{{if $t.ProvenanceLine}} — {{$t.ProvenanceLine}}{{end}}</span>{{end}}{{if $t.CreditedTo}} <span class="hint" style="display:inline">by {{$t.CreditedTo}}</span>{{end}}</td>
     <td><a href="/api/v1/subtitles/{{$t.ID}}?format=srt">Download .srt</a></td>
     <td class="n">{{$t.Downloads}}</td>
     <td class="n"><span class="tally"><span class="up">▲{{$t.Up}}</span> <span class="down">▼{{$t.Down}}</span></span></td>
@@ -136,9 +136,33 @@
         </form>
       {{end}}
     </td>
+    <td class="n"><span class="tally"><span class="up">✓{{$t.Fits}}</span> <span class="down">✗{{$t.Misfits}}</span></span>{{if $t.SyncVerified}} <span class="tag" title="At least 2 independent accounts reported this fits, with no misfit reports.">sync verified</span>{{end}}</td>
+    <td>
+      {{if not $.LoggedIn}}
+        <a href="/login">log in to report</a>
+      {{else if $t.MyFit}}
+        <form method="post" action="/release/{{$.Release.ID}}/fit" class="inline">
+          <span class="hint" style="margin:0">your report: {{if $t.MyFit.Fits}}fits{{else}}doesn't fit{{end}}</span>
+          <input type="hidden" name="track_id" value="{{$t.ID}}">
+          <input type="hidden" name="value" value="0">
+          <button type="submit" class="quiet sm">Retract</button>
+        </form>
+      {{else}}
+        <form method="post" action="/release/{{$.Release.ID}}/fit" class="inline">
+          <input type="hidden" name="track_id" value="{{$t.ID}}">
+          <input type="hidden" name="value" value="1">
+          <button type="submit" class="quiet sm" title="This subtitle lines up with this release as served">Fits</button>
+        </form>
+        <form method="post" action="/release/{{$.Release.ID}}/fit" class="inline" style="margin-top:.35rem">
+          <input type="hidden" name="track_id" value="{{$t.ID}}">
+          <input type="hidden" name="value" value="-1">
+          <button type="submit" class="quiet sm">Doesn't fit</button>
+        </form>
+      {{end}}
+    </td>
   </tr>
   <tr>
-    <td colspan="5" style="padding-top:0">
+    <td colspan="7" style="padding-top:0">
       <details>
         <summary class="hint" style="display:inline-block;cursor:pointer">Report this subtitle / request removal</summary>
         <p class="hint">For a claim you want a paper trail on, email is
@@ -166,22 +190,46 @@
   {{end}}
   </tbody>
 </table>
-<p class="hint">Downloads count every fetch, from the plugin or here. Votes need an account; a down-vote always says why.</p>
+<p class="hint">Downloads count every fetch, from the plugin or here. Votes need an account; a down-vote always says why. A fit report is a plainer claim — did this file line up with this release as actually served — and needs no reason either way; "sync verified" appears once at least 2 people have said it fits and nobody has said otherwise.</p>
 {{end}}
 
 {{if .Siblings}}
 <h2>Also fits this video</h2>
 <p class="hint">Subtitles uploaded against another encode of the same video — a different rip, or one with a trimmed intro. A shift is applied on download when the sync is known; where it isn't, the file is offered as-is and may not line up.</p>
 <table>
-  <thead><tr><th>Language</th><th>From</th><th>Sync</th><th>File</th><th class="n">Downloads</th></tr></thead>
+  <thead><tr><th>Language</th><th>From</th><th>Sync</th><th>File</th><th class="n">Downloads</th><th class="n">Fits</th><th>{{if $.LoggedIn}}Your report{{else}}&nbsp;{{end}}</th></tr></thead>
   <tbody>
   {{range $t := .Siblings}}
   <tr>
-    <td><span class="tag{{if $t.Generated}} auto{{end}}">{{$t.Lang}}</span>{{if eq $t.GeneratedSource "declared"}} <span class="hint" style="display:inline" title="The uploader said so; nothing here confirms it, unlike marker-based detection.">AI — declared by uploader</span>{{else if $t.Generated}} <span class="hint" style="display:inline" title="Detected from the file's own embedded marker and structured tool/model metadata.">machine-generated</span>{{end}}</td>
+    <td><span class="tag{{if $t.Generated}} auto{{end}}">{{$t.Lang}}</span>{{if eq $t.GeneratedSource "declared"}} <span class="hint" style="display:inline" title="The uploader said so; nothing here confirms it, unlike marker-based detection.">AI — declared by uploader</span>{{else if $t.Generated}} <span class="hint" style="display:inline" title="Detected from the file's own embedded marker and structured tool/model metadata.">machine-generated{{if $t.ProvenanceLine}} — {{$t.ProvenanceLine}}{{end}}</span>{{end}}</td>
     <td><a href="/release/{{$t.ReleaseID}}">release {{$t.ReleaseID}}</a></td>
     <td>{{if $t.SyncKnown}}<span class="tag">{{$t.OffsetText}}</span>{{if $t.SourceText}} <span class="hint" style="display:inline">{{$t.SourceText}}</span>{{end}}{{else}}<span class="hint" style="display:inline">sync unknown</span>{{end}}</td>
     <td><a href="/api/v1/subtitles/{{$t.TrackID}}?format=srt&amp;for_release={{$.Release.ID}}">Download .srt</a></td>
     <td class="n">{{$t.Downloads}}</td>
+    <td class="n"><span class="tally"><span class="up">✓{{$t.Fits}}</span> <span class="down">✗{{$t.Misfits}}</span></span>{{if $t.SyncVerified}} <span class="tag" title="At least 2 independent accounts reported this fits, with no misfit reports.">sync verified</span>{{end}}</td>
+    <td>
+      {{if not $.LoggedIn}}
+        <a href="/login">log in to report</a>
+      {{else if $t.MyFit}}
+        <form method="post" action="/release/{{$.Release.ID}}/fit" class="inline">
+          <span class="hint" style="margin:0">your report: {{if $t.MyFit.Fits}}fits{{else}}doesn't fit{{end}}</span>
+          <input type="hidden" name="track_id" value="{{$t.TrackID}}">
+          <input type="hidden" name="value" value="0">
+          <button type="submit" class="quiet sm">Retract</button>
+        </form>
+      {{else}}
+        <form method="post" action="/release/{{$.Release.ID}}/fit" class="inline">
+          <input type="hidden" name="track_id" value="{{$t.TrackID}}">
+          <input type="hidden" name="value" value="1">
+          <button type="submit" class="quiet sm">Fits</button>
+        </form>
+        <form method="post" action="/release/{{$.Release.ID}}/fit" class="inline" style="margin-top:.35rem">
+          <input type="hidden" name="track_id" value="{{$t.TrackID}}">
+          <input type="hidden" name="value" value="-1">
+          <button type="submit" class="quiet sm">Doesn't fit</button>
+        </form>
+      {{end}}
+    </td>
   </tr>
   {{end}}
   </tbody>

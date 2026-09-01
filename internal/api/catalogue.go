@@ -30,7 +30,11 @@ type catalogueTrack struct {
 	// authorship.go's generatedSource doc comment.
 	Generated       bool
 	GeneratedSource string
-	Downloads       int64
+	// ProvenanceLine: authorship.go's provenanceLine, "" unless
+	// GeneratedSource is "provenance" and the stored jsonb parsed — the
+	// release page's badge explainer (WP-fitweb).
+	ProvenanceLine string
+	Downloads      int64
 	// Up/Down are migration 0008's vote counts (WP-C3), shown on the
 	// release page next to each track.
 	Up        int
@@ -41,13 +45,22 @@ type catalogueTrack struct {
 	// authorship is "credited" — see authorship.go's creditedTo doc
 	// comment. Rendered as "by <name>" on the release page.
 	CreditedTo string
-	// IsOwn and MyVote are the release page's per-track viewer state
-	// (WP-C5): populated only by renderReleasePage, for a logged-in
-	// viewer, after buildCatalogueRelease returns — browse and search
-	// never show vote controls, so their callers leave both at their zero
-	// value and release.html is the only template that reads them.
+	// Fits/Misfits/SyncVerified are migration 0025's standing fit reports
+	// against this track's own release (WP-fitweb) — always populated
+	// (TrackSummariesByReleaseIDs already fetches them for every caller),
+	// though only release.html renders them.
+	Fits         int
+	Misfits      int
+	SyncVerified bool
+	// IsOwn, MyVote and MyFit are the release page's per-track viewer state
+	// (WP-C5, WP-fitweb): populated only by renderReleasePage, for a
+	// logged-in viewer, after buildCatalogueRelease returns — browse and
+	// search never show vote/fit controls, so their callers leave all
+	// three at their zero value and release.html is the only template
+	// that reads them.
 	IsOwn  bool
 	MyVote *ownVote
+	MyFit  *ownFit
 }
 
 // ownVote is a logged-in viewer's own existing vote on one track, as shown
@@ -55,6 +68,13 @@ type catalogueTrack struct {
 type ownVote struct {
 	Up     bool // true for +1, false for -1
 	Reason string
+}
+
+// ownFit is a logged-in viewer's own existing fit report on one (track,
+// release) pairing, as shown by the release page's "your report: fits /
+// doesn't fit" (WP-fitweb, mirroring ownVote).
+type ownFit struct {
+	Fits bool
 }
 
 // catalogueRelease is one release as rendered on a catalogue page.
@@ -338,13 +358,18 @@ func buildCatalogueRelease(r store.Release, tracks []store.SubtitleTrackSummary,
 	}
 	out.Tracks = make([]catalogueTrack, 0, len(tracks))
 	for _, t := range tracks {
+		source := generatedSource(t.Generated, t.DeclaredGenerated)
 		out.Tracks = append(out.Tracks, catalogueTrack{
 			ID: t.ID, Lang: t.Lang,
-			Generated: t.Generated || t.DeclaredGenerated, GeneratedSource: generatedSource(t.Generated, t.DeclaredGenerated),
-			Downloads: t.Downloads,
-			Up:        t.Up, Down: t.Down,
+			Generated: t.Generated || t.DeclaredGenerated, GeneratedSource: source,
+			ProvenanceLine: provenanceLine(source, t.Provenance),
+			Downloads:      t.Downloads,
+			Up:             t.Up, Down: t.Down,
 			Kind: t.Kind, KindLabel: t.KindLabel,
-			CreditedTo: creditedTo(t.Authorship, t.UploaderName),
+			CreditedTo:   creditedTo(t.Authorship, t.UploaderName),
+			Fits:         t.Fits,
+			Misfits:      t.Misfits,
+			SyncVerified: store.FitCounts{Fits: t.Fits, Misfits: t.Misfits}.SyncVerified(),
 		})
 	}
 	return out
@@ -709,16 +734,24 @@ type siblingTrackView struct {
 	// catalogueTrack above.
 	Generated       bool
 	GeneratedSource string
-	Downloads       int64
-	SyncKnown       bool
-	OffsetText      string // e.g. "+3.08s", only meaningful when SyncKnown
-	SourceText      string // manual / duration-delta / measured
-	// Misfits is migration 0025's standing "didn't fit" report count on
-	// this pairing — surfaced only on the mod page (mod_release.html),
-	// never the public release page, mirroring how votes never show
-	// per-account detail there either: just the number, for a moderator to
-	// notice and go look, not a rebuttal for the public to read.
-	Misfits int
+	// ProvenanceLine: same as catalogueTrack's own field (WP-fitweb).
+	ProvenanceLine string
+	Downloads      int64
+	SyncKnown      bool
+	OffsetText     string // e.g. "+3.08s", only meaningful when SyncKnown
+	SourceText     string // manual / duration-delta / measured
+	// Fits/Misfits/SyncVerified: migration 0025's standing fit reports on
+	// this exact pairing (WP-fitweb) — Misfits alone used to be surfaced
+	// only on the mod page; the public release page now shows the full
+	// picture (counts and the verified marker), same as it does for a
+	// track's own release, just never who reported.
+	Fits         int
+	Misfits      int
+	SyncVerified bool
+	// MyFit is the release page's per-sibling viewer state (WP-fitweb),
+	// populated only by renderReleasePage for a logged-in viewer — mirrors
+	// catalogueTrack.MyFit.
+	MyFit *ownFit
 }
 
 // handleReleasePage implements GET /release/{id} (WP-C2): title/stem/
@@ -832,6 +865,10 @@ func (s *Server) renderReleasePage(w http.ResponseWriter, r *http.Request, id in
 			// already sees.
 			log.Printf("api: applyViewerVoteState: %v", err)
 		}
+		if err := s.applyViewerFitState(ctx, &data.Release, data.Siblings, ares.Account.ID); err != nil {
+			// Same degrade-not-fail posture as the vote state above.
+			log.Printf("api: applyViewerFitState: %v", err)
+		}
 	}
 
 	s.renderPage(w, r, status, "release.html", data, false)
@@ -897,6 +934,40 @@ func (s *Server) applyViewerVoteState(ctx context.Context, rel *catalogueRelease
 	return nil
 }
 
+// applyViewerFitState fills in rel's tracks' and siblings' MyFit for a
+// logged-in release-page viewer (WP-fitweb), mirroring
+// applyViewerVoteState: one query (store.FitReportsByAccountForTracks)
+// covers every pairing the page shows, main tracks and siblings alike,
+// because every one of them is a report against this exact release
+// (ValidFitPairing's own rule — a track's own release, or, for a sibling,
+// the release being viewed).
+func (s *Server) applyViewerFitState(ctx context.Context, rel *catalogueRelease, siblings []siblingTrackView, accountID int64) error {
+	ids := make([]int64, 0, len(rel.Tracks)+len(siblings))
+	for _, t := range rel.Tracks {
+		ids = append(ids, t.ID)
+	}
+	for _, t := range siblings {
+		ids = append(ids, t.TrackID)
+	}
+
+	fits, err := s.Store.FitReportsByAccountForTracks(ctx, accountID, rel.ID, ids)
+	if err != nil {
+		return fmt.Errorf("FitReportsByAccountForTracks: %w", err)
+	}
+
+	for i := range rel.Tracks {
+		if f, ok := fits[rel.Tracks[i].ID]; ok {
+			rel.Tracks[i].MyFit = &ownFit{Fits: f}
+		}
+	}
+	for i := range siblings {
+		if f, ok := fits[siblings[i].TrackID]; ok {
+			siblings[i].MyFit = &ownFit{Fits: f}
+		}
+	}
+	return nil
+}
+
 // handleReleaseVote implements POST /release/{id}/vote (WP-C5): the
 // plain-forms front end onto castVote/retractVote, so a vote cast from the
 // release page runs exactly the same validation and rules as PUT/DELETE
@@ -947,6 +1018,68 @@ func (s *Server) handleReleaseVote(w http.ResponseWriter, r *http.Request) {
 	} else {
 		req := voteRequest{Value: value, Reason: r.PostFormValue("reason"), Note: r.PostFormValue("note")}
 		_, aerr = s.castVote(ctx, ares.Account, trackID, req)
+	}
+	if aerr != nil {
+		s.renderReleasePage(w, withAuth(r, ares), releaseID, aerr.status, aerr.msg)
+		return
+	}
+
+	http.Redirect(w, r, "/release/"+strconv.FormatInt(releaseID, 10), http.StatusSeeOther)
+}
+
+// handleReleaseFit implements POST /release/{id}/fit (WP-fitweb): the
+// plain-forms front end onto castFit/retractFit (internal/api/fit.go), the
+// same relationship handleReleaseVote has to castVote/retractVote — same
+// auth (authenticateWeb, session cookie only, unconditional Origin check),
+// same value encoding as the vote form (1/-1 casts, 0 retracts), since a
+// plain form has no PUT/DELETE method to send. Unlike the vote form there
+// is no reason field: a fit report has none (CLAUDE.md — "do not invent
+// one"). track_id names either one of this release's own tracks or a
+// sibling's; release_id is always this page's own release, matching every
+// pairing ValidFitPairing actually offers on this page.
+func (s *Server) handleReleaseFit(w http.ResponseWriter, r *http.Request) {
+	releaseID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	ares, err := authenticateWeb(r.Context(), s.Store, r)
+	if err != nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	if !checkOrigin(w, r) {
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		s.renderReleasePage(w, withAuth(r, ares), releaseID, http.StatusBadRequest, "could not read the submitted form")
+		return
+	}
+
+	trackID, err := strconv.ParseInt(r.PostFormValue("track_id"), 10, 64)
+	if err != nil {
+		s.renderReleasePage(w, withAuth(r, ares), releaseID, http.StatusBadRequest, "invalid track_id")
+		return
+	}
+	value, err := strconv.Atoi(r.PostFormValue("value"))
+	if err != nil {
+		s.renderReleasePage(w, withAuth(r, ares), releaseID, http.StatusBadRequest, "invalid value")
+		return
+	}
+
+	ctx := r.Context()
+	var aerr *apiError
+	switch value {
+	case 0:
+		aerr = s.retractFit(ctx, ares.Account, trackID, releaseID)
+	case 1:
+		_, aerr = s.castFit(ctx, ares.Account, trackID, fitRequest{ReleaseID: releaseID, Fits: true})
+	case -1:
+		_, aerr = s.castFit(ctx, ares.Account, trackID, fitRequest{ReleaseID: releaseID, Fits: false})
+	default:
+		aerr = &apiError{http.StatusBadRequest, "value must be 1, -1 or 0"}
 	}
 	if aerr != nil {
 		s.renderReleasePage(w, withAuth(r, ares), releaseID, aerr.status, aerr.msg)
@@ -1084,11 +1217,15 @@ func (s *Server) siblingViews(ctx context.Context, releaseID int64) []siblingTra
 	}
 	out := make([]siblingTrackView, 0, len(sib))
 	for _, t := range sib {
+		source := generatedSource(t.Generated, t.DeclaredGenerated)
 		v := siblingTrackView{
 			TrackID: t.TrackID, ReleaseID: t.ReleaseID, Lang: t.Lang,
-			Generated: t.Generated || t.DeclaredGenerated, GeneratedSource: generatedSource(t.Generated, t.DeclaredGenerated),
-			Downloads: t.Downloads,
-			Misfits:   t.Misfits,
+			Generated: t.Generated || t.DeclaredGenerated, GeneratedSource: source,
+			ProvenanceLine: provenanceLine(source, t.Provenance),
+			Downloads:      t.Downloads,
+			Fits:           t.Fits,
+			Misfits:        t.Misfits,
+			SyncVerified:   store.FitCounts{Fits: t.Fits, Misfits: t.Misfits}.SyncVerified(),
 		}
 		if t.OffsetMs != nil {
 			v.SyncKnown = true
