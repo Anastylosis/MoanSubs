@@ -141,6 +141,7 @@ func (s *Server) handleAgeConfirm(w http.ResponseWriter, r *http.Request) {
 	if !checkOrigin(w, r) {
 		return
 	}
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "could not read the submitted form", http.StatusBadRequest)
 		return

@@ -223,9 +223,11 @@ rate limiters use for `X-Forwarded-For`. The cookie value is a 256-bit
 `crypto/rand` id, stored in the `sessions` table **as-is, not hashed**
 (unlike account tokens): it is already random and non-guessable, so a hash
 would buy nothing but a lookup cost — but it does mean a database read
-exposes live sessions, the same way it exposes token hashes. Default
-lifetime is `MOANSUBS_SESSION_TTL` (720h); expired rows are swept on the
-next login.
+exposes live sessions, the same way it exposes token hashes. A database
+backup therefore also contains every live session id, and the backup
+bucket must be private for that reason too (see "Exposure hardening"
+below). Default lifetime is `MOANSUBS_SESSION_TTL` (720h); expired rows
+are swept on the next login.
 
 CSRF is stopped by an Origin/Referer check, not a token: every
 state-changing route that accepts the session cookie (`POST /logout`,
@@ -299,5 +301,9 @@ verification is queued beyond a few concurrent checks so login attempts
 cannot pin every core; every response carries `X-Content-Type-Options:
 nosniff`; the reference Traefik stack sends HSTS. Postgres is never published
 outside the compose network, and the backup bucket must stay private — it
-holds password hashes and encrypted tokens (the public dump holds neither;
-a test pins that).
+holds password hashes, encrypted tokens, and live session ids (the public
+dump holds none of that; a test pins that). Every plain HTML form POST also
+reads its body through an `http.MaxBytesReader` (64 KiB) before
+`r.ParseForm()`, the same shape the JSON API and `/upload` already used, so
+an oversized form body can't be read into memory unbounded ahead of the
+rate limiter.

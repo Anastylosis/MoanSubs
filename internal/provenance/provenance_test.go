@@ -166,6 +166,50 @@ func TestDetect_AbsentMarker(t *testing.T) {
 	}
 }
 
+// A NOTE block's JSON is uploader-controlled: json.Unmarshal alone imposes
+// no bound, and tool/version/asr_model/mt_model/src/dst all render on the
+// public release page and in GET /api/v1/subtitles/{id}. Every string
+// field must be capped at 200 runes and stripped of control characters,
+// truncated rather than rejected — the marker is still evidence of
+// generation even when a field is hostile.
+func TestDetect_OversizedFieldIsTruncatedTo200Runes(t *testing.T) {
+	long := strings.Repeat("a", 250)
+	vtt := "WEBVTT\n\nNOTE\n{\"tool\": \"" + long + "\"}\n\n" +
+		"1\n00:00:01.000 --> 00:00:03.000\n" + Marker + " machine-generated\n\n"
+
+	generated, p := Detect([]byte(vtt))
+	if !generated {
+		t.Fatal("generated = false, want true")
+	}
+	if p == nil {
+		t.Fatal("p = nil, want populated Provenance")
+	}
+	if n := len([]rune(p.Tool)); n != 200 {
+		t.Errorf("Tool is %d runes, want 200", n)
+	}
+	if p.Tool != strings.Repeat("a", 200) {
+		t.Errorf("Tool = %q, want the first 200 runes of the original", p.Tool)
+	}
+}
+
+// Control characters (below 0x20, and U+007F) must be stripped from every
+// string field rather than passed through to a public page.
+func TestDetect_ControlCharactersStrippedFromFields(t *testing.T) {
+	vtt := "WEBVTT\n\nNOTE\n{\"tool\": \"evil\\u0007tool\\u007f\"}\n\n" +
+		"1\n00:00:01.000 --> 00:00:03.000\n" + Marker + " machine-generated\n\n"
+
+	generated, p := Detect([]byte(vtt))
+	if !generated {
+		t.Fatal("generated = false, want true")
+	}
+	if p == nil {
+		t.Fatal("p = nil, want populated Provenance")
+	}
+	if p.Tool != "eviltool" {
+		t.Errorf("Tool = %q, want %q (control characters stripped)", p.Tool, "eviltool")
+	}
+}
+
 func TestDetect_EmptyInput(t *testing.T) {
 	generated, p := Detect(nil)
 	if generated || p != nil {

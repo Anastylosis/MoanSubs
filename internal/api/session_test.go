@@ -178,6 +178,34 @@ func TestLogin_WrongPasswordRejected(t *testing.T) {
 	}
 }
 
+// A login POST whose body exceeds the form budget must be refused cleanly
+// (WP-S6/C): http.MaxBytesReader ahead of r.ParseForm() turns an oversized
+// body into a plain 400, not an unbounded read spent before the rate
+// limiter or the password check ever run.
+func TestLogin_OversizedBodyRejected(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	srv.AgeGate = false // WP-C10: irrelevant here, see web_test.go's webServer
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	form := url.Values{"name": {"oversized-login"}, "password": {strings.Repeat("x", 65<<10)}}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/login", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", ts.URL)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /login: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("POST /login with a 65 KiB body = %d, want 400", resp.StatusCode)
+	}
+}
+
 // Unknown name and wrong password must cost and answer identically (WP-C8
 // spec) — this is the other half of TestLogin_WrongPasswordRejected.
 func TestLogin_UnknownNameRejected(t *testing.T) {

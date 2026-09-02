@@ -62,6 +62,21 @@ const uploadCSP = "default-src 'none'; script-src 'self'; img-src 'self'; style-
 // blob: as well would widen a page that shows a secret for no reason.
 const tokenCSP = "default-src 'none'; script-src 'self'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
+// formBodyCap is the read ceiling for a plain HTML form POST, applied
+// before r.ParseForm() ever runs: generous for anything a human types into
+// a field, far below /upload's own larger budget (upload_web.go sets its
+// own), and turns an oversized body into ParseForm's own error rather than
+// an unbounded read.
+const formBodyCap = 64 << 10
+
+// capFormBody wraps r.Body in an http.MaxBytesReader sized formBodyCap —
+// call before r.ParseForm() on every plain form route except /upload
+// (its own budget) and any JSON handler (already capped by its own
+// http.MaxBytesReader).
+func capFormBody(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, formBodyCap)
+}
+
 // tokenPages are the bodies that render a <code class="token"> and so get
 // tokenCSP. Keep in step with the templates: a page that shows a token
 // without being listed here silently loses its copy button.
@@ -122,6 +137,10 @@ type registerData struct {
 // nothing else. noStore is explicit rather than inferred from data because
 // the login page needs it without ever carrying a secret.
 func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, body string, data any, noStore bool) {
+	// loggedIn is resolved inside the template-prep block below but read
+	// again afterward for the Cache-Control/Vary decision (WP-S6), so it's
+	// declared at function scope rather than the block's.
+	loggedIn := false
 	tpl, err := pages.Clone()
 	if err == nil {
 		// The layout's one piece of session awareness: "Log in" vs
@@ -133,7 +152,6 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 		// handler that authenticated may have stored it there to avoid a
 		// redundant session lookup in renderPage.
 		ares := authFromContext(r)
-		loggedIn := false
 		role := ""
 		if ares != nil {
 			loggedIn = true
@@ -206,8 +224,16 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 	// Referer that only ever reaches this node leaks nothing.
 	w.Header().Set("Referrer-Policy", "same-origin")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if noStore {
+	switch {
+	case noStore:
 		w.Header().Set("Cache-Control", "no-store")
+	case loggedIn:
+		// A page that isn't itself secret (no noStore) still varies by who's
+		// looking at it — the nav shows "Log in" vs. an account name — so a
+		// shared cache in front of this node must not serve one visitor's
+		// render to the next (WP-S6).
+		w.Header().Set("Cache-Control", "private, no-cache")
+		w.Header().Set("Vary", "Cookie")
 	}
 	// Rendered into memory first: a template error halfway through would
 	// otherwise leave a truncated page behind a 200 that looks like data.
@@ -383,6 +409,7 @@ func (s *Server) handleRegisterSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	inviteRequired := s.Registration == RegistrationInvite
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		s.renderPage(w, r, http.StatusBadRequest, "register.html", registerData{
 			Title: "Register", Open: s.OpenForStrangers(), InviteRequired: inviteRequired, Error: "could not read the submitted form",

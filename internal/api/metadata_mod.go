@@ -234,6 +234,7 @@ func (s *Server) handleReleaseProposeMetadata(w http.ResponseWriter, r *http.Req
 	if !checkOrigin(w, r) {
 		return
 	}
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return

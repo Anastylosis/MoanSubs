@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Anastylosis/MoanSubs/internal/store"
 )
@@ -198,10 +199,14 @@ func (s *Server) adminSetDisabled(w http.ResponseWriter, r *http.Request, disabl
 	// other operator-supplied string on this surface.
 	reason := ""
 	if disabled {
+		capFormBody(w, r)
 		if err := r.ParseForm(); err == nil {
 			reason = strings.TrimSpace(r.FormValue("reason"))
-			if len(reason) > 300 {
-				reason = reason[:300]
+			// Byte slicing here can split a multibyte rune, producing invalid
+			// UTF-8 that Postgres then rejects with a 500 — cut on a rune
+			// boundary instead.
+			if utf8.RuneCountInString(reason) > 300 {
+				reason = string([]rune(reason)[:300])
 			}
 		}
 	}
@@ -237,6 +242,7 @@ func (s *Server) handleAdminAccountPurge(w http.ResponseWriter, r *http.Request)
 	if !checkOrigin(w, r) {
 		return
 	}
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "could not read the submitted form", http.StatusBadRequest)
 		return
@@ -285,6 +291,7 @@ func (s *Server) handleAdminAccountRole(w http.ResponseWriter, r *http.Request) 
 	if !checkOrigin(w, r) {
 		return
 	}
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "could not read the submitted form", http.StatusBadRequest)
 		return
@@ -376,6 +383,7 @@ func (s *Server) handleAdminInviteCreate(w http.ResponseWriter, r *http.Request)
 	if !checkOrigin(w, r) {
 		return
 	}
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		s.renderAdminInvitesError(w, r, ares, "could not read the submitted form")
 		return

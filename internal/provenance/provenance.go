@@ -96,7 +96,40 @@ func Detect(data []byte) (generated bool, p *Provenance) {
 	if err := json.Unmarshal([]byte(note), &prov); err != nil {
 		return true, nil
 	}
+	prov.Tool = sanitizeField(prov.Tool)
+	prov.Version = sanitizeField(prov.Version)
+	prov.ASRModel = sanitizeField(prov.ASRModel)
+	prov.MTModel = sanitizeField(prov.MTModel)
+	prov.Src = sanitizeField(prov.Src)
+	prov.Dst = sanitizeField(prov.Dst)
+	prov.Date = sanitizeField(prov.Date)
+	prov.Media = sanitizeField(prov.Media)
 	return true, &prov
+}
+
+// maxProvenanceFieldRunes bounds every string field Detect extracts from an
+// uploader-controlled NOTE block — tool/version/asr_model/mt_model/src/dst
+// render on the public release page (provenanceLine) and in
+// GET /api/v1/subtitles/{id}, and json.Unmarshal alone imposes no length
+// limit on any of them.
+const maxProvenanceFieldRunes = 200
+
+// sanitizeField strips control characters (runes below 0x20, plus U+007F)
+// and caps the result at maxProvenanceFieldRunes — truncated, never
+// rejected: the marker itself is still evidence of generation even when a
+// NOTE field is hostile.
+func sanitizeField(s string) string {
+	clean := make([]rune, 0, len(s))
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			continue
+		}
+		clean = append(clean, r)
+	}
+	if len(clean) > maxProvenanceFieldRunes {
+		clean = clean[:maxProvenanceFieldRunes]
+	}
+	return string(clean)
 }
 
 // looksGenerated ports subtitles.py's looks_generated(): search only the

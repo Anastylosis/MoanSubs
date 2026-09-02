@@ -7,7 +7,10 @@ set -euo pipefail
 # container start, for backup.sh to source before each run. `declare -p`
 # rather than a raw `env` dump: it shell-quotes each value, so a password
 # or bucket name containing $, spaces or quotes survives the round trip
-# intact instead of being re-interpreted when sourced.
+# intact instead of being re-interpreted when sourced. umask first: this
+# file holds PGPASSWORD in the clear, and the default umask would leave it
+# world-readable.
+umask 077
 : > /etc/backup.env
 for name in $(compgen -e | grep -E '^(PG|RCLONE_|BACKUP_)'); do
 	declare -p "$name" >> /etc/backup.env

@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/Anastylosis/MoanSubs/internal/store"
 )
@@ -113,6 +114,56 @@ func TestAdminAccountDisable_OtherAccountSucceeds(t *testing.T) {
 	}
 	if !account.Disabled {
 		t.Error("account was not disabled")
+	}
+}
+
+// A disable reason over 300 runes must be cut on a rune boundary, not a
+// byte offset: 299 ASCII bytes followed by two 3-byte "€" runes places byte
+// index 300 in the middle of the first "€" — reason[:300] would produce
+// invalid UTF-8 and a 500 from Postgres; truncating by rune must not.
+func TestAdminAccountDisable_ReasonOver300MultibyteRunesTruncatesOnARuneBoundary(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	if err := st.SetAccountRole(context.Background(), "webuser", "admin"); err != nil {
+		t.Fatalf("SetAccountRole: %v", err)
+	}
+	createWebAccount(t, ts, "target-disable-multibyte")
+
+	reason := strings.Repeat("x", 299) + strings.Repeat("€", 2)
+	if n := len([]rune(reason)); n != 301 {
+		t.Fatalf("test setup: reason is %d runes, want 301", n)
+	}
+	form := url.Values{"reason": {reason}}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/admin/accounts/target-disable-multibyte/disable", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", ts.URL)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST disable: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST disable = %d, want 303", resp.StatusCode)
+	}
+
+	rows, err := st.SearchAccounts(context.Background(), "target-disable-multibyte", 10)
+	if err != nil {
+		t.Fatalf("SearchAccounts: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("SearchAccounts returned %d rows, want 1", len(rows))
+	}
+	got := rows[0].DisabledReason
+	if got == nil {
+		t.Fatal("DisabledReason = nil, want the truncated reason")
+	}
+	if !utf8.ValidString(*got) {
+		t.Fatalf("DisabledReason is not valid UTF-8: %q", *got)
+	}
+	if n := len([]rune(*got)); n != 300 {
+		t.Errorf("DisabledReason is %d runes, want 300", n)
 	}
 }
 

@@ -209,6 +209,44 @@ func TestReleasePage_ShowsTracksWithDownloadLinks(t *testing.T) {
 	}
 }
 
+// A rendered page that isn't itself secret (no noStore) still varies by
+// whether the visitor is logged in — the nav shows an account name — so a
+// shared cache in front of this node must not serve one visitor's render to
+// the next (WP-S6/D). An anonymous request keeps whatever the page sends
+// today (no Vary: Cookie); a session-cookie request gets both headers.
+func TestReleasePage_CacheHeadersVaryOnSession(t *testing.T) {
+	ts, _, client, token := sessionServer(t)
+	up := mkNamedUpload(t, ts, token, "b0000000000000f1", "Cache Header Release", "en")
+	pageURL := ts.URL + "/release/" + strconv.FormatInt(up.ReleaseID, 10)
+
+	anon, err := http.Get(pageURL)
+	if err != nil {
+		t.Fatalf("GET %s (anonymous): %v", pageURL, err)
+	}
+	defer func() { _ = anon.Body.Close() }()
+	if anon.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s (anonymous) = %d, want 200", pageURL, anon.StatusCode)
+	}
+	if v := anon.Header.Get("Vary"); strings.Contains(v, "Cookie") {
+		t.Errorf("anonymous release page carries Vary: %q, want no Cookie", v)
+	}
+
+	resp, err := client.Get(pageURL)
+	if err != nil {
+		t.Fatalf("GET %s (logged in): %v", pageURL, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s (logged in) = %d, want 200", pageURL, resp.StatusCode)
+	}
+	if cc := resp.Header.Get("Cache-Control"); cc != "private, no-cache" {
+		t.Errorf("logged-in release page Cache-Control = %q, want %q", cc, "private, no-cache")
+	}
+	if v := resp.Header.Get("Vary"); v != "Cookie" {
+		t.Errorf("logged-in release page Vary = %q, want %q", v, "Cookie")
+	}
+}
+
 func TestReleasePage_WithdrawnReturns404(t *testing.T) {
 	ts, st, token := newTestServer(t)
 	up := mkNamedUpload(t, ts, token, "b000000000000021", "Soon Withdrawn", "en")

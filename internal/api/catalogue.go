@@ -997,6 +997,7 @@ func (s *Server) handleReleaseVote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		s.renderReleasePage(w, withAuth(r, ares), releaseID, http.StatusBadRequest, "could not read the submitted form")
 		return
@@ -1056,6 +1057,7 @@ func (s *Server) handleReleaseFit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		s.renderReleasePage(w, withAuth(r, ares), releaseID, http.StatusBadRequest, "could not read the submitted form")
 		return

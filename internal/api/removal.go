@@ -100,6 +100,7 @@ func (s *Server) handleReleaseRemoval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		s.renderReleasePage(w, r, releaseID, http.StatusBadRequest, "could not read the submitted form")
 		return

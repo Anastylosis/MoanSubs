@@ -117,6 +117,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		s.renderPage(w, r, http.StatusBadRequest, "login.html", loginData{
 			Title: "Log in", Error: "could not read the submitted form",
@@ -334,6 +335,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	if !checkOrigin(w, r) {
 		return
 	}
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		s.renderMeError(w, r, ares, "could not read the submitted form")
 		return

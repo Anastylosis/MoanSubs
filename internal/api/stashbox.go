@@ -150,6 +150,7 @@ func (s *Server) handleSetStashBoxKey(w http.ResponseWriter, r *http.Request) {
 	if !checkOrigin(w, r) {
 		return
 	}
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		s.renderMeError(w, r, ares, "could not read the submitted form")
 		return
@@ -200,6 +201,7 @@ func (s *Server) handleClearStashBoxKey(w http.ResponseWriter, r *http.Request) 
 	if !checkOrigin(w, r) {
 		return
 	}
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		s.renderMeError(w, r, ares, "could not read the submitted form")
 		return
@@ -310,6 +312,7 @@ func (s *Server) handleReleaseStashBoxFind(w http.ResponseWriter, r *http.Reques
 	if !checkOrigin(w, r) {
 		return
 	}
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		s.renderReleasePage(w, withAuth(r, ares), id, http.StatusBadRequest, "could not read the submitted form")
 		return

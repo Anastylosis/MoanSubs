@@ -263,6 +263,7 @@ func (s *Server) handleModRemovalWithdraw(w http.ResponseWriter, r *http.Request
 		http.NotFound(w, r)
 		return
 	}
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		s.renderModFlagged(w, r, ares, http.StatusBadRequest, "could not read the submitted form")
 		return
@@ -472,6 +473,7 @@ func (s *Server) handleModTrackKind(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		s.renderModTrack(w, r, ares, id, http.StatusBadRequest, "could not read the submitted form")
 		return
@@ -513,6 +515,7 @@ func (s *Server) handleModTrackWithdraw(w http.ResponseWriter, r *http.Request) 
 		http.NotFound(w, r)
 		return
 	}
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		s.renderModTrack(w, r, ares, id, http.StatusBadRequest, "could not read the submitted form")
 		return
@@ -762,6 +765,7 @@ func (s *Server) handleModReleaseStashRemove(w http.ResponseWriter, r *http.Requ
 		http.NotFound(w, r)
 		return
 	}
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "could not read the submitted form", http.StatusBadRequest)
 		return
@@ -798,6 +802,7 @@ func (s *Server) handleModReleaseWithdraw(w http.ResponseWriter, r *http.Request
 		http.NotFound(w, r)
 		return
 	}
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		s.renderModRelease(w, r, ares, id, http.StatusBadRequest, "could not read the submitted form")
 		return
@@ -868,6 +873,7 @@ func (s *Server) handleModReleaseLink(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "could not read the submitted form", http.StatusBadRequest)
 		return
@@ -940,6 +946,7 @@ func (s *Server) handleModReleaseOffset(w http.ResponseWriter, r *http.Request) 
 		http.NotFound(w, r)
 		return
 	}
+	capFormBody(w, r)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "could not read the submitted form", http.StatusBadRequest)
 		return
