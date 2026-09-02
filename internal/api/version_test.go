@@ -73,3 +73,17 @@ func TestVersion_ReportsTheConfiguredVersion(t *testing.T) {
 		t.Errorf("Version = %q, want %q", got.Version, "1.2.3")
 	}
 }
+
+func TestBaseHeaders_EveryResponseCarriesTheClacks(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+	for _, path := range []string{"/api/v1/version", "/healthz", "/robots.txt", "/no-such-page"} {
+		resp, err := http.Get(ts.URL + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		_ = resp.Body.Close()
+		if got := resp.Header.Get("X-Clacks-Overhead"); got != "GNU Terry Pratchett" {
+			t.Errorf("%s: X-Clacks-Overhead = %q", path, got)
+		}
+	}
+}

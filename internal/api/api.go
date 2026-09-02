@@ -617,6 +617,9 @@ func NewMux(s *Server) http.Handler {
 func baseHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		// https://xclacksoverhead.org — a name kept moving through the
+		// overhead is a name not forgotten.
+		w.Header().Set("X-Clacks-Overhead", "GNU Terry Pratchett")
 		next.ServeHTTP(w, r)
 	})
 }

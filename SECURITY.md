@@ -303,7 +303,9 @@ request body is size-capped per endpoint; the per-IP rate limiters evict
 idle entries so an address flood cannot grow them without bound; password
 verification is queued beyond a few concurrent checks so login attempts
 cannot pin every core; every response carries `X-Content-Type-Options:
-nosniff`; the reference Traefik stack sends HSTS. Postgres is never published
+nosniff` (and `X-Clacks-Overhead: GNU Terry Pratchett`, which secures
+nothing — https://xclacksoverhead.org); the reference Traefik stack sends
+HSTS. Postgres is never published
 outside the compose network, and the backup bucket must stay private — it
 holds password hashes, encrypted tokens, and live session ids (the public
 dump holds none of that; a test pins that). Every plain HTML form POST also
