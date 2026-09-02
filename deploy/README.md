@@ -440,7 +440,12 @@ it, the first in root's crontab (ufw), the second in the deploying user's:
 (adjust to however your `.env` is actually assembled — the point is
 re-running the script, replacing the old line only once the fetch has
 succeeded rather than piling up a second one or blanking it, and
-re-applying the compose stack).
+re-applying the compose stack). A host without cron — Debian's cloud
+images ship none — gets the same from one systemd timer: a `oneshot`
+service with those two commands as consecutive `ExecStart=` lines
+(`WorkingDirectory=` this directory, and `chown` `.env` back to the
+deploying user after the root-run `sed`), plus a timer with
+`OnCalendar=Mon *-*-* 03:00:00` and `Persistent=true`.
 
 **5. Belt and braces.** Two more Cloudflare settings are worth turning on
 alongside this, both out of scope for this compose file to configure: SSL/TLS
