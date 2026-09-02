@@ -430,6 +430,54 @@ func TestStore_InviteBudget_UploadsEarnCodesAndWithdrawnDontCount(t *testing.T) 
 	}
 }
 
+// TestStore_CreateInviteWithinBudget_ConcurrentMintOneWins is WP-S4's
+// spec: budget 1, N concurrent callers, exactly one code minted and the
+// rest refused — the FOR UPDATE lock is what makes this deterministic
+// instead of racy like the old check-then-insert handler.
+func TestStore_CreateInviteWithinBudget_ConcurrentMintOneWins(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	accountID := mustAccountID(t, s, "minter")
+
+	const n = 20
+	results := make([]error, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := s.CreateInviteWithinBudget(ctx, accountID, 1, 0, 5)
+			results[i] = err
+		}(i)
+	}
+	wg.Wait()
+
+	var wins, losses int
+	for _, err := range results {
+		var budgetErr *InviteBudgetError
+		switch {
+		case err == nil:
+			wins++
+		case errors.As(err, &budgetErr):
+			losses++
+		default:
+			t.Fatalf("unexpected error from concurrent mint: %v", err)
+		}
+	}
+	if wins != 1 || losses != n-1 {
+		t.Fatalf("wins=%d losses=%d, want exactly one winner and %d losers", wins, losses, n-1)
+	}
+
+	invites, err := s.InvitesByCreator(ctx, accountID)
+	if err != nil {
+		t.Fatalf("InvitesByCreator: %v", err)
+	}
+	if len(invites) != 1 {
+		t.Fatalf("InvitesByCreator after the race = %d codes, want exactly 1", len(invites))
+	}
+}
+
 func TestStore_DisableInvite_Idempotent(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()

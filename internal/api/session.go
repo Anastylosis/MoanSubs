@@ -413,13 +413,11 @@ func (s *Server) renderMeInviteError(w http.ResponseWriter, r *http.Request, are
 
 // handleCreateInvite implements POST /me/invites (WP-C7c): mints one
 // single-use, non-expiring code for the logged-in account when its invite
-// budget (store.InviteBudget) allows it. The budget is re-checked here,
-// immediately before minting, rather than trusted from a stale page —
-// nothing serializes that check against the INSERT, so two tabs submitting
-// at the same instant can at most overshoot Available by one; that's
-// judged an acceptable gap for a self-inflicted, low-stakes race rather
-// than worth a transaction/lock. Session-only like /me/rotate-token, so
-// the Origin check is unconditional.
+// budget (store.CreateInviteWithinBudget) allows it. The check and the
+// mint happen inside one transaction (WP-S4) — locked against every other
+// concurrent request for this account — so N simultaneous submissions can
+// never mint more than the budget allows between them. Session-only like
+// /me/rotate-token, so the Origin check is unconditional.
 func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 	ares, err := authenticateWeb(r.Context(), s.Store, r)
 	if err != nil {
@@ -430,29 +428,23 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _, unusedActive, available, _, err := s.Store.InviteBudget(
+	_, err = s.Store.CreateInviteWithinBudget(
 		r.Context(), ares.Account.ID, s.InvitesInitial, s.InvitesPerUploads, s.InvitesCap)
 	if err != nil {
-		log.Printf("api: InviteBudget: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if available <= 0 {
-		// unusedActive at the cap is the blocking constraint even when
-		// enough has been earned to mint more once some are used or
-		// disabled; otherwise nothing has been earned beyond what's
-		// already minted.
-		reason := "earn more by uploading"
-		if unusedActive >= s.InvitesCap {
-			reason = "cap reached"
+		var budgetErr *store.InviteBudgetError
+		if errors.As(err, &budgetErr) {
+			// unusedActive at the cap is the blocking constraint even when
+			// enough has been earned to mint more once some are used or
+			// disabled; otherwise nothing has been earned beyond what's
+			// already minted.
+			reason := "earn more by uploading"
+			if budgetErr.UnusedActive >= budgetErr.Cap {
+				reason = "cap reached"
+			}
+			s.renderMeInviteError(w, r, ares, reason)
+			return
 		}
-		s.renderMeInviteError(w, r, ares, reason)
-		return
-	}
-
-	one := 1
-	if _, err := s.Store.CreateInvite(r.Context(), ares.Account.ID, &one, nil); err != nil {
-		log.Printf("api: CreateInvite: %v", err)
+		log.Printf("api: CreateInviteWithinBudget: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

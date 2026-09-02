@@ -149,7 +149,8 @@ cannot be redeemed until that account is re-enabled, closing the window for
 an abused account's invites to create new upload accounts. Self-minted codes
 are earned, not free: an account's own `POST /me/invites` budget grows with its
 contribution (visible uploads) and is capped on codes sitting unused
-(`MOANSUBS_INVITES_INITIAL`/`_PER_UPLOADS`/`_CAP`, MANUAL.md) — a
+(`MOANSUBS_INVITES_INITIAL`/`_PER_UPLOADS`/`_CAP`, MANUAL.md), enforced
+atomically — concurrent requests cannot overshoot it — a
 compromised or brand-new account can't mint an unbounded pool of
 registration codes, and disabling a code never refunds the mint that
 created it.

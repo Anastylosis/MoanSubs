@@ -92,30 +92,25 @@ func (s *Store) CreateInvite(ctx context.Context, createdBy int64, maxUses *int,
 	return code, nil
 }
 
-// InviteBudget computes accountID's invite economy (WP-C7c: invites accrue
-// with contribution and hit a cap, replacing the old flat
-// MOANSUBS_INVITES_PER_ACCOUNT allotment). initial, perUploads and cap are
-// the node's MOANSUBS_INVITES_INITIAL/_PER_UPLOADS/_CAP knobs, passed in
-// rather than read from config here because the store package carries no
-// server configuration of its own.
-//
-// earned = initial + floor(uploads / perUploads); perUploads <= 0 means
-// earning by upload is disabled, so earned is just initial. minted counts
-// every code accountID has ever created, active or not — an admin-minted
-// code attributed `--for` this account counts too (CreateInvite doesn't
-// distinguish who ran it, and re-deriving "self-minted only" would need a
-// column this schema doesn't have; documented in MANUAL.md/SECURITY.md).
-// unusedActive is the subset of those still redeemable — enabled,
-// unexpired, under max_uses — the same gate createInvitedAccount's UPDATE
-// enforces. available is the smaller of "room left under what's been
-// earned" and "room left under the cap on codes sitting unused", floored
-// at zero: earning more raises the first ceiling, disabling an unused code
-// lowers unusedActive and so raises the second.
-//
-// uploads is also returned since /me's budget line shows it alongside the
-// derived numbers (WP-C7c spec: "Uploads counted").
-func (s *Store) InviteBudget(ctx context.Context, accountID int64, initial, perUploads, capLimit int) (earned, minted, unusedActive, available, uploads int, err error) {
-	err = s.pool.QueryRow(ctx, `
+// inviteBudgetQuerier is satisfied by both *pgxpool.Pool and pgx.Tx,
+// letting inviteBudgetCounts run the same accounting query whether or not
+// it's inside CreateInviteWithinBudget's transaction (WP-S4: the two
+// callers must never carry their own copies of this query or the
+// arithmetic below).
+type inviteBudgetQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// inviteBudgetCounts is InviteBudget's raw accounting query: uploads,
+// minted (every code accountID has ever created, active or not — an
+// admin-minted code attributed `--for` this account counts too;
+// CreateInvite doesn't distinguish who ran it, and re-deriving
+// "self-minted only" would need a column this schema doesn't have;
+// documented in MANUAL.md/SECURITY.md), and unusedActive (the subset
+// still redeemable — enabled, unexpired, under max_uses, the same gate
+// createInvitedAccount's UPDATE enforces).
+func inviteBudgetCounts(ctx context.Context, q inviteBudgetQuerier, accountID int64) (uploads, minted, unusedActive int, err error) {
+	err = q.QueryRow(ctx, `
 		WITH visible AS (
 			SELECT COUNT(*) AS n
 			FROM subtitle_tracks t
@@ -134,10 +129,21 @@ func (s *Store) InviteBudget(ctx context.Context, accountID int64, initial, perU
 		SELECT visible.n, minted.n, active.n FROM visible, minted, active`,
 		accountID,
 	).Scan(&uploads, &minted, &unusedActive)
-	if err != nil {
-		return 0, 0, 0, 0, 0, fmt.Errorf("store: InviteBudget: %w", err)
-	}
+	return uploads, minted, unusedActive, err
+}
 
+// inviteBudgetArithmetic turns inviteBudgetCounts' raw numbers into
+// earned/available — the one formula InviteBudget and
+// CreateInviteWithinBudget both compute from, so a change to it can never
+// land in only one of them.
+//
+// earned = initial + floor(uploads / perUploads); perUploads <= 0 means
+// earning by upload is disabled, so earned is just initial. available is
+// the smaller of "room left under what's been earned" and "room left
+// under the cap on codes sitting unused", floored at zero: earning more
+// raises the first ceiling, disabling an unused code lowers unusedActive
+// and so raises the second.
+func inviteBudgetArithmetic(uploads, minted, unusedActive, initial, perUploads, capLimit int) (earned, available int) {
 	earned = initial
 	if perUploads > 0 {
 		earned += uploads / perUploads
@@ -149,7 +155,88 @@ func (s *Store) InviteBudget(ctx context.Context, accountID int64, initial, perU
 	if available < 0 {
 		available = 0
 	}
+	return earned, available
+}
+
+// InviteBudget computes accountID's invite economy (WP-C7c: invites accrue
+// with contribution and hit a cap, replacing the old flat
+// MOANSUBS_INVITES_PER_ACCOUNT allotment). initial, perUploads and cap are
+// the node's MOANSUBS_INVITES_INITIAL/_PER_UPLOADS/_CAP knobs, passed in
+// rather than read from config here because the store package carries no
+// server configuration of its own.
+//
+// uploads is also returned since /me's budget line shows it alongside the
+// derived numbers (WP-C7c spec: "Uploads counted"). This is a plain read
+// outside any transaction — the point-in-time display on /me, not the
+// gate that actually mints (CreateInviteWithinBudget).
+func (s *Store) InviteBudget(ctx context.Context, accountID int64, initial, perUploads, capLimit int) (earned, minted, unusedActive, available, uploads int, err error) {
+	uploads, minted, unusedActive, err = inviteBudgetCounts(ctx, s.pool, accountID)
+	if err != nil {
+		return 0, 0, 0, 0, 0, fmt.Errorf("store: InviteBudget: %w", err)
+	}
+	earned, available = inviteBudgetArithmetic(uploads, minted, unusedActive, initial, perUploads, capLimit)
 	return earned, minted, unusedActive, available, uploads, nil
+}
+
+// InviteBudgetError is CreateInviteWithinBudget's sentinel for "no budget
+// left to mint from" (errors.As target, not a plain value): it carries the
+// same unusedActive/cap numbers InviteBudget exposes elsewhere, computed
+// inside the transaction that refused the mint, so the caller can choose
+// between "cap reached" and "earn more by uploading" without a second,
+// separately-racing query.
+type InviteBudgetError struct {
+	UnusedActive int
+	Cap          int
+}
+
+func (e *InviteBudgetError) Error() string {
+	return fmt.Sprintf("store: invite budget exhausted (unusedActive=%d cap=%d)", e.UnusedActive, e.Cap)
+}
+
+// CreateInviteWithinBudget is handleCreateInvite's atomic mint (WP-S4):
+// InviteBudget's plain-SELECT-then-CreateInvite pair let N concurrent
+// requests each read the same stale budget before any of them inserted,
+// overshooting a cap of 1 into N codes. Locking the account row with
+// FOR UPDATE first serializes every concurrent caller for the same
+// accountID behind one another, so the budget this reads inside the tx
+// can never go stale before the INSERT that spends it commits.
+func (s *Store) CreateInviteWithinBudget(ctx context.Context, accountID int64, initial, perUploads, capLimit int) (code string, err error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("store: CreateInviteWithinBudget: beginning tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+	var lockedID int64
+	if err := tx.QueryRow(ctx, `SELECT id FROM accounts WHERE id = $1 FOR UPDATE`, accountID).Scan(&lockedID); err != nil {
+		return "", fmt.Errorf("store: CreateInviteWithinBudget: locking account: %w", err)
+	}
+
+	uploads, minted, unusedActive, err := inviteBudgetCounts(ctx, tx, accountID)
+	if err != nil {
+		return "", fmt.Errorf("store: CreateInviteWithinBudget: %w", err)
+	}
+	_, available := inviteBudgetArithmetic(uploads, minted, unusedActive, initial, perUploads, capLimit)
+	if available <= 0 {
+		return "", &InviteBudgetError{UnusedActive: unusedActive, Cap: capLimit}
+	}
+
+	code, err = generateInviteCode()
+	if err != nil {
+		return "", fmt.Errorf("store: CreateInviteWithinBudget: generating code: %w", err)
+	}
+	maxUses := 1
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO invites (code, created_by, max_uses, expires_at) VALUES ($1, $2, $3, NULL)`,
+		code, accountID, maxUses,
+	); err != nil {
+		return "", fmt.Errorf("store: CreateInviteWithinBudget: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("store: CreateInviteWithinBudget: %w", err)
+	}
+	return code, nil
 }
 
 // GetInvite returns the invite named by code, or ErrNotFound.

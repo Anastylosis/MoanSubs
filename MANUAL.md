@@ -135,7 +135,9 @@ earned" and "room left under the cap on codes sitting unused right now".
 `POST /me/invites` mints one single-use, non-expiring code when `available
 > 0`, else 400 with the reason ("cap reached" or "earn more by
 uploading"); disabling a code never refunds its mint, since `minted` only
-ever grows.
+ever grows. The budget check and the mint happen inside one transaction,
+locked per account, so concurrent requests can never mint more codes
+between them than `available` allows.
 
 **First-run admin.** Right after migrations, if no account on the node holds
 role `admin`, `serve` creates one — name `admin` (or `MOANSUBS_ADMIN_NAME`),
