@@ -174,6 +174,26 @@ var serveCmd = &cobra.Command{
 			searchRate = n
 		}
 
+		// The two anonymous read budgets were compiled in until the download
+		// one gained its own limiter; a mirror or a node behind a stingy CDN
+		// wants to move them, so both take the same env shape as the rest.
+		lookupRate := api.LookupRateLimitPerMinute
+		if v := os.Getenv("MOANSUBS_LOOKUP_RATE_PER_MINUTE"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_LOOKUP_RATE_PER_MINUTE %q", v)
+			}
+			lookupRate = n
+		}
+		downloadRate := api.DownloadRateLimitPerMinute
+		if v := os.Getenv("MOANSUBS_DOWNLOAD_RATE_PER_MINUTE"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_DOWNLOAD_RATE_PER_MINUTE %q", v)
+			}
+			downloadRate = n
+		}
+
 		// Per-account vote budget (WP-C3), same shape as the upload rate:
 		// generous for a real person triaging their own downloads, tight
 		// enough to stop a script grinding a track's score.
@@ -461,6 +481,8 @@ var serveCmd = &cobra.Command{
 		apiSrv.LoginLimiter = api.NewRateLimiter(loginRate)
 		apiSrv.SessionTTL = sessionTTL
 		apiSrv.SearchLimiter = api.NewRateLimiterPerMinute(searchRate)
+		apiSrv.LookupLimiter = api.NewRateLimiterPerMinute(lookupRate)
+		apiSrv.DownloadLimiter = api.NewRateLimiterPerMinute(downloadRate)
 		apiSrv.Registration = registration
 		apiSrv.InvitesInitial = invitesInitial
 		apiSrv.InvitesPerUploads = invitesPerUploads

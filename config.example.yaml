@@ -235,6 +235,11 @@ revisions:
 #                     derives its whole work.
 # search_per_minute — /search is the only catalogue page where a stranger
 #                     makes the database do real work.
+# lookup_per_minute — per IP, the anonymous lookup endpoints; generous
+#                     because browsing a scene wall fires them continuously,
+#                     and a batch entry costs one each.
+# download_per_minute — per IP, GET /api/v1/subtitles/{id}; its own budget
+#                     so a download loop can't starve lookups.
 # register_per_hour — low on purpose: self-registration is the one endpoint
 #                     that creates state for an anonymous caller.
 # login_per_hour    — slows password guessing without locking anyone out.
@@ -253,6 +258,8 @@ rate_limits:
   fit_per_hour: 60
   metadata_per_hour: 60
   search_per_minute: 30
+  lookup_per_minute: 300
+  download_per_minute: 120
   register_per_hour: 5
   login_per_hour: 20
   removal_per_hour: 5

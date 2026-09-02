@@ -71,15 +71,17 @@ type Invites struct {
 }
 
 type RateLimits struct {
-	UploadPerHour   *int `yaml:"upload_per_hour"`
-	VotePerHour     *int `yaml:"vote_per_hour"`
-	FitPerHour      *int `yaml:"fit_per_hour"`
-	MetadataPerHour *int `yaml:"metadata_per_hour"`
-	SearchPerMinute *int `yaml:"search_per_minute"`
-	RegisterPerHour *int `yaml:"register_per_hour"`
-	LoginPerHour    *int `yaml:"login_per_hour"`
-	RemovalPerHour  *int `yaml:"removal_per_hour"`
-	RevisionPerHour *int `yaml:"revision_per_hour"`
+	UploadPerHour     *int `yaml:"upload_per_hour"`
+	VotePerHour       *int `yaml:"vote_per_hour"`
+	FitPerHour        *int `yaml:"fit_per_hour"`
+	MetadataPerHour   *int `yaml:"metadata_per_hour"`
+	SearchPerMinute   *int `yaml:"search_per_minute"`
+	LookupPerMinute   *int `yaml:"lookup_per_minute"`
+	DownloadPerMinute *int `yaml:"download_per_minute"`
+	RegisterPerHour   *int `yaml:"register_per_hour"`
+	LoginPerHour      *int `yaml:"login_per_hour"`
+	RemovalPerHour    *int `yaml:"removal_per_hour"`
+	RevisionPerHour   *int `yaml:"revision_per_hour"`
 }
 
 type StashBoxes struct {
@@ -169,6 +171,8 @@ func (f *File) env() map[string]string {
 	setInt("MOANSUBS_FIT_RATE_PER_HOUR", f.RateLimits.FitPerHour)
 	setInt("MOANSUBS_METADATA_RATE_PER_HOUR", f.RateLimits.MetadataPerHour)
 	setInt("MOANSUBS_SEARCH_RATE_PER_MINUTE", f.RateLimits.SearchPerMinute)
+	setInt("MOANSUBS_LOOKUP_RATE_PER_MINUTE", f.RateLimits.LookupPerMinute)
+	setInt("MOANSUBS_DOWNLOAD_RATE_PER_MINUTE", f.RateLimits.DownloadPerMinute)
 	setInt("MOANSUBS_REGISTER_RATE_PER_HOUR", f.RateLimits.RegisterPerHour)
 	setInt("MOANSUBS_LOGIN_RATE_PER_HOUR", f.RateLimits.LoginPerHour)
 	setInt("MOANSUBS_REMOVAL_RATE_PER_HOUR", f.RateLimits.RemovalPerHour)

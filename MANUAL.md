@@ -101,6 +101,8 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_SESSION_TTL` | `720h` | How long a browser session (the `moansubs_session` cookie from `POST /login`) stays valid, parsed with Go's `time.ParseDuration`. |
 | `MOANSUBS_TRUSTED_PROXY_CIDRS` | *(unset)* | Comma-separated CIDRs (e.g. `172.28.0.0/24,10.0.0.0/8`) — list **every** hop's range, not just the one directly in front of this node: if a CDN sits in front of the reference Traefik, its published ranges belong here too, alongside Traefik's own address or subnet. The rate limiters' `X-Forwarded-For` handling only trusts the header when the request's direct peer address falls inside one of these — see "Reverse proxies" below. It also gates whether `X-Forwarded-Proto: https` is believed for the session cookie's `Secure` flag. Unset means none are trusted. |
 | `MOANSUBS_SEARCH_RATE_PER_MINUTE` | `30` | Per-IP budget for `GET /search`. The only catalogue page where an anonymous visitor makes the database do real work (a GIN array-overlap query), rather than an indexed lookup by prefix or id. |
+| `MOANSUBS_LOOKUP_RATE_PER_MINUTE` | `300` | Per-IP budget for the anonymous lookup endpoints (single, batch, exact, stash, trending, match). Generous because browsing a scene wall fires them continuously; a batch entry costs one token each. |
+| `MOANSUBS_DOWNLOAD_RATE_PER_MINUTE` | `120` | Per-IP budget for `GET /api/v1/subtitles/{id}`. Its own limiter, so a download loop can't starve lookups and vice versa. |
 | `MOANSUBS_DUMP_URL` | *(unset)* | Link the front page shows under "download the latest dump". Publishing a dump (`moansubs dump`) is an out-of-band operator choice; unset hides the link entirely. |
 | `MOANSUBS_INDEX_FRONT_PAGE` | `false` | Offer the **front page only** to search engines while the catalogue stays unlisted: `/robots.txt` allows `/` and disallows everything else, and crawlers are let past the age gate for `/` alone. The launch posture for a new node — the project should be findable by name long before a catalogue of filename-titled releases is worth publishing. `/sitemap.xml` still 404s, since there is no catalogue on offer. Ignored when `MOANSUBS_INDEXABLE` is on, which already offers strictly more. |
 | `MOANSUBS_AUTOCONFIRM` | `false` | Lets a trusted account's stash-box-backed metadata pin itself, with no moderator. Does nothing until at least one account is marked with `moansubs account trust <name>` — see "Auto-confirming" below for what qualifies and what it deliberately refuses. |
@@ -331,17 +333,17 @@ optimize for search engines. `/mod/*` and `/admin/*` (role-gated, see
 Startup applies any pending migrations, then serves. Shutdown is graceful
 on SIGINT/SIGTERM (in-flight requests get 10 seconds).
 
-The per-IP lookup rate limit (300/min) is compiled in; it is deliberately
-generous because browsing a scene wall fires lookups continuously, and the
-batch endpoint is the intended pressure valve — though it spends the same
-budget honestly rather than sidestepping it: `POST /api/v1/lookup/batch`
-charges one token per entry, not one per request, so a 100-entry batch
-(the plugin's own badge-wall cap) spends 100 of the 300, and a batch whose
-entry count exceeds what's left in the bucket is refused and spends
-nothing at all. `GET /api/v1/subtitles/{id}` (downloads) has its own,
-separate per-IP limit (120/min, also compiled in) — a download loop must
-not be able to starve the lookups the same plugin fires while browsing,
-and vice versa.
+The per-IP lookup rate limit (300/min, `MOANSUBS_LOOKUP_RATE_PER_MINUTE`)
+is deliberately generous because browsing a scene wall fires lookups
+continuously, and the batch endpoint is the intended pressure valve —
+though it spends the same budget honestly rather than sidestepping it:
+`POST /api/v1/lookup/batch` charges one token per entry, not one per
+request, so a 100-entry batch (the plugin's own badge-wall cap) spends 100
+of the 300, and a batch whose entry count exceeds what's left in the bucket
+is refused and spends nothing at all. `GET /api/v1/subtitles/{id}`
+(downloads) has its own, separate per-IP limit (120/min,
+`MOANSUBS_DOWNLOAD_RATE_PER_MINUTE`) — a download loop must not be able to
+starve the lookups the same plugin fires while browsing, and vice versa.
 
 Every `429` this node emits (lookup, download, upload, vote, fit,
 registration, login, search, removal, metadata, and this node's own
