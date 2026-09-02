@@ -42,6 +42,8 @@ the stack — private infrastructure details never enter tracked files.
   `crontab` (nightly schedule).
 - `cloudflare-cidrs.sh` — prints Cloudflare's current edge ranges for
   `UPSTREAM_PROXY_CIDRS`; see "Behind Cloudflare (or another CDN)".
+- `cloudflare-ufw.sh` — restricts the published 80/443 to those ranges on
+  a ufw host, through Docker's `DOCKER-USER` chain; `--remove` undoes it.
 
 ## First boot
 
@@ -386,10 +388,20 @@ handling or the CDN buys you nothing.
 **1. Lock the origin down first.** If this host's 80/443 are reachable from
 anywhere, anyone can connect directly with the site's own `Host` header and
 skip the CDN entirely — every WAF rule, cache and rate limit it offers along
-with it. Restrict inbound 80/443 to the CDN's published ranges at the host
-firewall or your cloud provider's security group, keeping SSH (or whatever
-you administer the box with) open the normal way. Those are the same ranges
-`UPSTREAM_PROXY_CIDRS` needs below — one list, two places it has to go.
+with it. Restrict inbound 80/443 to the CDN's published ranges, keeping SSH
+(or whatever you administer the box with) open the normal way. Those are
+the same ranges `UPSTREAM_PROXY_CIDRS` needs below — one list, two places
+it has to go.
+
+On a host that runs **ufw**, `sudo ./cloudflare-ufw.sh` does this. A plain
+`ufw allow from` would *not*: Docker routes a published port through its
+own `FORWARD` chain, which ufw's rules never see, so 80/443 stay open no
+matter what `ufw status` says. The script writes the allow-list into
+Docker's `DOCKER-USER` chain by way of `/etc/ufw/after.rules` and
+`after6.rules`, where it survives `ufw reload` and a reboot; re-run it to
+refresh the ranges, `sudo ./cloudflare-ufw.sh --remove` to take it out
+again. Any other firewall needs the same shape — rules in `DOCKER-USER`
+(or your provider's edge firewall in front of the host), not in `INPUT`.
 
 **2. Tell Traefik and moansubs about the CDN hop.** Fetch the current ranges
 and set them before starting the stack:
@@ -416,11 +428,13 @@ sits between them and needs its own range added too).
 
 **4. Refresh the list.** A CDN's published ranges change occasionally; a
 stale list under-trusts (new ranges get rate-limited as if they were the
-edge) rather than over-trusts, but it's still worth keeping current. A host
-crontab line covers it:
+edge) rather than over-trusts — and, on the firewall side, blocks an edge
+the CDN just started using — so keep both current. Two crontab lines cover
+it, the first in root's crontab (ufw), the second in the deploying user's:
 
 ```
-0 3 * * 1 cd /path/to/this/directory && new=$(./cloudflare-cidrs.sh) && sed -i '/^UPSTREAM_PROXY_CIDRS=/d' .env && echo "UPSTREAM_PROXY_CIDRS=$new" >> .env && docker compose up -d
+0 3 * * 1 /path/to/this/directory/cloudflare-ufw.sh >/var/log/cloudflare-ufw.log 2>&1
+10 3 * * 1 cd /path/to/this/directory && new=$(./cloudflare-cidrs.sh) && sed -i '/^UPSTREAM_PROXY_CIDRS=/d' .env && echo "UPSTREAM_PROXY_CIDRS=$new" >> .env && docker compose up -d
 ```
 
 (adjust to however your `.env` is actually assembled — the point is
