@@ -69,8 +69,8 @@ func (p *Provenance) Translated() bool {
 
 // noteRe extracts a VTT NOTE block's body: "NOTE\n<body>\n\n", the exact
 // shape subtitles.py:render_vtt emits (a blank line always ends the block,
-// and the body itself is collapsed to never contain one — see
-// internal/subtitle's mirrored blankLineRe).
+// and the body itself is scrubbed to never contain one — see
+// internal/subtitle's sanitizeNote/dropBlankLines).
 var noteRe = regexp.MustCompile(`(?s)NOTE\r?\n(.*?)\r?\n\r?\n`)
 
 // Detect sniffs data — the raw uploaded subtitle bytes, before

@@ -16,6 +16,9 @@ func FuzzParse(f *testing.F) {
 	f.Add([]byte("00:00:01,0 --> 00:00:02,00\n<i>styled</i> <script>evil()</script>\n"))
 	f.Add([]byte("00:00:01,000 --> 00:00:02,000\nline one\nline two\n\n"))
 	f.Add([]byte("garbage with no cues at all"))
+	f.Add([]byte("1\n00:00:01,000 --> 00:00:02,000\na\n <\nb\n"))
+	f.Add([]byte("1\n00:00:01,000 --> 00:00:02,000\na\n\u00a0<\nb\n"))
+	f.Add([]byte("1\n00:00:01,000 --> 00:00:02,000\na\n　\x07\nb\n"))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		cues, err := Parse(data)

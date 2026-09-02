@@ -167,10 +167,30 @@ func sanitizeText(s string) string {
 
 	// Sanitizing can empty an interior line — "0\n\x19\n0" becomes "0\n\n0" —
 	// and a blank line is exactly what ends a cue. Rendered into the stored
-	// SRT, everything past it would be lost on the next parse.
-	s = blankLineRe.ReplaceAllString(s, "\n")
+	// SRT, everything past it would be lost on the next parse. Parse's own
+	// notion of "blank" is Unicode-aware (strings.TrimSpace), so the two must
+	// agree: dropping by the same rule, rather than collapsing runs with an
+	// ASCII-only regex, keeps a line holding only e.g. U+3000 from surviving
+	// sanitization and then being read as blank on the next Parse.
+	s = dropBlankLines(s)
 
 	return strings.TrimSpace(s)
+}
+
+// dropBlankLines removes every line that strings.TrimSpace reduces to empty,
+// matching exactly the notion of "blank" that ends a cue in Parse's body
+// loop. Used instead of a regex collapse so sanitizeText and sanitizeNote
+// can never disagree with Parse about what counts as a blank line.
+func dropBlankLines(s string) string {
+	lines := strings.Split(s, "\n")
+	kept := lines[:0]
+	for _, ln := range lines {
+		if strings.TrimSpace(ln) == "" {
+			continue
+		}
+		kept = append(kept, ln)
+	}
+	return strings.Join(kept, "\n")
 }
 
 // collapseControlChars drops control characters (other than the newlines
@@ -220,20 +240,16 @@ func RenderSRT(cues []Cue) string {
 	return b.String()
 }
 
-// blankLineRe collapses runs of blank lines, mirroring subtitles.py's
-// cue_text(): a blank line ends a cue (SRT) or the NOTE block (VTT), so one
-// embedded in rendered text would silently corrupt the output.
-var blankLineRe = regexp.MustCompile(`\n\s*\n+`)
-
 // sanitizeNote makes note safe to sit in a WebVTT NOTE block. The note is
 // provenance lifted from an upload, so it is attacker-influenced text served
 // to a different user: anything that can end the comment block early or forge
 // a cue inside it has to go. Order is load-bearing — dropping a control
-// character can leave a line empty, and an empty line is what ends the block.
+// character can leave a line empty, and an empty (or Unicode-whitespace-only,
+// see dropBlankLines) line is what ends the block.
 func sanitizeNote(note string) string {
 	s := strings.ToValidUTF8(note, "")
 	s = collapseControlChars(s)
-	s = blankLineRe.ReplaceAllString(strings.TrimSpace(s), "\n")
+	s = dropBlankLines(strings.TrimSpace(s))
 	// WebVTT forbids "-->" in a comment for exactly this reason: left intact,
 	// it closes the NOTE and turns the rest of the note into cues.
 	return arrowRe.ReplaceAllString(s, "->")

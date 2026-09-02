@@ -377,6 +377,78 @@ func TestSanitize_EmptiedLineDoesNotSplitTheCue(t *testing.T) {
 	}
 }
 
+// -- Unicode-blank regressions (an ASCII-only regex collapse vs. Parse's
+// Unicode-aware strings.TrimSpace) ---------------------------------------
+
+func TestSanitize_TagStripLeavesLoneSpaceLineDoesNotSplitCue(t *testing.T) {
+	// Removing a lone "<" from " <" leaves a line holding only an ASCII
+	// space. This one already round-trips correctly (ASCII space is in RE2's
+	// \s), but it pins the shape so a future change to the blank-line rule
+	// can't silently regress it.
+	src := "1\n00:00:01,000 --> 00:00:02,000\na\n <\nb\n"
+	cues, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(cues) != 1 || cues[0].Text != "a\nb" {
+		t.Fatalf("cues = %+v, want single cue with text %q", cues, "a\nb")
+	}
+	reparsed, err := Parse([]byte(RenderSRT(cues)))
+	if err != nil {
+		t.Fatalf("re-parse: %v", err)
+	}
+	if len(reparsed) != 1 || reparsed[0].Text != cues[0].Text {
+		t.Fatalf("round-trip changed cue: got %+v, want %+v", reparsed, cues)
+	}
+}
+
+func TestSanitize_UnicodeWhitespaceOnlyLineDoesNotSplitCue(t *testing.T) {
+	// The raw line is NBSP followed by a bare "<": not blank going into
+	// the body loop (the "<" is a real character), so it survives to
+	// sanitizeText, which drops the "<" and leaves a line holding only NBSP
+	// — Unicode-whitespace but not in RE2's ASCII-only \s, so blankLineRe
+	// never collapsed it. The line then survived sanitization, got rendered
+	// verbatim, and Parse's own (Unicode-aware) blank check truncated the
+	// cue on re-parse.
+	src := "1\n00:00:01,000 --> 00:00:02,000\na\n\u00a0<\nb\n"
+	cues, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(cues) != 1 || cues[0].Text != "a\nb" {
+		t.Fatalf("cues = %+v, want single cue with text %q", cues, "a\nb")
+	}
+	rendered := RenderSRT(cues)
+	reparsed, err := Parse([]byte(rendered))
+	if err != nil {
+		t.Fatalf("re-parse: %v", err)
+	}
+	if len(reparsed) != 1 || reparsed[0].Text != cues[0].Text {
+		t.Fatalf("round-trip truncated the cue: got %+v from %q, want %+v", reparsed, rendered, cues)
+	}
+}
+
+func TestSanitize_UnicodeWhitespacePlusControlCharLineDoesNotSplitCue(t *testing.T) {
+	// A line combining a Unicode-whitespace rune with a stripped control
+	// character: after collapseControlChars removes \x07, only U+3000 is
+	// left — same failure mode as above, reached via a different input shape.
+	src := "1\n00:00:01,000 --> 00:00:02,000\na\n　\x07\nb\n"
+	cues, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(cues) != 1 || cues[0].Text != "a\nb" {
+		t.Fatalf("cues = %+v, want single cue with text %q", cues, "a\nb")
+	}
+	reparsed, err := Parse([]byte(RenderSRT(cues)))
+	if err != nil {
+		t.Fatalf("re-parse: %v", err)
+	}
+	if len(reparsed) != 1 || reparsed[0].Text != cues[0].Text {
+		t.Fatalf("round-trip truncated the cue: got %+v, want %+v", reparsed, cues)
+	}
+}
+
 func TestRenderVTT_NoteCannotForgeACue(t *testing.T) {
 	// The note carries provenance lifted from the upload. An arrow left in it
 	// closes the NOTE block and forges a cue in the file served to someone
