@@ -186,7 +186,19 @@ func (a *app) downloadSceneChunk(ctx context.Context, scenes []stash.Scene, dryR
 		hashCandidates := rankCandidates(perScene[i], inf.keys.OSHash, inf.keys.PHash, inf.durationMs, false)
 		var candidates []Candidate
 		if len(inf.stashIDs) > 0 {
-			candidates = a.stashIdentityCandidates(ctx, inf.scene.ID, inf.stashIDs, inf.durationMs)
+			// An id names the scene, not the cut: unattended writes get
+			// the same duration gate as hash matches.
+			for _, c := range a.stashIdentityCandidates(ctx, inf.scene.ID, inf.stashIDs, inf.durationMs) {
+				delta := c.DurationDeltaMs
+				if delta < 0 {
+					delta = -delta
+				}
+				if delta > durationGate.Milliseconds() {
+					st.note("scene %s: stash-box identity match to release %d differs by %dms in duration, skipping for unattended download", inf.scene.ID, c.Release.ID, delta)
+					continue
+				}
+				candidates = append(candidates, c)
+			}
 		}
 		if len(candidates) > 0 {
 			seen := make(map[int64]bool, len(candidates))

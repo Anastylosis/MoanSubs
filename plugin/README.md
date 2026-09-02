@@ -248,7 +248,10 @@ encode**/**Possible match** levels the panel shows, plus the scene's own
 stash-box id): the **Name match** fallback never runs here. It is
 offer-only in the interactive panel for a reason — an unattended task
 writing a file on a title/filename guess is exactly the failure that rule
-exists to prevent.
+exists to prevent. Unlike the panel, a stash-box identity match is also
+held to the same duration gate as a hash match here: nobody is looking at
+the delta to judge it, so an identity hit whose duration disagrees too much
+is counted as no match instead of downloaded blind.
 
 Safe to re-run (existing captions are left alone by default) and
 `Stop`-able mid-run: cancelling lands between chunks, never mid-write, so

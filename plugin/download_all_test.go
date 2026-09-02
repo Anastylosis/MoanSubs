@@ -576,6 +576,100 @@ func TestDownloadAll_GivesUpOnPersistent429(t *testing.T) {
 	}
 }
 
+// A stash-box id identifies the scene, not the cut it was authored against.
+// The bulk task writes candidates[0] with nobody looking at the delta the
+// interactive panel shows, so an identity match whose duration disagrees
+// beyond the same gate hash matches use must be dropped rather than trusted
+// blind — and land as a logged no-match, not a silently wrong download.
+func TestDownloadAll_IdentityCandidateGatedByDuration(t *testing.T) {
+	const stashID = "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"
+	scenePath := sceneFile(t, "clip.mp4")
+
+	st := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("bad request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if !strings.Contains(req.Query, "findScenes(") {
+			t.Fatalf("unexpected query: %s", req.Query)
+		}
+		filter, _ := req.Variables["filter"].(map[string]any)
+		page, _ := filter["page"].(float64)
+		if page > 1 {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"findScenes": map[string]any{
+				"count": 1, "scenes": []any{},
+			}}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"findScenes": map[string]any{
+			"count": 1,
+			"scenes": []any{map[string]any{
+				"id": "1",
+				"files": []map[string]any{{
+					"path": scenePath, "duration": 60.0, // 60000ms
+					"fingerprints": []map[string]any{{"type": "oshash", "value": "0000000000000000"}},
+				}},
+				"stash_ids": []map[string]any{{"endpoint": "https://stashdb.org/graphql", "stash_id": stashID}},
+			}},
+		}}})
+	}))
+	defer st.Close()
+
+	var trackCalls atomic.Int64
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/v1/lookup/batch", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			StashIDs []struct {
+				EHash   string `json:"ehash"`
+				StashID string `json:"stash_id"`
+			} `json:"stash_ids"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decoding batch request: %v", err)
+		}
+		results := map[string]any{}
+		for _, sq := range req.StashIDs {
+			// 5s off the scene's 60s duration: exceeds the 1s gate hash
+			// matches use, so the bulk path must drop this candidate.
+			results["stash:"+sq.EHash+":"+sq.StashID] = []map[string]any{{
+				"id": 99, "oshash": "ffffffffffffffff", "duration_ms": 65000,
+				"tracks": []map[string]any{{"id": 5, "lang": "en", "kind": "default"}},
+			}}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"results": results})
+	})
+	mux.HandleFunc("GET /api/v1/subtitles/{id}", func(w http.ResponseWriter, r *http.Request) {
+		trackCalls.Add(1)
+		w.WriteHeader(http.StatusNotFound)
+	})
+	ms := httptest.NewServer(mux)
+	defer ms.Close()
+
+	a := bulkApp(st.URL, ms.URL, []string{"en"}, false, false)
+	res := downloadAllOK(t, mustDownloadAll(t, a, false))
+
+	if res.NoMatch != 1 {
+		t.Errorf("NoMatch = %d, want 1 (the only candidate was gated out)", res.NoMatch)
+	}
+	if trackCalls.Load() != 0 {
+		t.Errorf("track fetches = %d, want 0 — a gated candidate must never be downloaded", trackCalls.Load())
+	}
+	found := false
+	for _, n := range res.Notes {
+		if strings.Contains(n, "stash-box identity") && strings.Contains(n, "skipping") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Notes = %v, want a note explaining the skipped identity match", res.Notes)
+	}
+}
+
 func TestSelectTracksForDownload(t *testing.T) {
 	tracks := []client.TrackSummary{
 		{ID: 1, Lang: "en", Kind: "default"},
