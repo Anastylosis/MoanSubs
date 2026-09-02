@@ -3,7 +3,8 @@
 Base path: `/api/v1`. All bodies are JSON. Errors are
 `{"error": "message"}` with a 4xx/5xx status.
 
-Downloads and lookups are anonymous (rate-limited per IP, 300/min).
+Downloads and lookups are anonymous (rate-limited per IP: lookups 300/min,
+downloads 120/min — separate budgets, so one can't starve the other).
 Uploads require `Authorization: Bearer <account token>` (rate-limited per
 token, default 30/hour — see MANUAL.md). Get a token by registering
 (below) or, on an invite-only node, from the operator.
@@ -453,6 +454,10 @@ request; no IP, account or timestamp is recorded against it, deliberately
   hiding every track under it. Either way, the id used to work and no
   longer does; distinguishing this from a plain `404` lets a client tell
   "never existed" from "was taken down".
+- `429` — over the per-IP download budget (120/min, its own limiter,
+  separate from the lookup endpoints' 300/min so a download loop can't
+  starve the lookups a plugin fires while browsing). Checked before the id
+  is even parsed, so a denial never touches the database.
 
 `?format=srt` returns the same track as a downloadable plain-text file
 instead of the JSON envelope — this is what the catalogue's `/release/{id}`

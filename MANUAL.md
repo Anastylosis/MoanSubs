@@ -331,10 +331,14 @@ on SIGINT/SIGTERM (in-flight requests get 10 seconds).
 
 The per-IP lookup rate limit (300/min) is compiled in; it is deliberately
 generous because browsing a scene wall fires lookups continuously, and the
-batch endpoint is the intended pressure valve.
+batch endpoint is the intended pressure valve. `GET /api/v1/subtitles/{id}`
+(downloads) has its own, separate per-IP limit (120/min, also compiled
+in) — a download loop must not be able to starve the lookups the same
+plugin fires while browsing, and vice versa.
 
-Every `429` this node emits (lookup, upload, vote, fit, registration,
-login, search, removal, metadata, and this node's own stash-box budget)
+Every `429` this node emits (lookup, download, upload, vote, fit,
+registration, login, search, removal, metadata, and this node's own
+stash-box budget)
 carries a `Retry-After` header — the exact wait, in whole seconds rounded
 up, derived from that limiter's own refill state (API.md). The one
 exception is the stash-box passthrough just above: a `429` there is the

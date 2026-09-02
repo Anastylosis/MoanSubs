@@ -29,6 +29,15 @@ const UploadRateLimitPerHour = 30
 // with the batch endpoint as the actual pressure valve for a SceneCard wall.
 const LookupRateLimitPerMinute = 300
 
+// DownloadRateLimitPerMinute is the per-IP budget for GET
+// /api/v1/subtitles/{id} (WP-S3): separate from LookupRateLimitPerMinute on
+// purpose, so a download loop can't starve the lookups the plugin fires
+// while browsing, and vice versa. It is the only unthrottled write on the
+// anonymous surface before this — every hit ran an UPDATE plus an in-memory
+// stats write, and downloads feeds trending/popular ranking, so a loop could
+// inflate any track's rank at will.
+const DownloadRateLimitPerMinute = 120
+
 // RegisterRateLimitPerHour is the per-IP budget for self-registration. Low
 // on purpose: a person needs one account, so anything above a handful per
 // hour from one address is somebody minting names, not somebody signing up.
@@ -270,6 +279,10 @@ type Server struct {
 	// LookupLimiter is the per-IP limiter shared by all four lookup
 	// endpoints, also exported for the same reason as Limiter.
 	LookupLimiter *RateLimiter
+	// DownloadLimiter is the per-IP limiter for GET /api/v1/subtitles/{id}
+	// (WP-S3), separate from LookupLimiter — see DownloadRateLimitPerMinute.
+	// Exported for the same reason as Limiter.
+	DownloadLimiter *RateLimiter
 	// RegisterLimiter is the per-IP limiter for self-registration.
 	RegisterLimiter *RateLimiter
 	// LoginLimiter is the per-IP limiter for POST /login (WP-C1), the same
@@ -422,6 +435,7 @@ func NewServer(s *store.Store) *Server {
 		Store:           s,
 		Limiter:         NewRateLimiter(UploadRateLimitPerHour),
 		LookupLimiter:   NewRateLimiterPerMinute(LookupRateLimitPerMinute),
+		DownloadLimiter: NewRateLimiterPerMinute(DownloadRateLimitPerMinute),
 		RegisterLimiter: NewRateLimiter(RegisterRateLimitPerHour),
 		LoginLimiter:    NewRateLimiter(LoginRateLimitPerHour),
 		SessionTTL:      DefaultSessionTTL,

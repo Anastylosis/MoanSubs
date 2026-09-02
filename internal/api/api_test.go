@@ -858,6 +858,79 @@ func TestGetSubtitle_NotFound(t *testing.T) {
 	}
 }
 
+// -- download rate limiting (WP-S3) ----------------------------------------
+
+// TestGetSubtitle_RateLimitExceeded exercises DownloadLimiter, the download
+// endpoint's own per-IP limiter (separate from LookupLimiter): the N+1th
+// download from one IP is 429 with Retry-After, a different IP is
+// unaffected, and the refused request must not move the downloads counter.
+// Requests are dispatched straight at the mux (no real listener) so each can
+// carry its own RemoteAddr — httptest.Server's client would otherwise pin
+// every request to the same loopback address.
+func TestGetSubtitle_RateLimitExceeded(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	srv.AgeGate = false
+	srv.DownloadLimiter = NewRateLimiterPerMinute(1) // tight limit so the test doesn't wait a minute
+	mux := NewMux(srv)
+
+	_, token, err := st.CreateAccount(context.Background(), "uploader")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	uploadBody, err := json.Marshal(map[string]any{
+		"oshash": "e0e0e0e0e0e0e0e0", "duration_ms": 13000, "lang": "en", "body": basicSRT,
+	})
+	if err != nil {
+		t.Fatalf("marshal upload body: %v", err)
+	}
+	uploadReq := httptest.NewRequest(http.MethodPost, "/api/v1/subtitles", bytes.NewReader(uploadBody))
+	uploadReq.Header.Set("Content-Type", "application/json")
+	uploadReq.Header.Set("Authorization", "Bearer "+token)
+	uploadRec := httptest.NewRecorder()
+	mux.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusCreated {
+		t.Fatalf("upload status = %d, want 201", uploadRec.Code)
+	}
+	created := decodeJSON[uploadResponse](t, uploadRec.Result())
+	path := "/api/v1/subtitles/" + strconv.FormatInt(created.TrackID, 10)
+
+	get := func(remoteAddr string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.RemoteAddr = remoteAddr
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	first := get("203.0.113.9:1234")
+	if first.Code != http.StatusOK {
+		t.Fatalf("first GET status = %d, want 200", first.Code)
+	}
+
+	second := get("203.0.113.9:1234")
+	if second.Code != http.StatusTooManyRequests {
+		t.Errorf("second GET (same IP) status = %d, want 429", second.Code)
+	}
+	if got := second.Header().Get("Retry-After"); got == "" {
+		t.Error("429 response has no Retry-After header")
+	}
+
+	other := get("198.51.100.4:1234")
+	if other.Code != http.StatusOK {
+		t.Errorf("GET from a different IP status = %d, want 200 (separate limiter bucket)", other.Code)
+	}
+
+	track, err := st.GetSubtitleTrack(context.Background(), created.TrackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if track.Downloads != 2 {
+		t.Errorf("Downloads = %d, want 2 (first GET + the different-IP GET; the 429 must not count)", track.Downloads)
+	}
+}
+
 // -- stash_ids on upload (migration 0011, WP-C9a) --------------------------
 
 func TestUpload_StashIDs_RejectsBadUUID(t *testing.T) {

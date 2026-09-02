@@ -828,7 +828,16 @@ type getSubtitleResponse struct {
 // metadata including the auto-detected generated/provenance status and
 // license, so a plugin can badge machine-generated content at download
 // time (PLAN.md "AI-generated disclosure": "Surface it at download time").
+// Rate-limited per IP (WP-S3, DownloadLimiter), checked before the id parse
+// and the DB read — the only write on this anonymous surface that wasn't,
+// and downloads feeds trending/popular ranking.
 func (s *Server) handleGetSubtitle(w http.ResponseWriter, r *http.Request) {
+	key := limiterKey(s.clientIP(r))
+	if !s.DownloadLimiter.Allow(key) {
+		writeRateLimited(w, s.DownloadLimiter, key, "download rate limit exceeded")
+		return
+	}
+
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")
