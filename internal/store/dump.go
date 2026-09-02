@@ -28,7 +28,9 @@ func (s *Store) DumpReleasesAfter(ctx context.Context, afterID int64, limit int)
 // track record plus the uploader's account name (never the account id or
 // token) via a LEFT JOIN — dump output must carry nothing from accounts
 // beyond that one display name (PLAN.md WP-B2: "Nothing from accounts,
-// sessions, track_votes beyond the aggregate").
+// sessions, track_votes beyond the aggregate"). UploaderName is nil unless
+// Authorship is "credited" — a "shared" or "uncredited" track is not a
+// public credit and a dump line is not exempt from that rule (API.md).
 type DumpTrack struct {
 	ID           int64
 	ReleaseID    int64
@@ -56,6 +58,12 @@ type DumpTrack struct {
 	RootID       int64
 	Revision     int
 	SupersedesID *int64
+	// Authorship/DeclaredGenerated (migration 0026): carried so a mirror's
+	// import doesn't have to re-derive them from nothing (WP-S2) — without
+	// this a mirror would import every declared-AI track as human and every
+	// track as "shared".
+	Authorship        string
+	DeclaredGenerated bool
 }
 
 // DumpTracksAfter returns up to limit DumpTracks with id > afterID, ordered
@@ -70,7 +78,10 @@ type DumpTrack struct {
 // revision was withdrawn arrives with a gap import has to bridge.
 func (s *Store) DumpTracksAfter(ctx context.Context, afterID int64, limit int) ([]DumpTrack, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT t.id, t.release_id, t.lang, t.body, t.generated, t.provenance, t.license, t.source, a.name, t.created_at, t.downloads, t.up, t.down, t.kind, t.kind_label, t.root_id, t.revision, t.supersedes_id
+		SELECT t.id, t.release_id, t.lang, t.body, t.generated, t.provenance, t.license, t.source,
+		       CASE WHEN t.authorship = 'credited' THEN a.name ELSE NULL END,
+		       t.created_at, t.downloads, t.up, t.down, t.kind, t.kind_label, t.root_id, t.revision, t.supersedes_id,
+		       t.authorship, t.declared_generated
 		FROM subtitle_tracks t
 		JOIN releases r ON r.id = t.release_id
 		LEFT JOIN accounts a ON a.id = t.uploader_id
@@ -87,7 +98,7 @@ func (s *Store) DumpTracksAfter(ctx context.Context, afterID int64, limit int) (
 		var t DumpTrack
 		if err := rows.Scan(&t.ID, &t.ReleaseID, &t.Lang, &t.Body, &t.Generated, &t.Provenance,
 			&t.License, &t.Source, &t.UploaderName, &t.CreatedAt, &t.Downloads, &t.Up, &t.Down, &t.Kind, &t.KindLabel,
-			&t.RootID, &t.Revision, &t.SupersedesID); err != nil {
+			&t.RootID, &t.Revision, &t.SupersedesID, &t.Authorship, &t.DeclaredGenerated); err != nil {
 			return nil, fmt.Errorf("store: DumpTracksAfter: scanning: %w", err)
 		}
 		out = append(out, t)

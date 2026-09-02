@@ -664,10 +664,16 @@ per track. Withdrawn
 releases and tracks are excluded, as is any track under a withdrawn release
 even if the track itself was never individually withdrawn (TAKEDOWN.md).
 Track lines carry the origin node's download count (informational; an
-import starts its own at zero) and the uploader's account **name** (or
-`null`), never an
+import starts its own at zero), the track's `authorship`
+(`shared`/`credited`/`uncredited`) and `declared_generated`, and the
+uploader's account **name** — but only when `authorship` is `credited`;
+`shared` and `uncredited` both dump `uploader: null`, the same rule
+`/u/{name}` follows (SECURITY.md, API.md), since `shared` is not an
+authorship claim and a dump line is not a `/u/{name}` page. Never an
 account id or token — nothing else from `accounts`, `sessions`, or
-`track_votes` appears in the output.
+`track_votes` appears in the output. `generated` keeps meaning detection
+only, as it always has; `declared_generated` is the separate signal a
+reader ORs in for display.
 
 Without `-o`, the gzip stream is written to stdout and nothing else is —
 `moansubs dump | rclone rcat s3:bucket/dumps/latest.jsonl.gz` works as a
@@ -690,7 +696,12 @@ to parse is printed and skipped, not treated as fatal.
 Import never creates an account or sets a track's uploader — there is
 nothing on this node to attach it to. Instead the uploader's name from the
 dump (if any) is folded into `source` as `mirror:<name>`, or plain `mirror`
-when the dump line had no uploader; `license` is carried over unchanged.
+when the dump line had no uploader — since the dump only ever names a
+`credited` uploader (above), this now only ever names one; `license` is
+carried over unchanged. `authorship` and `declared_generated` carry onto
+the created track as-is; a dump predating this field defaults to
+`shared`/`false`, the same default `CreateSubtitleTrack` gives an empty
+`authorship` on a normal upload.
 Release name metadata arrives as a proposal, exactly as for uploads, but
 attributed to nobody: the exporting node's account ids mean nothing here.
 It is therefore evidence like any other, and derivation decides what the

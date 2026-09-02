@@ -66,7 +66,7 @@ func TestDumpImportRoundTrip(t *testing.T) {
 	}
 
 	if _, err := s.CreateSubtitleTrack(ctx, store.SubtitleTrack{
-		ReleaseID: r1, Lang: "en", Body: canonicalBody, UploaderID: &uploaderID,
+		ReleaseID: r1, Lang: "en", Body: canonicalBody, UploaderID: &uploaderID, Authorship: "credited",
 	}); err != nil {
 		t.Fatalf("CreateSubtitleTrack(r1/en): %v", err)
 	}
@@ -381,6 +381,88 @@ func TestDumpImportRoundTrip_CarriesKind(t *testing.T) {
 	got := tracks[imported.ID][0]
 	if got.Kind != "other" || got.KindLabel == nil || *got.KindLabel != label {
 		t.Errorf("imported track Kind/KindLabel = %q/%v, want other/%q", got.Kind, got.KindLabel, label)
+	}
+}
+
+// dump -> import must carry authorship/declared_generated through intact
+// (migration 0026, WP-S2) — a mirror must not silently import a declared-AI
+// track as human, nor every track as "shared".
+func TestDumpImportRoundTrip_CarriesAuthorship(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	release, err := s.CreateRelease(ctx, store.Release{OSHash: mustOSHash(t, "f700000000000001"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	if _, err := s.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+		ReleaseID: release, Lang: "en", Body: canonicalBody, Authorship: "uncredited", DeclaredGenerated: true,
+	}); err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	path := filepath.Join(t.TempDir(), "dump.jsonl.gz")
+	runDumpToFile(t, path)
+
+	s = openTestStore(t)
+	runImportFile(t, path)
+
+	imported, err := s.GetReleaseByOshash(ctx, mustOSHash(t, "f700000000000001"))
+	if err != nil {
+		t.Fatalf("GetReleaseByOshash: %v", err)
+	}
+	tracks, err := s.TrackSummariesByReleaseIDs(ctx, []int64{imported.ID})
+	if err != nil {
+		t.Fatalf("TrackSummariesByReleaseIDs: %v", err)
+	}
+	if len(tracks[imported.ID]) != 1 {
+		t.Fatalf("imported release has %d track(s), want 1", len(tracks[imported.ID]))
+	}
+	got, err := s.GetSubtitleTrack(ctx, tracks[imported.ID][0].ID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if got.Authorship != "uncredited" || !got.DeclaredGenerated {
+		t.Errorf("imported track Authorship/DeclaredGenerated = %q/%v, want uncredited/true", got.Authorship, got.DeclaredGenerated)
+	}
+}
+
+// An older dump line carries no authorship/declared_generated at all;
+// import must default them to "shared"/false, the same defaults
+// CreateSubtitleTrack itself applies to an empty Authorship.
+func TestImport_OlderDumpMissingAuthorshipDefaults(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	path := filepath.Join(t.TempDir(), "dump.jsonl.gz")
+	handWrittenDump(t, path,
+		`{"kind":"meta","format":1,"generated_at":"2026-01-01T00:00:00Z","node":"test"}`,
+		`{"kind":"release","id":1,"oshash":"f800000000000001","phash":null,"duration_ms":1,"width":null,"height":null,"video_codec":null}`,
+		`{"kind":"track","id":1,"release_id":1,"lang":"en","generated":false,"license":"CC0","uploader":null,"created_at":"2026-01-01T00:00:00Z","body":"1\n00:00:01,000 --> 00:00:03,000\nhello\n\n"}`,
+	)
+
+	out := runImportFile(t, path)
+	if !strings.Contains(out, "1 imported") {
+		t.Fatalf("output = %q, want 1 imported", out)
+	}
+
+	release, err := s.GetReleaseByOshash(ctx, mustOSHash(t, "f800000000000001"))
+	if err != nil {
+		t.Fatalf("GetReleaseByOshash: %v", err)
+	}
+	tracks, err := s.TrackSummariesByReleaseIDs(ctx, []int64{release.ID})
+	if err != nil {
+		t.Fatalf("TrackSummariesByReleaseIDs: %v", err)
+	}
+	if len(tracks[release.ID]) != 1 {
+		t.Fatalf("imported release has %d track(s), want 1", len(tracks[release.ID]))
+	}
+	got, err := s.GetSubtitleTrack(ctx, tracks[release.ID][0].ID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if got.Authorship != "shared" || got.DeclaredGenerated {
+		t.Errorf("imported track Authorship/DeclaredGenerated = %q/%v, want shared/false", got.Authorship, got.DeclaredGenerated)
 	}
 }
 

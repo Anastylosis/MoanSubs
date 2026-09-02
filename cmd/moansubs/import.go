@@ -343,15 +343,17 @@ func importTrack(ctx context.Context, s *store.Store, out io.Writer, releaseID i
 	}
 
 	t := store.SubtitleTrack{
-		ReleaseID:  releaseID,
-		Lang:       tl.Lang,
-		Body:       rendered,
-		Generated:  tl.Generated,
-		Provenance: []byte(tl.Provenance),
-		License:    tl.License,
-		Source:     &source,
-		Kind:       kind,
-		KindLabel:  tl.SubtitleKindLabel,
+		ReleaseID:         releaseID,
+		Lang:              tl.Lang,
+		Body:              rendered,
+		Generated:         tl.Generated,
+		Provenance:        []byte(tl.Provenance),
+		License:           tl.License,
+		Source:            &source,
+		Kind:              kind,
+		KindLabel:         tl.SubtitleKindLabel,
+		Authorship:        tl.Authorship,
+		DeclaredGenerated: tl.DeclaredGenerated,
 	}
 	if parentRoot != 0 {
 		t.RootID = parentRoot

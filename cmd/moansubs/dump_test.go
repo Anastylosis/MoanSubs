@@ -235,7 +235,7 @@ func TestDump_NeverLeaksTokenHash(t *testing.T) {
 		t.Fatalf("CreateRelease: %v", err)
 	}
 	if _, err := s.CreateSubtitleTrack(ctx, store.SubtitleTrack{
-		ReleaseID: release, Lang: "en", Body: canonicalBody, UploaderID: &accountID,
+		ReleaseID: release, Lang: "en", Body: canonicalBody, UploaderID: &accountID, Authorship: "credited",
 	}); err != nil {
 		t.Fatalf("CreateSubtitleTrack: %v", err)
 	}
@@ -259,6 +259,86 @@ func TestDump_NeverLeaksTokenHash(t *testing.T) {
 	// thing dump is allowed to carry from accounts.
 	if !bytes.Contains(raw, []byte("leak-check")) {
 		t.Error("dump output is missing the uploader's display name")
+	}
+}
+
+// decodeDumpTrackLines decodes every "track" line in raw (a gunzipped dump)
+// keyed by id — decodeDumpIDs only counts/diffs ids, this is for tests that
+// need to inspect a specific track line's own fields.
+func decodeDumpTrackLines(t *testing.T, raw []byte) map[int64]dumpTrackLine {
+	t.Helper()
+	out := map[int64]dumpTrackLine{}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	for {
+		var line dumpTrackLine
+		if err := dec.Decode(&line); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			t.Fatalf("decoding dump line: %v", err)
+		}
+		if line.Kind == "track" {
+			out[line.ID] = line
+		}
+	}
+	return out
+}
+
+// TestDump_UploaderVisibilityByAuthorship pins API.md's rule for the public
+// dump: uploader is the account name only when authorship is "credited" —
+// both "shared" and "uncredited" must come out null, same as /u/{name}
+// (a dump line is not exempt from that rule).
+func TestDump_UploaderVisibilityByAuthorship(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	accountID, _, err := s.CreateAccount(ctx, "dump-authorship")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	release, err := s.CreateRelease(ctx, store.Release{OSHash: mustOSHash(t, "e300000000000001"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	credited, err := s.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+		ReleaseID: release, Lang: "en", Body: canonicalBody, UploaderID: &accountID, Authorship: "credited",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack(credited): %v", err)
+	}
+	shared, err := s.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+		ReleaseID: release, Lang: "fr", Body: "1\n00:00:01,000 --> 00:00:02,000\nsalut\n\n", UploaderID: &accountID, Authorship: "shared",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack(shared): %v", err)
+	}
+	uncredited, err := s.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+		ReleaseID: release, Lang: "de", Body: "1\n00:00:01,000 --> 00:00:02,000\nhallo\n\n", UploaderID: &accountID, Authorship: "uncredited",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack(uncredited): %v", err)
+	}
+
+	lines := decodeDumpTrackLines(t, gunzip(t, runDumpToStdout(t)))
+
+	if u := lines[credited].Uploader; u == nil || *u != "dump-authorship" {
+		t.Errorf("credited track uploader = %v, want \"dump-authorship\"", u)
+	}
+	if u := lines[shared].Uploader; u != nil {
+		t.Errorf("shared track uploader = %v, want null (shared is not an authorship claim)", *u)
+	}
+	if u := lines[uncredited].Uploader; u != nil {
+		t.Errorf("uncredited track uploader = %v, want null", *u)
+	}
+	if lines[credited].Authorship != "credited" {
+		t.Errorf("credited track line authorship = %q, want \"credited\"", lines[credited].Authorship)
+	}
+	if lines[shared].Authorship != "shared" {
+		t.Errorf("shared track line authorship = %q, want \"shared\"", lines[shared].Authorship)
+	}
+	if lines[uncredited].Authorship != "uncredited" {
+		t.Errorf("uncredited track line authorship = %q, want \"uncredited\"", lines[uncredited].Authorship)
 	}
 }
 

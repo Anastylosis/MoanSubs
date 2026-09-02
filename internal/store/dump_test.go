@@ -127,8 +127,10 @@ func TestStore_DumpTracksAfter_ExcludesWithdrawn(t *testing.T) {
 }
 
 // TestStore_DumpTracksAfter_UploaderName confirms the LEFT JOIN surfaces the
-// uploader's account name (never the id, never the token) and stays nil for
-// uploader-less tracks — exactly the two shapes moansubs dump has to handle.
+// uploader's account name (never the id, never the token) for a credited
+// track and stays nil for uploader-less tracks — exactly the two shapes
+// moansubs dump has to handle; the shared/uncredited case is covered by
+// TestStore_DumpTracksAfter_UploaderNameOnlyWhenCredited below.
 func TestStore_DumpTracksAfter_UploaderName(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
@@ -143,7 +145,7 @@ func TestStore_DumpTracksAfter_UploaderName(t *testing.T) {
 	}
 
 	withUploader, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
-		ReleaseID: release, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n", UploaderID: &accountID,
+		ReleaseID: release, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n", UploaderID: &accountID, Authorship: "credited",
 	})
 	if err != nil {
 		t.Fatalf("CreateSubtitleTrack(withUploader): %v", err)
@@ -169,5 +171,67 @@ func TestStore_DumpTracksAfter_UploaderName(t *testing.T) {
 	}
 	if u := byID[noUploader].UploaderName; u != nil {
 		t.Errorf("noUploader.UploaderName = %v, want nil", *u)
+	}
+}
+
+// TestStore_DumpTracksAfter_UploaderNameOnlyWhenCredited pins WP-S2's fix:
+// the dump's LEFT JOIN must not surface an uploader's name unless authorship
+// is "credited" — "shared" is not an authorship claim, and "uncredited"
+// must never surface on any public surface, dump lines included (API.md).
+// Also checks Authorship/DeclaredGenerated scan through DumpTrack intact.
+func TestStore_DumpTracksAfter_UploaderNameOnlyWhenCredited(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	accountID, _, err := s.CreateAccount(ctx, "dumper2")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	release, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "d400000000000001"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	credited, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: release, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n", UploaderID: &accountID, Authorship: "credited",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack(credited): %v", err)
+	}
+	shared, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: release, Lang: "fr", Body: "1\n00:00:01,000 --> 00:00:02,000\nsalut\n\n", UploaderID: &accountID, Authorship: "shared",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack(shared): %v", err)
+	}
+	uncredited, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: release, Lang: "de", Body: "1\n00:00:01,000 --> 00:00:02,000\nhallo\n\n", UploaderID: &accountID,
+		Authorship: "uncredited", DeclaredGenerated: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack(uncredited): %v", err)
+	}
+
+	got, err := s.DumpTracksAfter(ctx, 0, 500)
+	if err != nil {
+		t.Fatalf("DumpTracksAfter: %v", err)
+	}
+	byID := make(map[int64]DumpTrack, len(got))
+	for _, tr := range got {
+		byID[tr.ID] = tr
+	}
+
+	if u := byID[credited].UploaderName; u == nil || *u != "dumper2" {
+		t.Errorf("credited.UploaderName = %v, want \"dumper2\"", u)
+	}
+	if u := byID[shared].UploaderName; u != nil {
+		t.Errorf("shared.UploaderName = %v, want nil (shared is not an authorship claim)", *u)
+	}
+	if u := byID[uncredited].UploaderName; u != nil {
+		t.Errorf("uncredited.UploaderName = %v, want nil", *u)
+	}
+	if byID[uncredited].Authorship != "uncredited" || !byID[uncredited].DeclaredGenerated {
+		t.Errorf("uncredited track Authorship/DeclaredGenerated = %q/%v, want uncredited/true",
+			byID[uncredited].Authorship, byID[uncredited].DeclaredGenerated)
 	}
 }

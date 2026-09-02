@@ -65,7 +65,9 @@ type dumpStashID struct {
 // dumpTrackLine is one non-withdrawn track. Uploader is the account's
 // display name, never its id or token — the only thing dump output carries
 // from accounts (PLAN.md WP-B2: "Nothing from accounts, sessions,
-// track_votes beyond the aggregate"). Downloads and Up/Down are the
+// track_votes beyond the aggregate") — and only when Authorship is
+// "credited": a "shared" or "uncredited" track never names its uploader,
+// same rule as `/u/{name}` (API.md, WP-S2). Downloads and Up/Down are the
 // origin's counts, informational for a mirror — import starts its own
 // downloads at zero and never imports votes at all (WP-C3: a mirror has no
 // accounts of its own to have cast them).
@@ -74,6 +76,10 @@ type dumpStashID struct {
 // RootID/Revision/SupersedesID (migration 0024) are additive, absent on an
 // older dump. SupersedesID, like ReleaseID, names a track by this node's
 // own id — import has to re-link it, not trust it directly.
+// Authorship/DeclaredGenerated (migration 0026, WP-S2) are additive too:
+// absent on an older dump, import defaults them to "shared"/false. Generated
+// keeps meaning detection only, as it always has — DeclaredGenerated is the
+// separate wire signal a reader ORs in for display (CLAUDE.md).
 type dumpTrackLine struct {
 	Kind              string          `json:"kind"`
 	ID                int64           `json:"id"`
@@ -94,6 +100,8 @@ type dumpTrackLine struct {
 	RootID            int64           `json:"root_id"`
 	Revision          int             `json:"revision"`
 	SupersedesID      *int64          `json:"supersedes_id,omitempty"`
+	Authorship        string          `json:"authorship"`
+	DeclaredGenerated bool            `json:"declared_generated"`
 }
 
 var dumpOutputPath string
@@ -272,6 +280,8 @@ func dumpTrackFrom(t store.DumpTrack) dumpTrackLine {
 		RootID:            t.RootID,
 		Revision:          t.Revision,
 		SupersedesID:      t.SupersedesID,
+		Authorship:        t.Authorship,
+		DeclaredGenerated: t.DeclaredGenerated,
 	}
 }
 
