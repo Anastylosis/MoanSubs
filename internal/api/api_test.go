@@ -1532,3 +1532,147 @@ func TestLookup_Authorship_CreditedToOmittedForShared(t *testing.T) {
 		t.Errorf("body = %s, want no credited_to key (omitempty)", buf.String())
 	}
 }
+
+// -- WP-S1: a re-upload can only correct the track's OWN uploader ---------
+//
+// Stored bodies are publicly downloadable and re-rendering a download
+// reproduces the identical bytes, so without this gate ANY registered
+// account could "correct" a stranger's track through the duplicate-upload
+// path. Each case below still gets 200 {duplicate:true} — the caller's own
+// idempotency is preserved — but nothing about the existing track changes.
+
+// Account B re-uploading account A's uncredited track with
+// authorship:"credited" must not surface the credit A declined: stored
+// authorship stays uncredited, credited_to stays absent from the public GET
+// response, and the track stays absent from A's /u page.
+func TestUpload_Duplicate_StrangerCannotCorrectAuthorship(t *testing.T) {
+	ts, st, tokenA := newTestServer(t)
+	_, tokenB, err := st.CreateAccount(context.Background(), "reupload-stranger-authorship")
+	if err != nil {
+		t.Fatalf("CreateAccount(stranger): %v", err)
+	}
+
+	first := doUpload(t, ts, tokenA, map[string]any{
+		"oshash": "c0c0c0c0c0c0c0c0", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"authorship": "uncredited",
+	})
+	if first.StatusCode != http.StatusCreated {
+		t.Fatalf("first upload status = %d, want 201", first.StatusCode)
+	}
+	firstTrack := decodeJSON[uploadResponse](t, first)
+
+	second := doUpload(t, ts, tokenB, map[string]any{
+		"oshash": "c0c0c0c0c0c0c0c0", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"authorship": "credited",
+	})
+	if second.StatusCode != http.StatusOK {
+		t.Fatalf("second (stranger's) upload status = %d, want 200", second.StatusCode)
+	}
+	secondTrack := decodeJSON[uploadResponse](t, second)
+	if !secondTrack.Duplicate || secondTrack.TrackID != firstTrack.TrackID {
+		t.Fatalf("second upload = %+v, want duplicate:true of track %d", secondTrack, firstTrack.TrackID)
+	}
+
+	track, err := st.GetSubtitleTrack(context.Background(), firstTrack.TrackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if track.Authorship != "uncredited" {
+		t.Errorf("track.Authorship = %q, want uncredited (a stranger's re-upload must not correct it)", track.Authorship)
+	}
+
+	getResp, err := http.Get(ts.URL + "/api/v1/subtitles/" + strconv.FormatInt(firstTrack.TrackID, 10))
+	if err != nil {
+		t.Fatalf("GET subtitle: %v", err)
+	}
+	defer func() { _ = getResp.Body.Close() }()
+	got := decodeJSON[getSubtitleResponse](t, getResp)
+	if got.CreditedTo != "" {
+		t.Errorf("CreditedTo = %q, want empty (the stranger's credited claim must not surface)", got.CreditedTo)
+	}
+
+	_, page := getPage(t, ts.URL+"/u/uploader")
+	if strings.Contains(page, "release/"+strconv.FormatInt(firstTrack.ReleaseID, 10)) {
+		t.Error("uploader page shows the track after a stranger's re-upload attempt (authorship must still be uncredited)")
+	}
+}
+
+// Account B re-uploading account A's track with generated:true must not set
+// declared_generated — that's a permanent, one-way admission about A's
+// upload that only A gets to make.
+func TestUpload_Duplicate_StrangerCannotDeclareGenerated(t *testing.T) {
+	ts, st, tokenA := newTestServer(t)
+	_, tokenB, err := st.CreateAccount(context.Background(), "reupload-stranger-generated")
+	if err != nil {
+		t.Fatalf("CreateAccount(stranger): %v", err)
+	}
+
+	first := doUpload(t, ts, tokenA, map[string]any{
+		"oshash": "c1c1c1c1c1c1c1c1", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+	})
+	if first.StatusCode != http.StatusCreated {
+		t.Fatalf("first upload status = %d, want 201", first.StatusCode)
+	}
+	firstTrack := decodeJSON[uploadResponse](t, first)
+	if firstTrack.Generated {
+		t.Fatal("first upload Generated = true, want false")
+	}
+
+	second := doUpload(t, ts, tokenB, map[string]any{
+		"oshash": "c1c1c1c1c1c1c1c1", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"generated": true,
+	})
+	if second.StatusCode != http.StatusOK {
+		t.Fatalf("second (stranger's) upload status = %d, want 200", second.StatusCode)
+	}
+	secondTrack := decodeJSON[uploadResponse](t, second)
+	if secondTrack.Generated {
+		t.Error("second upload (stranger's declaration) Generated = true, want false")
+	}
+
+	track, err := st.GetSubtitleTrack(context.Background(), firstTrack.TrackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if track.DeclaredGenerated {
+		t.Error("track.DeclaredGenerated = true, want false (a stranger's declaration must not stick)")
+	}
+}
+
+// Account B re-uploading account A's track with kind:"sdh" must not
+// relabel it.
+func TestUpload_Duplicate_StrangerCannotCorrectKind(t *testing.T) {
+	ts, st, tokenA := newTestServer(t)
+	_, tokenB, err := st.CreateAccount(context.Background(), "reupload-stranger-kind")
+	if err != nil {
+		t.Fatalf("CreateAccount(stranger): %v", err)
+	}
+
+	first := doUpload(t, ts, tokenA, map[string]any{
+		"oshash": "c2c2c2c2c2c2c2c2", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+	})
+	if first.StatusCode != http.StatusCreated {
+		t.Fatalf("first upload status = %d, want 201", first.StatusCode)
+	}
+	firstTrack := decodeJSON[uploadResponse](t, first)
+
+	second := doUpload(t, ts, tokenB, map[string]any{
+		"oshash": "c2c2c2c2c2c2c2c2", "duration_ms": 12000, "lang": "en", "body": basicSRT,
+		"kind": "sdh",
+	})
+	if second.StatusCode != http.StatusOK {
+		t.Fatalf("second (stranger's) upload status = %d, want 200", second.StatusCode)
+	}
+	secondTrack := decodeJSON[uploadResponse](t, second)
+	if !secondTrack.Duplicate || secondTrack.TrackID != firstTrack.TrackID {
+		t.Fatalf("second upload = %+v, want duplicate:true of track %d", secondTrack, firstTrack.TrackID)
+	}
+
+	track, err := st.GetSubtitleTrack(context.Background(), firstTrack.TrackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if track.Kind != "default" {
+		t.Errorf("track.Kind = %q, want default (a stranger's re-upload must not correct it)", track.Kind)
+	}
+}

@@ -519,12 +519,33 @@ func scanSubtitleTrack(row rowScanner) (*SubtitleTrack, error) {
 }
 
 // UpdateSubtitleTrackKind corrects kind/kind_label in place: the re-upload
-// idempotency path and /mod/track/{id}/kind both use it. Returns
-// ErrNotFound when no such track exists.
-func (s *Store) UpdateSubtitleTrackKind(ctx context.Context, id int64, kind string, kindLabel *string) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE subtitle_tracks SET kind = $1, kind_label = $2 WHERE id = $3`, kind, kindLabel, id)
+// idempotency path's uploader-scoped counterpart to UpdateSubtitleTrackKindAsModerator.
+// uploaderID is checked against the row's own uploader_id (WP-S1) so a
+// re-upload can only ever correct the caller's own track — a stranger's
+// track, or one with no uploader at all (uploader_id NULL, e.g. a mirror
+// import), never matches and returns ErrNotFound instead of being touched.
+func (s *Store) UpdateSubtitleTrackKind(ctx context.Context, id int64, kind string, kindLabel *string, uploaderID int64) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE subtitle_tracks SET kind = $1, kind_label = $2 WHERE id = $3 AND uploader_id = $4`,
+		kind, kindLabel, id, uploaderID)
 	if err != nil {
 		return fmt.Errorf("store: UpdateSubtitleTrackKind: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateSubtitleTrackKindAsModerator corrects kind/kind_label without any
+// uploader check — for a moderator acting on someone else's track
+// (/mod/track/{id}/kind) and `moansubs import`'s re-run correction of a
+// mirror-imported track, which has no uploader_id to check against in the
+// first place. Returns ErrNotFound when no such track exists.
+func (s *Store) UpdateSubtitleTrackKindAsModerator(ctx context.Context, id int64, kind string, kindLabel *string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE subtitle_tracks SET kind = $1, kind_label = $2 WHERE id = $3`, kind, kindLabel, id)
+	if err != nil {
+		return fmt.Errorf("store: UpdateSubtitleTrackKindAsModerator: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
@@ -541,15 +562,18 @@ func (s *Store) UpdateSubtitleTrackKind(ctx context.Context, id int64, kind stri
 // enforced atomically in SQL, not as a Go-side read-then-write: two
 // concurrent byte-identical re-uploads racing a stale GetSubtitleTrack read
 // against this UPDATE could otherwise let one clobber a flag the other just
-// set. Returns the row's resulting authorship/declared_generated so callers
-// don't need a second read for the response, and ErrNotFound when no such
-// track exists.
-func (s *Store) UpdateSubtitleTrackAuthorship(ctx context.Context, id int64, authorship *string, declare bool) (newAuthorship string, newDeclaredGenerated bool, err error) {
+// set. uploaderID is checked against the row's own uploader_id (WP-S1),
+// same reasoning as UpdateSubtitleTrackKind — nobody but the track's own
+// uploader can rewrite these via re-upload. Returns the row's resulting
+// authorship/declared_generated so callers don't need a second read for the
+// response, and ErrNotFound when no such track exists (including a
+// uploaderID mismatch or a NULL uploader_id).
+func (s *Store) UpdateSubtitleTrackAuthorship(ctx context.Context, id int64, authorship *string, declare bool, uploaderID int64) (newAuthorship string, newDeclaredGenerated bool, err error) {
 	err = s.pool.QueryRow(ctx, `
 		UPDATE subtitle_tracks
 		SET authorship = COALESCE($1, authorship), declared_generated = declared_generated OR $2
-		WHERE id = $3
-		RETURNING authorship, declared_generated`, authorship, declare, id,
+		WHERE id = $3 AND uploader_id = $4
+		RETURNING authorship, declared_generated`, authorship, declare, id, uploaderID,
 	).Scan(&newAuthorship, &newDeclaredGenerated)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, ErrNotFound

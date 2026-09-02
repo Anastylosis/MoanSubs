@@ -327,6 +327,57 @@ func TestUploadForm_SharesDedupWithTheJSONAPI(t *testing.T) {
 	}
 }
 
+// The web upload form shares ingest with the JSON API (WP-D1), so WP-S1's
+// uploader-only re-upload gating (internal/api/subtitles.go's
+// duplicateTrackResponse) covers it automatically — pinned directly here
+// rather than only trusted by inference from the JSON API's own tests.
+func TestUploadForm_StrangerReuploadCannotCorrectKind(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+
+	const oshash = "d8d8d8d8d8d8d8d8"
+	first := doWebUpload(t, ts, client, ts.URL, webUploadFields(oshash), basicSRT)
+	if first.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(first.Body)
+		t.Fatalf("POST /upload = %d, want 201: %s", first.StatusCode, body)
+	}
+
+	account, err := st.GetAccountByName(context.Background(), "webuser")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+	tracks, err := st.TracksByAccount(context.Background(), account.ID)
+	if err != nil {
+		t.Fatalf("TracksByAccount: %v", err)
+	}
+	if len(tracks) != 1 {
+		t.Fatalf("TracksByAccount = %+v, want exactly 1 track", tracks)
+	}
+	trackID := tracks[0].TrackID
+
+	createWebAccount(t, ts, "webupload-stranger")
+	strangerClient := jarClient(t)
+	loginResp := doLogin(t, strangerClient, ts, "webupload-stranger", testAccountPassword)
+	if loginResp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST /login (stranger) = %d, want 303", loginResp.StatusCode)
+	}
+
+	fields := webUploadFields(oshash)
+	fields["kind"] = "sdh"
+	second := doWebUpload(t, ts, strangerClient, ts.URL, fields, basicSRT)
+	if second.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(second.Body)
+		t.Fatalf("POST /upload (stranger's re-upload) = %d, want 200: %s", second.StatusCode, body)
+	}
+
+	track, err := st.GetSubtitleTrack(context.Background(), trackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if track.Kind != "default" {
+		t.Errorf("track.Kind = %q, want default (a stranger's web re-upload must not correct it)", track.Kind)
+	}
+}
+
 // /upload is the only page that loads a script (WP-D2), and only for the
 // reason it needs one — this pins that the looser CSP doesn't leak onto
 // pages that don't need it, and that it's actually looser where it does.

@@ -15,7 +15,11 @@ The server never stores raw uploaded bytes: input is parsed (anchored on
 timestamp lines; everything unparsed is discarded), markup is stripped
 except `<i>`/`<b>`, output is re-rendered canonical SRT, and size/cue caps
 apply. Stash additionally converts captions to WebVTT before the player
-sees them.
+sees them. A byte-identical re-upload's `kind`/`authorship`/`generated`
+corrections (API.md) apply only when the caller is the existing track's own
+uploader — anyone else's re-upload is answered `duplicate: true` and
+changes nothing, since the stored body is public and re-rendering a
+download reproduces the identical bytes.
 
 ### Two credentials, two purposes
 

@@ -470,18 +470,22 @@ func TestStore_UpdateSubtitleTrackKind(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
+	uploaderID, _, err := s.CreateAccount(ctx, "kind-update-uploader")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
 	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7373737373737373"), DurationMs: 1})
 	if err != nil {
 		t.Fatalf("CreateRelease: %v", err)
 	}
 	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
-		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n", UploaderID: &uploaderID,
 	})
 	if err != nil {
 		t.Fatalf("CreateSubtitleTrack: %v", err)
 	}
 
-	if err := s.UpdateSubtitleTrackKind(ctx, id, "sdh", nil); err != nil {
+	if err := s.UpdateSubtitleTrackKind(ctx, id, "sdh", nil, uploaderID); err != nil {
 		t.Fatalf("UpdateSubtitleTrackKind: %v", err)
 	}
 
@@ -502,8 +506,47 @@ func TestStore_UpdateSubtitleTrackKind_NotFound(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	if err := s.UpdateSubtitleTrackKind(ctx, 999999, "sdh", nil); !errors.Is(err, ErrNotFound) {
+	if err := s.UpdateSubtitleTrackKind(ctx, 999999, "sdh", nil, 1); !errors.Is(err, ErrNotFound) {
 		t.Errorf("UpdateSubtitleTrackKind(999999): got %v, want ErrNotFound", err)
+	}
+}
+
+// WP-S1: the WHERE clause's uploader check, not just presence of a row —
+// the track exists, but uploaderID names a different account, so nothing
+// is written.
+func TestStore_UpdateSubtitleTrackKind_WrongUploaderNotFound(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	ownerID, _, err := s.CreateAccount(ctx, "kind-owner")
+	if err != nil {
+		t.Fatalf("CreateAccount(owner): %v", err)
+	}
+	strangerID, _, err := s.CreateAccount(ctx, "kind-stranger")
+	if err != nil {
+		t.Fatalf("CreateAccount(stranger): %v", err)
+	}
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7373737373737374"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n", UploaderID: &ownerID,
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	if err := s.UpdateSubtitleTrackKind(ctx, id, "sdh", nil, strangerID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("UpdateSubtitleTrackKind(wrong uploader): got %v, want ErrNotFound", err)
+	}
+
+	got, err := s.GetSubtitleTrack(ctx, id)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if got.Kind != "default" {
+		t.Errorf("got.Kind = %q, want default (unchanged by the wrong-uploader call)", got.Kind)
 	}
 }
 
@@ -649,19 +692,23 @@ func TestStore_UpdateSubtitleTrackAuthorship(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
+	uploaderID, _, err := s.CreateAccount(ctx, "authorship-update-uploader")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
 	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7979797979797979"), DurationMs: 1})
 	if err != nil {
 		t.Fatalf("CreateRelease: %v", err)
 	}
 	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
-		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n", UploaderID: &uploaderID,
 	})
 	if err != nil {
 		t.Fatalf("CreateSubtitleTrack: %v", err)
 	}
 
 	uncredited := "uncredited"
-	newAuthorship, newDeclaredGenerated, err := s.UpdateSubtitleTrackAuthorship(ctx, id, &uncredited, true)
+	newAuthorship, newDeclaredGenerated, err := s.UpdateSubtitleTrackAuthorship(ctx, id, &uncredited, true, uploaderID)
 	if err != nil {
 		t.Fatalf("UpdateSubtitleTrackAuthorship: %v", err)
 	}
@@ -690,8 +737,52 @@ func TestStore_UpdateSubtitleTrackAuthorship_NotFound(t *testing.T) {
 	ctx := context.Background()
 
 	credited := "credited"
-	if _, _, err := s.UpdateSubtitleTrackAuthorship(ctx, 999999, &credited, false); !errors.Is(err, ErrNotFound) {
+	if _, _, err := s.UpdateSubtitleTrackAuthorship(ctx, 999999, &credited, false, 1); !errors.Is(err, ErrNotFound) {
 		t.Errorf("UpdateSubtitleTrackAuthorship(999999): got %v, want ErrNotFound", err)
+	}
+}
+
+// WP-S1's belt-and-braces store test: the WHERE clause's uploader check
+// returns ErrNotFound and writes nothing when the caller names the wrong
+// account, even though the track itself exists.
+func TestStore_UpdateSubtitleTrackAuthorship_WrongUploaderNotFound(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	ownerID, _, err := s.CreateAccount(ctx, "authorship-owner")
+	if err != nil {
+		t.Fatalf("CreateAccount(owner): %v", err)
+	}
+	strangerID, _, err := s.CreateAccount(ctx, "authorship-stranger")
+	if err != nil {
+		t.Fatalf("CreateAccount(stranger): %v", err)
+	}
+	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7979797979797971"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+		UploaderID: &ownerID, Authorship: "uncredited",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	credited := "credited"
+	if _, _, err := s.UpdateSubtitleTrackAuthorship(ctx, id, &credited, true, strangerID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("UpdateSubtitleTrackAuthorship(wrong uploader): got %v, want ErrNotFound", err)
+	}
+
+	got, err := s.GetSubtitleTrack(ctx, id)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if got.Authorship != "uncredited" {
+		t.Errorf("got.Authorship = %q, want uncredited (unchanged by the wrong-uploader call)", got.Authorship)
+	}
+	if got.DeclaredGenerated {
+		t.Error("got.DeclaredGenerated = true, want false (unchanged by the wrong-uploader call)")
 	}
 }
 
@@ -705,24 +796,28 @@ func TestStore_UpdateSubtitleTrackAuthorship_DeclaredGeneratedNeverClears(t *tes
 	s := openTestStore(t)
 	ctx := context.Background()
 
+	uploaderID, _, err := s.CreateAccount(ctx, "authorship-neverclears-uploader")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
 	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7c7c7c7c7c7c7c7c"), DurationMs: 1})
 	if err != nil {
 		t.Fatalf("CreateRelease: %v", err)
 	}
 	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
-		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n", UploaderID: &uploaderID,
 	})
 	if err != nil {
 		t.Fatalf("CreateSubtitleTrack: %v", err)
 	}
 
-	if _, declared, err := s.UpdateSubtitleTrackAuthorship(ctx, id, nil, true); err != nil || !declared {
+	if _, declared, err := s.UpdateSubtitleTrackAuthorship(ctx, id, nil, true, uploaderID); err != nil || !declared {
 		t.Fatalf("first UpdateSubtitleTrackAuthorship (declare=true): declared=%v, err=%v, want true/nil", declared, err)
 	}
 
 	// declare=false on the SAME row must leave the flag set — this is the
 	// call shape a plain (non-declaring) re-upload makes.
-	_, declared, err := s.UpdateSubtitleTrackAuthorship(ctx, id, nil, false)
+	_, declared, err := s.UpdateSubtitleTrackAuthorship(ctx, id, nil, false, uploaderID)
 	if err != nil {
 		t.Fatalf("second UpdateSubtitleTrackAuthorship (declare=false): %v", err)
 	}
@@ -746,19 +841,23 @@ func TestStore_UpdateSubtitleTrackAuthorship_NilAuthorshipLeavesValueAlone(t *te
 	s := openTestStore(t)
 	ctx := context.Background()
 
+	uploaderID, _, err := s.CreateAccount(ctx, "authorship-nilcase-uploader")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
 	releaseID, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "7d7d7d7d7d7d7d7d"), DurationMs: 1})
 	if err != nil {
 		t.Fatalf("CreateRelease: %v", err)
 	}
 	id, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
 		ReleaseID: releaseID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
-		Authorship: "credited",
+		Authorship: "credited", UploaderID: &uploaderID,
 	})
 	if err != nil {
 		t.Fatalf("CreateSubtitleTrack: %v", err)
 	}
 
-	newAuthorship, _, err := s.UpdateSubtitleTrackAuthorship(ctx, id, nil, false)
+	newAuthorship, _, err := s.UpdateSubtitleTrackAuthorship(ctx, id, nil, false, uploaderID)
 	if err != nil {
 		t.Fatalf("UpdateSubtitleTrackAuthorship(nil authorship): %v", err)
 	}

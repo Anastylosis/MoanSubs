@@ -324,8 +324,11 @@ func importTrack(ctx context.Context, s *store.Store, out io.Writer, releaseID i
 	}
 	if existingID != 0 {
 		// Kind never creates a duplicate (kinds-intro.md): re-running
-		// import corrects it on the existing row, same as a re-upload.
-		if err := s.UpdateSubtitleTrackKind(ctx, existingID, kind, tl.SubtitleKindLabel); err != nil {
+		// import corrects it on the existing row, same as a re-upload. This
+		// is the unrestricted path (WP-S1): a mirror-imported track has no
+		// uploader_id to check against, and this tool is trusted operator
+		// input, not an API caller's own re-upload.
+		if err := s.UpdateSubtitleTrackKindAsModerator(ctx, existingID, kind, tl.SubtitleKindLabel); err != nil {
 			return 0, 0, 0, fmt.Errorf("track %d: %w", tl.ID, err)
 		}
 		// The existing row's actual root, not parentRoot, since a re-run may

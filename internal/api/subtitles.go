@@ -422,7 +422,16 @@ func (s *Server) handleUploadSubtitle(w http.ResponseWriter, r *http.Request) {
 // what this request itself contributes (a possible new authorship, and
 // whether THIS request declares generated) and does the OR/COALESCE in the
 // same statement the write happens in.
-func (s *Server) duplicateTrackResponse(ctx context.Context, existingID, releaseID int64, kind, kindLabel string, kindGiven bool, authorship string, authorshipGiven, declaredGenerated bool) (*uploadResponse, *apiError) {
+//
+// WP-S1: none of the above runs unless account is the existing track's own
+// uploader. Stored bodies are publicly downloadable and re-rendering a
+// download reproduces the identical bytes, so without this check ANY
+// registered account could "correct" a stranger's track — flipping an
+// uncredited upload to credited (surfacing the name its uploader declined),
+// stripping a credit, forcing declared_generated, or relabelling kind. A
+// mirror-imported track (uploader_id NULL) is likewise never corrected by a
+// re-upload — nobody uploaded it through this path in the first place.
+func (s *Server) duplicateTrackResponse(ctx context.Context, account *store.Account, existingID, releaseID int64, kind, kindLabel string, kindGiven bool, authorship string, authorshipGiven, declaredGenerated bool) (*uploadResponse, *apiError) {
 	existing, err := s.Store.GetSubtitleTrack(ctx, existingID)
 	if err != nil {
 		log.Printf("api: GetSubtitleTrack (duplicate check): %v", err)
@@ -431,9 +440,20 @@ func (s *Server) duplicateTrackResponse(ctx context.Context, existingID, release
 	if existing.WithdrawnAt != nil {
 		return nil, &apiError{http.StatusGone, "track withdrawn", 0}
 	}
+
+	if existing.UploaderID == nil || *existing.UploaderID != account.ID {
+		return &uploadResponse{
+			TrackID:         existingID,
+			ReleaseID:       releaseID,
+			Generated:       existing.Generated || existing.DeclaredGenerated,
+			GeneratedSource: generatedSource(existing.Generated, existing.DeclaredGenerated),
+			Duplicate:       true,
+		}, nil
+	}
+
 	newLabel := optString(kindLabel)
 	if kindGiven && (kind != existing.Kind || !samePtrString(newLabel, existing.KindLabel)) {
-		if err := s.Store.UpdateSubtitleTrackKind(ctx, existingID, kind, newLabel); err != nil {
+		if err := s.Store.UpdateSubtitleTrackKind(ctx, existingID, kind, newLabel, account.ID); err != nil {
 			log.Printf("api: UpdateSubtitleTrackKind: %v", err)
 			return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 		}
@@ -449,7 +469,7 @@ func (s *Server) duplicateTrackResponse(ctx context.Context, existingID, release
 		if authorshipGiven {
 			authorshipPtr = &authorship
 		}
-		_, newDeclaredGenerated, err = s.Store.UpdateSubtitleTrackAuthorship(ctx, existingID, authorshipPtr, declaredGenerated)
+		_, newDeclaredGenerated, err = s.Store.UpdateSubtitleTrackAuthorship(ctx, existingID, authorshipPtr, declaredGenerated, account.ID)
 		if err != nil {
 			log.Printf("api: UpdateSubtitleTrackAuthorship: %v", err)
 			return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
@@ -615,7 +635,7 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 		log.Printf("api: FindIdenticalTrack: %v", err)
 		return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 	} else if existingID != 0 {
-		return s.duplicateTrackResponse(ctx, existingID, release.ID, kind, kindLabel, req.Kind != "", authorship, req.Authorship != "", req.Generated)
+		return s.duplicateTrackResponse(ctx, account, existingID, release.ID, kind, kindLabel, req.Kind != "", authorship, req.Authorship != "", req.Generated)
 	}
 
 	accountID := account.ID

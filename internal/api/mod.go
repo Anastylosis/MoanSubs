@@ -485,12 +485,15 @@ func (s *Server) handleModTrackKind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.Store.UpdateSubtitleTrackKind(r.Context(), id, kind, optString(kindLabel)); err != nil {
+	// A moderator changes kind on someone else's track routinely (that's the
+	// point of this page), so this goes through the unrestricted path rather
+	// than the uploader-scoped one the re-upload idempotency path uses.
+	if err := s.Store.UpdateSubtitleTrackKindAsModerator(r.Context(), id, kind, optString(kindLabel)); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			http.NotFound(w, r)
 			return
 		}
-		log.Printf("api: UpdateSubtitleTrackKind: %v", err)
+		log.Printf("api: UpdateSubtitleTrackKindAsModerator: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

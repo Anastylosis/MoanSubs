@@ -359,7 +359,9 @@ never overrides an uploader's own claim. A second kind for a language that
 already has a track is not a separate row: re-uploading the identical body
 under a different kind corrects the existing track's `kind` in place
 rather than creating a duplicate (track identity stays release + lang +
-body).
+body) — but only when the re-upload comes from the track's own uploader; a
+re-upload by anyone else (or of a track with no uploader at all, e.g. a
+mirror-imported one) is answered `200 duplicate: true` and changes nothing.
 
 `title` (feature `titles`) is additive too, and follows the exact same rule
 the human catalogue uses to head a release: a curated title if a human
@@ -403,7 +405,11 @@ let them do for exactly the `uncredited` tracks that value exists to hide
 same rule applied to that page. A second upload of the identical body
 under a different `authorship` still corrects the existing track's stored
 value in place (reflected the next time `credited_to` would apply), the
-same re-upload rule `kind` follows.
+same re-upload rule `kind` follows — and the same restriction: only the
+track's own uploader can correct it this way. A re-upload by anyone else is
+answered `duplicate: true` and leaves the stored value untouched — an
+uploader's own `uncredited` choice cannot be overridden by a stranger
+re-uploading the same bytes under `credited`.
 
 `studio`/`performers` (feature `credits`) are additive too and carry the
 release's resolved name metadata verbatim — the same values, from the same
@@ -635,7 +641,8 @@ control characters) is required when `kind` is `other` and rejected for
 every other kind, both with a naming `400`. Re-uploading a byte-identical
 subtitle under a different `kind` corrects the existing track's kind in
 place (`200 duplicate: true`, below) rather than creating a second track —
-see the release shape's `kind` documentation above for why.
+see the release shape's `kind` documentation above for why, and for the
+restriction that this applies to the track's own uploader only.
 
 The Stash plugin infers `kind` from the sidecar's filename suffix
 (`.en.sdh.srt`, `.en.cc.srt`, `.en.forced.srt`, the Plex/Emby convention)
@@ -656,9 +663,9 @@ to moderators) but never surfaces publicly anywhere, including your own
 documentation above (the `authorship` value itself is never on any public
 response, only `credited_to`'s presence/absence). Re-uploading a
 byte-identical subtitle under a different `authorship` corrects the
-existing track's authorship in place, exactly like `kind` above; omitting
-the field on a re-upload leaves the stored value alone rather than
-resetting it to `shared`.
+existing track's authorship in place, exactly like `kind` above — including
+the same own-uploader-only restriction; omitting the field on a re-upload
+leaves the stored value alone rather than resetting it to `shared`.
 
 `generated` (migration 0026, feature `authorship`) is your own voluntary
 declaration that this subtitle is AI-generated. **Only `true` is ever
@@ -666,8 +673,13 @@ meaningful.** It is OR'd into the stored `generated` flag alongside marker
 detection (`internal/provenance`, unaffected by this field) and can only
 ADD the label, never remove it — a later upload can declare `generated`
 but no upload can ever clear a `generated` that detection or an earlier
-declaration already set. Sending `false`, or omitting the field, changes
-nothing either way, so there is never a reason to send `false` explicitly.
+declaration already set. A byte-identical re-upload's `generated: true`
+only reaches the existing track's `declared_generated` when the re-upload
+comes from the track's own uploader — the same own-uploader-only rule
+`kind` and `authorship` follow above; anyone else's re-upload is answered
+`duplicate: true` without setting it. Sending `false`, or omitting the
+field, changes nothing either way, so there is never a reason to send
+`false` explicitly.
 This is deliberate: nobody can declare their way to "human-made", which
 keeps detection's own incentive intact — provenance is something an
 uploader might want to hide, and admitting the generated direction openly
