@@ -83,6 +83,38 @@ func TestRankCandidates(t *testing.T) {
 	})
 }
 
+// A phash within the ConfidenceHigh Hamming radius (d<=4) but outside its
+// 1s duration gate must not be discarded outright: it still qualifies for
+// ConfidenceOffer's wider d<=8/5s gate in exact mode, and stays excluded in
+// bucketed mode (offer is exact-mode only regardless of Hamming distance).
+func TestRankCandidates_NarrowHammingWiderDelta(t *testing.T) {
+	sceneOshash := mustOSHash(t, "00000000deadbeef")
+	scenePhash := hash.PHash(0x0123456789abcdef)
+	sceneDurMs := int64(600_000)
+
+	flip2 := scenePhash ^ hash.PHash(0b11) // Hamming 2
+
+	releases := []client.Release{
+		// Hamming 2, but 2s off: outside the high gate (1s), inside the
+		// offer gate (5s).
+		{ID: 1, OSHash: "1111111111111111", PHash: phashStr(uint64(flip2)), DurationMs: sceneDurMs + 2000},
+	}
+
+	t.Run("exact mode: offer", func(t *testing.T) {
+		got := rankCandidates(releases, sceneOshash, &scenePhash, sceneDurMs, true)
+		if len(got) != 1 || got[0].Confidence != ConfidenceOffer {
+			t.Fatalf("got %+v, want a single ConfidenceOffer candidate", got)
+		}
+	})
+
+	t.Run("bucketed mode: nothing", func(t *testing.T) {
+		got := rankCandidates(releases, sceneOshash, &scenePhash, sceneDurMs, false)
+		if len(got) != 0 {
+			t.Fatalf("got %+v, want no candidates (offer is exact-mode only)", got)
+		}
+	})
+}
+
 // TestStashLabel covers WP-C9a's endpoint->label mapping used both for the
 // "same <Label> scene" ranking reason and (mirrored server-side in
 // internal/api/catalogue.go) the release page's "On <Label> ↗" link.

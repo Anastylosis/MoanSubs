@@ -43,8 +43,9 @@ const (
 	// ConfidenceHigh: phash within Hamming 4 AND duration within 1s — same
 	// content, different encode.
 	ConfidenceHigh = "high"
-	// ConfidenceOffer: phash Hamming 5-8 with close duration — offered,
-	// never auto-applied. Only reachable via exact mode.
+	// ConfidenceOffer: phash Hamming <=8 with duration within 5s, whenever
+	// it isn't already a ConfidenceHigh match — offered, never auto-applied.
+	// Only reachable via exact mode.
 	ConfidenceOffer = "offer"
 	// ConfidenceName: the v2 no-phash fallback (PLAN.md "Matching" level 5,
 	// internal/api's POST /api/v1/match). Ranked below every hash-based
@@ -140,7 +141,7 @@ func rankCandidates(releases []client.Release, sceneOshash hash.OSHash, scenePha
 				Release: r, Confidence: ConfidenceHigh, CrossRelease: true,
 				HammingDistance: d, DurationDeltaMs: deltaMs,
 			})
-		case fromExactMode && d >= 5 && d <= 8 && absDelta <= 5*durationGate.Milliseconds():
+		case fromExactMode && d <= 8 && absDelta <= 5*durationGate.Milliseconds():
 			// Level 4 is offer-only and needs the wider fuzzy radius the
 			// bucketed flow cannot guarantee, hence exact-mode only.
 			out = append(out, Candidate{

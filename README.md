@@ -49,7 +49,7 @@ plugin vouches for a candidate before you make it.
 |---|---|---|---|
 | **0** | stash-box id (StashDB, FansDB, …) | The same *scene*, identified across every encode — ahead of hash matching, because an id is an identity, not a fingerprint | Exact match |
 | **1–3** | `oshash` exact, or `phash` within Hamming 4 **and** duration within 1s | A byte-identical file, or the same content in a different encode | Exact match / Different encode |
-| **4** | `phash` Hamming 5–8, duration close | Probably the same content, but timing may drift | Possible match |
+| **4** | `phash` Hamming ≤8 with duration within 5s, when not already an exact-level match | Probably the same content, but timing may drift | Possible match |
 | **5** | title/filename token score | This scene has no phash at all — the last-resort fallback | Name match |
 
 Anything from a different encode is flagged **sync?**, since the timing was
