@@ -90,6 +90,10 @@ func discoverSidecars(scenePath string) ([]sidecarFile, error) {
 					continue
 				}
 				lang, kind = before, k
+			} else if _, ok := filenameKind(middle); ok {
+				// "sdh" is also a valid ISO 639-3 tag, so a bare kind
+				// suffix must be caught before language.Parse.
+				continue
 			}
 			if lang == "" {
 				continue

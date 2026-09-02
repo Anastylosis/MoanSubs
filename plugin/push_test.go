@@ -143,6 +143,44 @@ func TestDiscoverSidecars_FilenameKindInference(t *testing.T) {
 	}
 }
 
+// A bare kind suffix with no language segment must be skipped, not treated
+// as a language: "sdh" happens to also be a valid ISO 639-3 tag (Southern
+// Kurdish), so without a check for this, "clip.sdh.srt" would be pushed as
+// language "sdh" instead of being recognized as a captionless kind marker.
+func TestDiscoverSidecars_BareKindSuffixIsNotALanguage(t *testing.T) {
+	dir := t.TempDir()
+	scene := filepath.Join(dir, "clip.mp4")
+	names := []string{
+		"clip.mp4",
+		"clip.sdh.srt",    // bare kind suffix, no language: skipped
+		"clip.cc.srt",     // "cc" isn't a valid language tag either: skipped
+		"clip.en.sdh.srt", // language present: recognized as before
+	}
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := discoverSidecars(scene)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]sidecarFile{}
+	for _, sc := range got {
+		found[filepath.Base(sc.Path)] = sc
+	}
+
+	for _, skipped := range []string{"clip.sdh.srt", "clip.cc.srt"} {
+		if sc, ok := found[skipped]; ok {
+			t.Errorf("%s: want skipped (kind suffix with no language), got lang %q kind %q", skipped, sc.Lang, sc.Kind)
+		}
+	}
+	if sc, ok := found["clip.en.sdh.srt"]; !ok || sc.Lang != "en" || sc.Kind != "sdh" {
+		t.Errorf("clip.en.sdh.srt: got %+v, want lang=en kind=sdh", sc)
+	}
+}
+
 // A tokenless push must fail once, up front, rather than sending one
 // doomed request per sidecar and reporting a 401 for each. Dry runs stay
 // allowed: they upload nothing.
