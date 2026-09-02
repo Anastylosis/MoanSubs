@@ -27,6 +27,8 @@ services:
       - "--providers.docker.constraints=Label(`moansubs.domain`,`${DOMAIN}`)"
       - --providers.file.directory=/etc/traefik/dynamic
       - --providers.file.watch=true
+      - --entrypoints.web.forwardedHeaders.trustedIPs=${UPSTREAM_PROXY_CIDRS:-}
+      - --entrypoints.websecure.forwardedHeaders.trustedIPs=${UPSTREAM_PROXY_CIDRS:-}
       - --entrypoints.web.address=:80
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https

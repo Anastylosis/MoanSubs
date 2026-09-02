@@ -839,6 +839,11 @@ a residential ISP hands out a whole `/64` per customer and rotates the
 low bits, so keying on the full address would let one customer cycle
 through unlimited buckets.
 
+Every hop between the visitor and this node — a CDN included — must be in
+`MOANSUBS_TRUSTED_PROXY_CIDRS`, or the limiter keys on the nearest
+untrusted hop instead of the visitor; `deploy/README.md`, "Behind
+Cloudflare (or another CDN)", covers running this stack behind one.
+
 **Multiple instances.** Concurrent *serving* against one database is fine.
 Concurrent *startup* is also safe: the migration runner takes a Postgres
 advisory lock before applying anything, so a second instance starting up

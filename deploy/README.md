@@ -22,6 +22,7 @@ the stack — private infrastructure details never enter tracked files.
   - [Auto-confirm](#auto-confirm)
 - [Analytics](#analytics)
 - [Trust proxy note](#trust-proxy-note)
+- [Behind Cloudflare (or another CDN)](#behind-cloudflare-or-another-cdn)
 - [Publishing a mirror dump](#publishing-a-mirror-dump)
 
 ## Layout
@@ -39,6 +40,8 @@ the stack — private infrastructure details never enter tracked files.
   `backup.sh` (the dump/prune script), `entrypoint.sh` (snapshots the
   container's environment for cron jobs, which don't inherit it), and
   `crontab` (nightly schedule).
+- `cloudflare-cidrs.sh` — prints Cloudflare's current edge ranges for
+  `UPSTREAM_PROXY_CIDRS`; see "Behind Cloudflare (or another CDN)".
 
 ## First boot
 
@@ -374,6 +377,64 @@ by the raw socket address instead (see MANUAL.md). This compose file sets
 since Traefik is the only thing that ever talks to `server` directly here.
 Traefik appends the address it saw to `X-Forwarded-For` and moansubs reads
 the last entry, so a client can't smuggle a fake one through.
+
+## Behind Cloudflare (or another CDN)
+
+Putting a CDN in front of this stack changes two things, and both need
+handling or the CDN buys you nothing.
+
+**1. Lock the origin down first.** If this host's 80/443 are reachable from
+anywhere, anyone can connect directly with the site's own `Host` header and
+skip the CDN entirely — every WAF rule, cache and rate limit it offers along
+with it. Restrict inbound 80/443 to the CDN's published ranges at the host
+firewall or your cloud provider's security group, keeping SSH (or whatever
+you administer the box with) open the normal way. Those are the same ranges
+`UPSTREAM_PROXY_CIDRS` needs below — one list, two places it has to go.
+
+**2. Tell Traefik and moansubs about the CDN hop.** Fetch the current ranges
+and set them before starting the stack:
+
+```
+echo "UPSTREAM_PROXY_CIDRS=$(./cloudflare-cidrs.sh)" >> .env
+docker compose up -d
+```
+
+This does two things (`docker-compose.yml`): it trusts those ranges on
+Traefik's own `forwardedHeaders`, so Traefik rewrites `X-Forwarded-For`
+using the CDN's header instead of discarding it for the CDN edge's own
+address; and it appends the same ranges to `MOANSUBS_TRUSTED_PROXY_CIDRS`,
+so the server's per-IP rate limiters and request log walk past that hop too.
+Skip either half and the visible client is the CDN edge, not the visitor —
+see "Trust proxy note" above for what that costs.
+
+**3. Confirm it worked.** Load any public page through the CDN, then check
+the request log (`docker compose logs server`) for that request's line: `ip=`
+should show the visitor's own address, not one of the CDN's ranges. If it
+still shows an edge address, `UPSTREAM_PROXY_CIDRS` didn't reach both places
+above, or the CDN isn't actually the direct peer Traefik sees (another proxy
+sits between them and needs its own range added too).
+
+**4. Refresh the list.** A CDN's published ranges change occasionally; a
+stale list under-trusts (new ranges get rate-limited as if they were the
+edge) rather than over-trusts, but it's still worth keeping current. A host
+crontab line covers it:
+
+```
+0 3 * * 1 cd /path/to/this/directory && new=$(./cloudflare-cidrs.sh) && sed -i '/^UPSTREAM_PROXY_CIDRS=/d' .env && echo "UPSTREAM_PROXY_CIDRS=$new" >> .env && docker compose up -d
+```
+
+(adjust to however your `.env` is actually assembled — the point is
+re-running the script, replacing the old line only once the fetch has
+succeeded rather than piling up a second one or blanking it, and
+re-applying the compose stack).
+
+**5. Belt and braces.** Two more Cloudflare settings are worth turning on
+alongside this, both out of scope for this compose file to configure: SSL/TLS
+mode **Full (strict)**, so Cloudflare validates the origin's certificate
+instead of accepting anything self-signed; and **Authenticated Origin
+Pulls**, so the origin can reject a connection that doesn't carry
+Cloudflare's client certificate even if step 1's firewall rule is ever
+misconfigured or bypassed.
 
 ## Publishing a mirror dump
 

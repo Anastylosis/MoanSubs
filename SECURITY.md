@@ -249,9 +249,13 @@ Lookups and downloads need no auth and are
 rate-limited per IP — an IPv6 caller is keyed by its `/64` rather than its
 full address, since a residential ISP hands out a whole `/64` per
 customer and a full-address key would let one customer rotate through
-unlimited buckets. Bucketed lookups are designed so clients don't send
-full fingerprints by default — but see API.md for an honest statement of
-what a malicious *server operator* can still learn; pick nodes you trust.
+unlimited buckets. Every hop between the visitor and the node, a CDN
+included, must be named in `MOANSUBS_TRUSTED_PROXY_CIDRS` or the limiter
+keys on the nearest untrusted hop instead of the visitor
+(deploy/README.md, "Behind Cloudflare (or another CDN)"). Bucketed
+lookups are designed so clients don't send full fingerprints by default —
+but see API.md for an honest statement of what a malicious *server
+operator* can still learn; pick nodes you trust.
 
 `POST /release/{id}/removal` (TAKEDOWN.md) is the other anonymous write:
 filing a removal request needs no account, by design — the rights-holder
