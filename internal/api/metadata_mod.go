@@ -110,6 +110,21 @@ func (s *Server) handleModReleasePurgeMetadata(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "could not read the submitted form", http.StatusBadRequest)
+		return
+	}
+	if r.PostFormValue("confirm") != strconv.FormatInt(id, 10) {
+		http.Error(w, "confirmation does not match the release id", http.StatusBadRequest)
+		return
+	}
+
+	s.purgeReleaseMetadata(w, r, ares, id)
+}
+
+// purgeReleaseMetadata is the single-release purge both purge routes end
+// up in: the work-wide one falls back to it for an ungrouped release.
+func (s *Server) purgeReleaseMetadata(w http.ResponseWriter, r *http.Request, ares *authResult, id int64) {
 	ctx := r.Context()
 	if err := s.Store.PurgeProposals(ctx, []int64{id}); err != nil {
 		log.Printf("api: PurgeProposals: %v", err)
@@ -150,12 +165,21 @@ func (s *Server) handleModReleasePurgeWorkMetadata(w http.ResponseWriter, r *htt
 		return
 	}
 
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "could not read the submitted form", http.StatusBadRequest)
+		return
+	}
+	if r.PostFormValue("confirm") != "work" {
+		http.Error(w, "confirmation does not match", http.StatusBadRequest)
+		return
+	}
+
 	ctx := r.Context()
 	work, err := s.Store.WorkOf(ctx, id)
 	if errors.Is(err, store.ErrNotFound) {
 		// Ungrouped: the two actions mean the same thing, so do the one
 		// that was asked for rather than refusing on a technicality.
-		s.handleModReleasePurgeMetadata(w, r)
+		s.purgeReleaseMetadata(w, r, ares, id)
 		return
 	}
 	if err != nil {

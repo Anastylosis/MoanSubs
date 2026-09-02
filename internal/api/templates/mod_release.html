@@ -56,14 +56,22 @@ usually where you can see why.</p>
 <form method="post" action="/mod/release/{{.Release.ID}}/metadata/{{if .MetadataConfirmed}}unconfirm{{else}}confirm{{end}}" style="display:inline">
   <button type="submit">{{if .MetadataConfirmed}}Unpin{{else}}Confirm current metadata{{end}}</button>
 </form>
-<form method="post" action="/mod/release/{{.Release.ID}}/metadata/purge" style="display:inline"
-      onsubmit="return confirm('Delete every metadata proposal for this release? Use this for a name that must leave the database, not for a wrong title.')">
-  <button type="submit" class="danger">Purge all metadata</button>
+<form method="post" action="/mod/release/{{.Release.ID}}/metadata/purge" class="stack" style="margin-top:.75rem">
+  <p class="hint">Delete every metadata proposal for this release? Use this for a name that must leave the database, not for a wrong title.</p>
+  <div style="display:flex;gap:.5rem;align-items:center">
+    <label for="purge-confirm" style="margin:0">Type the release id:</label>
+    <input type="text" id="purge-confirm" name="confirm" placeholder="release id" style="width:8rem" required>
+    <button type="submit" class="danger" style="margin:0">Purge all metadata</button>
+  </div>
 </form>
 {{if .SiblingProposals}}
-<form method="post" action="/mod/release/{{.Release.ID}}/metadata/purge-work" style="display:inline"
-      onsubmit="return confirm('Delete every metadata proposal for EVERY release in this work? This destroys evidence on releases you may not have reviewed. A work is inferred, not authoritative — check the table below first.')">
-  <button type="submit" class="danger">Purge across the whole work</button>
+<form method="post" action="/mod/release/{{.Release.ID}}/metadata/purge-work" class="stack" style="margin-top:.75rem">
+  <p class="hint">Delete every metadata proposal for EVERY release in this work? This destroys evidence on releases you may not have reviewed. A work is inferred, not authoritative — check the table below first.</p>
+  <div style="display:flex;gap:.5rem;align-items:center">
+    <label for="purge-work-confirm" style="margin:0">Type the word "work":</label>
+    <input type="text" id="purge-work-confirm" name="confirm" placeholder="type work to confirm" style="width:8rem" required>
+    <button type="submit" class="danger" style="margin:0">Purge across the whole work</button>
+  </div>
 </form>
 <p class="hint" style="margin-top:.75rem">
   This release is grouped with others, and {{.SiblingProposals}} of the

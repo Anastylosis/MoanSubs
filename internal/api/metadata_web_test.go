@@ -157,7 +157,9 @@ func TestModMetadata_ConfirmPinsAndPurgeErases(t *testing.T) {
 
 	// Purge erases the evidence entirely -- the takedown path, not a
 	// correction.
-	if resp := postSessionForm(t, client, ts, "/mod/release/"+id+"/metadata/purge", url.Values{}); resp.StatusCode != http.StatusSeeOther {
+	if resp := postSessionForm(t, client, ts, "/mod/release/"+id+"/metadata/purge", url.Values{
+		"confirm": {id},
+	}); resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("purge = %d, want 303", resp.StatusCode)
 	}
 	got, err = st.GetReleaseByID(ctx, rel.ID)
@@ -490,7 +492,9 @@ func TestModPurge_GroupedReleaseWarnsAndOffersTheWork(t *testing.T) {
 	}
 
 	// The narrow purge leaves the name standing, as the warning says.
-	if resp := postSessionForm(t, client, ts, "/mod/release/"+id+"/metadata/purge", url.Values{}); resp.StatusCode != http.StatusSeeOther {
+	if resp := postSessionForm(t, client, ts, "/mod/release/"+id+"/metadata/purge", url.Values{
+		"confirm": {id},
+	}); resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("purge = %d, want 303", resp.StatusCode)
 	}
 	got, err := st.GetReleaseByID(ctx, mine)
@@ -502,7 +506,9 @@ func TestModPurge_GroupedReleaseWarnsAndOffersTheWork(t *testing.T) {
 	}
 
 	// The work-wide purge removes it from both.
-	if resp := postSessionForm(t, client, ts, "/mod/release/"+id+"/metadata/purge-work", url.Values{}); resp.StatusCode != http.StatusSeeOther {
+	if resp := postSessionForm(t, client, ts, "/mod/release/"+id+"/metadata/purge-work", url.Values{
+		"confirm": {"work"},
+	}); resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("purge-work = %d, want 303", resp.StatusCode)
 	}
 	for _, relID := range []int64{mine, theirs} {
@@ -533,4 +539,163 @@ func mustTrackedRelease(t *testing.T, st *store.Store, oshash, stem string) int6
 		t.Fatalf("CreateSubtitleTrack(%s): %v", oshash, err)
 	}
 	return rel.ID
+}
+
+// Purge with wrong confirm is refused and leaves data intact.
+func TestModPurge_WrongConfirmRefused(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	ctx := context.Background()
+	if err := st.SetAccountRole(ctx, "webuser", "mod"); err != nil {
+		t.Fatalf("SetAccountRole: %v", err)
+	}
+
+	rel := mkTitledRelease(t, st, "f3f3f3f3f3f3f3f3", 600000, "A Title To Purge")
+	id := strconv.FormatInt(rel.ID, 10)
+
+	resp := postSessionForm(t, client, ts, "/mod/release/"+id+"/metadata/purge", url.Values{
+		"confirm": {"wrong-id"},
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("purge with wrong confirm = %d, want 400", resp.StatusCode)
+	}
+
+	got, err := st.GetReleaseByID(ctx, rel.ID)
+	if err != nil {
+		t.Fatalf("GetReleaseByID: %v", err)
+	}
+	if got.Title == nil || *got.Title != "A Title To Purge" {
+		t.Error("title was purged despite the confirm mismatch")
+	}
+}
+
+// Purge with missing confirm is refused and leaves data intact.
+func TestModPurge_MissingConfirmRefused(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	ctx := context.Background()
+	if err := st.SetAccountRole(ctx, "webuser", "mod"); err != nil {
+		t.Fatalf("SetAccountRole: %v", err)
+	}
+
+	rel := mkTitledRelease(t, st, "f4f4f4f4f4f4f4f4", 600000, "Another Title To Purge")
+	id := strconv.FormatInt(rel.ID, 10)
+
+	resp := postSessionForm(t, client, ts, "/mod/release/"+id+"/metadata/purge", url.Values{})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("purge with missing confirm = %d, want 400", resp.StatusCode)
+	}
+
+	got, err := st.GetReleaseByID(ctx, rel.ID)
+	if err != nil {
+		t.Fatalf("GetReleaseByID: %v", err)
+	}
+	if got.Title == nil || *got.Title != "Another Title To Purge" {
+		t.Error("title was purged despite missing confirm")
+	}
+}
+
+// Purge-work with wrong confirm is refused and leaves data intact.
+func TestModPurgeWork_WrongConfirmRefused(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	ctx := context.Background()
+	if err := st.SetAccountRole(ctx, "webuser", "mod"); err != nil {
+		t.Fatalf("SetAccountRole: %v", err)
+	}
+
+	mine := mustTrackedRelease(t, st, "f5f5f5f5f5f5f5f5", "encode.a")
+	theirs := mustTrackedRelease(t, st, "f6f6f6f6f6f6f6f6", "encode.b")
+	if _, err := st.LinkReleases(ctx, mine, theirs); err != nil {
+		t.Fatalf("LinkReleases: %v", err)
+	}
+
+	if _, err := st.RecordProposal(ctx, store.MetadataProposal{
+		ReleaseID: theirs, Title: strPtrAPI("Name To Purge"),
+	}); err != nil {
+		t.Fatalf("RecordProposal: %v", err)
+	}
+	if err := st.DeriveAfterProposal(ctx, theirs); err != nil {
+		t.Fatalf("DeriveAfterProposal: %v", err)
+	}
+
+	id := strconv.FormatInt(mine, 10)
+	resp := postSessionForm(t, client, ts, "/mod/release/"+id+"/metadata/purge-work", url.Values{
+		"confirm": {"notwork"},
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("purge-work with wrong confirm = %d, want 400", resp.StatusCode)
+	}
+
+	got, err := st.GetReleaseByID(ctx, theirs)
+	if err != nil {
+		t.Fatalf("GetReleaseByID: %v", err)
+	}
+	if got.Title == nil || *got.Title != "Name To Purge" {
+		t.Error("title was purged despite the confirm mismatch")
+	}
+}
+
+// Purge-work with missing confirm is refused and leaves data intact.
+func TestModPurgeWork_MissingConfirmRefused(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	ctx := context.Background()
+	if err := st.SetAccountRole(ctx, "webuser", "mod"); err != nil {
+		t.Fatalf("SetAccountRole: %v", err)
+	}
+
+	mine := mustTrackedRelease(t, st, "f7f7f7f7f7f7f7f7", "encode.c")
+	theirs := mustTrackedRelease(t, st, "f8f8f8f8f8f8f8f8", "encode.d")
+	if _, err := st.LinkReleases(ctx, mine, theirs); err != nil {
+		t.Fatalf("LinkReleases: %v", err)
+	}
+
+	if _, err := st.RecordProposal(ctx, store.MetadataProposal{
+		ReleaseID: theirs, Title: strPtrAPI("Another Name To Purge"),
+	}); err != nil {
+		t.Fatalf("RecordProposal: %v", err)
+	}
+	if err := st.DeriveAfterProposal(ctx, theirs); err != nil {
+		t.Fatalf("DeriveAfterProposal: %v", err)
+	}
+
+	id := strconv.FormatInt(mine, 10)
+	resp := postSessionForm(t, client, ts, "/mod/release/"+id+"/metadata/purge-work", url.Values{})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("purge-work with missing confirm = %d, want 400", resp.StatusCode)
+	}
+
+	got, err := st.GetReleaseByID(ctx, theirs)
+	if err != nil {
+		t.Fatalf("GetReleaseByID: %v", err)
+	}
+	if got.Title == nil || *got.Title != "Another Name To Purge" {
+		t.Error("title was purged despite missing confirm")
+	}
+}
+
+// Templates must not contain inline event handlers (onsubmit, onclick, javascript:),
+// since mod pages are served with CSP that disallows scripts.
+func TestTemplates_NoInlineEventHandlers(t *testing.T) {
+	entries, err := templateFS.ReadDir("templates")
+	if err != nil {
+		t.Fatalf("ReadDir templates: %v", err)
+	}
+
+	forbiddenPatterns := []string{"onsubmit=", "onclick=", "javascript:"}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".html") {
+			continue
+		}
+
+		data, err := templateFS.ReadFile("templates/" + entry.Name())
+		if err != nil {
+			t.Fatalf("ReadFile templates/%s: %v", entry.Name(), err)
+		}
+
+		content := string(data)
+		for _, pattern := range forbiddenPatterns {
+			if strings.Contains(content, pattern) {
+				t.Errorf("templates/%s contains forbidden pattern %q", entry.Name(), pattern)
+			}
+		}
+	}
 }

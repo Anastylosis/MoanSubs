@@ -1129,7 +1129,10 @@ On `/mod/release/{id}`:
 - **Purge** destroys every proposal for the release and re-derives. Use it
   for a name that must leave the database rather than merely be outvoted;
   it clears the derived retrieval tokens too, which a plain overwrite
-  would leave searchable.
+  would leave searchable. Both purge forms take a typed confirmation
+  (the release id here, the word `work` below) checked by the server —
+  the pages carry no script, so a browser-side confirm dialog would never
+  run.
 - **Purge across the whole work**, offered only when the release is
   grouped and a sibling carries proposals. Evidence pools are per work, so
   purging one member and re-deriving hands the name straight back from a
