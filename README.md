@@ -65,7 +65,10 @@ Scoring lives in the shared
 and 13-bit hash blocks, gets back candidate buckets, and does the real
 matching locally — the server never needs your full fingerprints. This is
 the lookup *mechanism*, not a privacy guarantee: [API.md](API.md) states
-exactly what it does and does not leak.
+exactly what it does and does not leak. Separately, and regardless of that
+setting, the scene's own stash-box ids (level 0) go along on every lookup —
+they identify the scene exactly, by design, since that's what makes them
+stronger evidence than any fingerprint.
 
 ```
 ┌────────────┐   bucketed lookup, download, push   ┌───────────────┐

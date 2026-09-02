@@ -80,7 +80,11 @@ frozen API surface, not implementation detail.
 block recall requires querying all 5 blocks, and a server that correlates
 those requests can reconstruct the full hash — bucketing is the lookup
 *mechanism*, not a guarantee against the node operator. Full-hash mode
-leaks the same, explicitly.
+leaks the same, explicitly. Separately from all of the above, the plugin
+also sends the scene's own stash-box ids (as an endpoint hash plus the raw
+id) on every lookup, regardless of the full-hash setting — unlike a
+fingerprint, an id identifies the exact scene, by design (it's what makes
+it stronger evidence than any hash match).
 
 ## Endpoints
 
