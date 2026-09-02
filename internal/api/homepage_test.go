@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
@@ -162,6 +163,36 @@ func TestHomepage_MostDownloadedUsesLifetimeCounts(t *testing.T) {
 	}
 }
 
+// The three front-page lists are cached together for homepageCacheTTL
+// (WP-S8): a release added after the first render must not appear until
+// the cache is invalidated, and must appear immediately once it is.
+func TestHomepage_ListsCachedUntilInvalidated(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	srv.AgeGate = false
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	homepageFixture(t, st, "1000000010000000", "First Release", true)
+
+	_, body := getBody(t, ts.URL+"/")
+	if !strings.Contains(body, "First Release") {
+		t.Fatalf("first render missing First Release: %s", body)
+	}
+
+	homepageFixture(t, st, "2000000020000000", "Second Release", true)
+	_, body = getBody(t, ts.URL+"/")
+	if strings.Contains(body, "Second Release") {
+		t.Error("a release added after the first render appeared before the cache was invalidated")
+	}
+
+	srv.InvalidateHomepageCache()
+	_, body = getBody(t, ts.URL+"/")
+	if !strings.Contains(body, "Second Release") {
+		t.Error("release still missing from the front page after InvalidateHomepageCache")
+	}
+}
+
 // The lists are best-effort, like the stats above them: the front door has
 // to render even when a list cannot be built. Withdrawing everything is
 // the reachable stand-in for "there is nothing to show".
@@ -177,5 +208,33 @@ func TestHomepage_RendersWithNothingToList(t *testing.T) {
 	}
 	if strings.Contains(body, "Gone") {
 		t.Error("a withdrawn release was listed on the front page")
+	}
+}
+
+// A build that failed partway (here: a cancelled context) must not be
+// cached, or one transient store error would blank the front page for
+// homepageCacheTTL.
+func TestHomepage_FailedBuildIsNotCached(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var data indexPageData
+	srv.homepageLists(ctx, &data)
+
+	srv.homepageCacheMu.Lock()
+	until := srv.homepageCachedUntil
+	srv.homepageCacheMu.Unlock()
+	if !until.IsZero() {
+		t.Fatal("a failed homepage build was cached")
+	}
+
+	srv.homepageLists(context.Background(), &data)
+	srv.homepageCacheMu.Lock()
+	until = srv.homepageCachedUntil
+	srv.homepageCacheMu.Unlock()
+	if until.IsZero() {
+		t.Fatal("a successful homepage build was not cached")
 	}
 }

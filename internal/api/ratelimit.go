@@ -169,6 +169,15 @@ func (s *Server) trustsProxy(ip net.IP) bool {
 // Allow reports whether a request for key is permitted right now, consuming
 // one token from key's bucket if so.
 func (l *RateLimiter) Allow(key string) bool {
+	return l.AllowN(key, 1)
+}
+
+// AllowN reports whether a request costing n tokens is permitted right now,
+// consuming all n from key's bucket if so, or none at all otherwise (WP-S8:
+// the batch lookup endpoint charges one token per entry instead of one per
+// request, and that charge has to be atomic — n separate Allow calls could
+// interleave with another request's own spend on the same bucket).
+func (l *RateLimiter) AllowN(key string, n int) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -190,10 +199,10 @@ func (l *RateLimiter) Allow(key string) bool {
 		b.last = now
 	}
 
-	if b.tokens < 1 {
+	if b.tokens < float64(n) {
 		return false
 	}
-	b.tokens--
+	b.tokens -= float64(n)
 	return true
 }
 
@@ -203,6 +212,14 @@ func (l *RateLimiter) Allow(key string) bool {
 // call right after a denied Allow without racing its own answer. A key with
 // no bucket yet, or one that already has a token, has nothing to wait for.
 func (l *RateLimiter) RetryAfter(key string) time.Duration {
+	return l.RetryAfterN(key, 1)
+}
+
+// RetryAfterN is RetryAfter for a request costing n tokens: the wait until
+// key's bucket holds all n, which is what an AllowN denial has to report —
+// a batch told to wait for one token would come straight back and be
+// refused again.
+func (l *RateLimiter) RetryAfterN(key string, n int) time.Duration {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -217,10 +234,14 @@ func (l *RateLimiter) RetryAfter(key string) time.Duration {
 			tokens = l.burst
 		}
 	}
-	if tokens >= 1 {
+	need := float64(n)
+	if need > l.burst {
+		need = l.burst
+	}
+	if tokens >= need {
 		return 0
 	}
-	return time.Duration((1 - tokens) / l.rate * float64(time.Second))
+	return time.Duration((need - tokens) / l.rate * float64(time.Second))
 }
 
 // retryAfterSeconds converts a wait into the Retry-After header's wire

@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Anastylosis/MoanSubs/hash"
@@ -427,6 +428,27 @@ type Server struct {
 	// RevisionRetimeHint governs whether a declined pure-retime upload's
 	// response names the offset feature (MOANSUBS_REVISION_RETIME_HINT).
 	RevisionRetimeHint bool
+
+	// creatorNamesMu guards creatorNamesCache/creatorNamesCacheUntil,
+	// match.go's creatorNames' 5-minute cache (WP-S8) over
+	// store.CreatorNames' DISTINCT+unnest scan.
+	creatorNamesMu         sync.Mutex
+	creatorNamesCache      []string
+	creatorNamesCacheUntil time.Time
+
+	// homepageCacheMu guards homepageCached/homepageCachedUntil,
+	// homepage.go's 5-minute cache (WP-S8) over the front page's three list
+	// queries.
+	homepageCacheMu     sync.Mutex
+	homepageCached      homepageCache
+	homepageCachedUntil time.Time
+
+	// sitemapCacheMu guards sitemapCache, sitemap.go's 10-minute cache
+	// (WP-S8) over the rendered sitemap XML, keyed by the origin the
+	// document bakes in — IndexableReleases can scan up to 50,000 rows per
+	// call.
+	sitemapCacheMu sync.Mutex
+	sitemapCache   map[string]sitemapEntry
 }
 
 // NewServer builds a Server backed by s, with its own rate limiters.

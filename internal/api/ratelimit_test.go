@@ -65,6 +65,51 @@ func TestRateLimiterRetryAfter_ExactBoundary(t *testing.T) {
 	}
 }
 
+// AllowN charges all n tokens atomically: a request whose cost fits the
+// remaining budget consumes exactly that many, leaving the rest for
+// whatever follows.
+func TestRateLimiterAllowN_ChargesExactlyN(t *testing.T) {
+	l := NewRateLimiterPerMinute(6)
+
+	if !l.AllowN("k", 5) {
+		t.Fatal("AllowN(5) on a fresh 6-token bucket should succeed")
+	}
+	if !l.Allow("k") {
+		t.Fatal("one more single token should still be available (6-5=1 left)")
+	}
+	if l.Allow("k") {
+		t.Error("bucket should be exhausted after spending 5+1 of 6")
+	}
+}
+
+// A request costing more than what's left is denied AND must not touch the
+// remaining tokens — a partial spend would let a client probe the exact
+// remaining budget for free.
+func TestRateLimiterAllowN_DeniedConsumesNothing(t *testing.T) {
+	l := NewRateLimiterPerMinute(6)
+	if !l.AllowN("k", 5) {
+		t.Fatal("AllowN(5) on a fresh 6-token bucket should succeed")
+	}
+	if l.AllowN("k", 5) {
+		t.Fatal("AllowN(5) with only 1 token left should be denied")
+	}
+	if !l.Allow("k") {
+		t.Error("the denied AllowN must not have consumed the 1 remaining token")
+	}
+}
+
+// Allow is AllowN(key, 1) — this pins that equivalence down directly rather
+// than only through AllowN's own tests.
+func TestRateLimiterAllow_IsAllowNOfOne(t *testing.T) {
+	l := NewRateLimiterPerMinute(1)
+	if !l.Allow("k") {
+		t.Fatal("first Allow on a fresh 1-token bucket should succeed")
+	}
+	if l.Allow("k") {
+		t.Error("second Allow should be denied, the bucket exhausted by the first")
+	}
+}
+
 // retryAfterSeconds is the one place the Retry-After wire format is
 // decided: whole seconds, rounded up so a client is never told to retry
 // before its slot opens, floored at 1 so a 429 never claims to already be
@@ -470,5 +515,25 @@ func TestRateLimiterDoesNotPruneEveryCall(t *testing.T) {
 	}
 	if got := bucketCount(l); got != 2 {
 		t.Errorf("bucketCount = %d, want 2 — no sweep is due this soon", got)
+	}
+}
+
+func TestRateLimiterRetryAfterN(t *testing.T) {
+	l := NewRateLimiterPerMinute(6) // one token per 10 s
+	now := time.Unix(1_000_000, 0)
+	l.now = func() time.Time { return now }
+	if !l.AllowN("k", 5) {
+		t.Fatal("first AllowN(5) should pass with a full bucket")
+	}
+	if got := l.RetryAfterN("k", 1); got != 0 {
+		t.Errorf("RetryAfterN(1) with 1 token left = %v, want 0", got)
+	}
+	if got := l.RetryAfterN("k", 5); got < 39*time.Second || got > 41*time.Second {
+		t.Errorf("RetryAfterN(5) with 1 token left = %v, want ~40s", got)
+	}
+	// Asking for more than the bucket can ever hold waits for a full bucket,
+	// never forever.
+	if got := l.RetryAfterN("k", 100); got < 49*time.Second || got > 51*time.Second {
+		t.Errorf("RetryAfterN(100) = %v, want ~50s (a full bucket)", got)
 	}
 }

@@ -1,11 +1,17 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/Anastylosis/MoanSubs/internal/store"
 )
 
 func TestMatch_RejectsMissingNameAndDuration(t *testing.T) {
@@ -256,6 +262,110 @@ func TestMatch_RecordsLookupAndHitStats(t *testing.T) {
 	}
 	if got := srv.Stats.HitsMatch.Load(); got != 1 {
 		t.Errorf("HitsMatch = %d, want 1 (only the non-UNMATCHED verdict)", got)
+	}
+}
+
+// -- retrieval key caps (WP-S8) ---------------------------------------------
+
+// An over-long name/stem is truncated like /search's own q, not rejected —
+// a client with an unusually long filename should still get a scored
+// comparison on what fits.
+func TestHandleMatch_OverlongStemIsAcceptedNotRejected(t *testing.T) {
+	ts, _, _ := newTestServer(t)
+
+	resp := doPostJSON(t, ts, "/api/v1/match", map[string]any{
+		"stem":        "real name " + strings.Repeat("x", MaxSearchQueryLen*2),
+		"duration_ms": int64(60000),
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (truncate, do not reject)", resp.StatusCode)
+	}
+}
+
+// matchRetrievalKeys caps both lists at MaxSearchQueryTokens even when the
+// input tokenizes to far more than that — the retrieval query must never
+// grow with an attacker-chosen name's token density.
+func TestMatchRetrievalKeys_CapsTokensAndCodes(t *testing.T) {
+	words := make([]string, MaxSearchQueryTokens*3)
+	for i := range words {
+		words[i] = fmt.Sprintf("distinctword%d", i)
+	}
+	blob := strings.Join(words, " ")
+
+	tokens, codes := matchRetrievalKeys(blob)
+	if len(tokens) > MaxSearchQueryTokens {
+		t.Errorf("len(tokens) = %d, want <= %d", len(tokens), MaxSearchQueryTokens)
+	}
+	if len(codes) > MaxSearchQueryTokens {
+		t.Errorf("len(codes) = %d, want <= %d", len(codes), MaxSearchQueryTokens)
+	}
+}
+
+// The input is truncated to MaxSearchQueryLen runes before tokenizing, the
+// same rule /search applies to its own q: a token that only exists past
+// that boundary must never appear.
+func TestMatchRetrievalKeys_TruncatesLongInputLikeSearch(t *testing.T) {
+	blob := strings.Repeat("a", MaxSearchQueryLen) + " markertoken"
+	tokens, _ := matchRetrievalKeys(blob)
+	for _, tok := range tokens {
+		if strings.Contains(tok, "markertoken") {
+			t.Errorf("tokens = %v, want the input truncated to %d runes before %q",
+				tokens, MaxSearchQueryLen, "markertoken")
+		}
+	}
+}
+
+// -- creatorNames cache (WP-S8) ----------------------------------------------
+
+// creatorNames caches store.CreatorNames' result for creatorNamesCacheTTL: a
+// studio added to the store after the first call must not appear until the
+// cache is forced stale.
+func TestServerCreatorNames_CachedWithinTTL(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	ctx := context.Background()
+
+	oh := mustOSHash(t, "aaaa00000000aaaa")
+	studio := "Studio One"
+	if _, err := st.CreateRelease(ctx, store.Release{OSHash: oh, DurationMs: 1, Studio: &studio}); err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	first, err := srv.creatorNames(ctx)
+	if err != nil {
+		t.Fatalf("creatorNames: %v", err)
+	}
+	if !slices.Contains(first, "Studio One") {
+		t.Fatalf("first call = %v, want it to contain Studio One", first)
+	}
+
+	oh2 := mustOSHash(t, "bbbb00000000bbbb")
+	studio2 := "Studio Two"
+	if _, err := st.CreateRelease(ctx, store.Release{OSHash: oh2, DurationMs: 1, Studio: &studio2}); err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	second, err := srv.creatorNames(ctx)
+	if err != nil {
+		t.Fatalf("creatorNames: %v", err)
+	}
+	if slices.Contains(second, "Studio Two") {
+		t.Error("a studio added after the first call appeared before the cache TTL elapsed")
+	}
+
+	// Force the cache stale, the same effect InvalidateHomepageCache/
+	// InvalidateSitemapCache have for their own caches; creatorNames has no
+	// exported invalidator since nothing outside this package needs one.
+	srv.creatorNamesMu.Lock()
+	srv.creatorNamesCacheUntil = time.Time{}
+	srv.creatorNamesMu.Unlock()
+
+	third, err := srv.creatorNames(ctx)
+	if err != nil {
+		t.Fatalf("creatorNames: %v", err)
+	}
+	if !slices.Contains(third, "Studio Two") {
+		t.Error("Studio Two still missing once the cache was forced stale")
 	}
 }
 

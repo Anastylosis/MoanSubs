@@ -149,7 +149,12 @@ At most 100 entries combined. Response keys mirror the request entries:
              "stash:a1b2c3d4e5f6:c72cba4a-1e2b-4f0e-8f3a-1234567890ab": [<release>...]}}
 ```
 
-Exists so a wall of scene cards costs one request, not forty.
+Exists so a wall of scene cards costs one request, not forty. It still
+spends the anonymous lookup budget honestly, though: **each entry costs one
+`lookup` token**, not the request as a whole — a 100-entry batch spends 100
+of the per-IP 300/min budget. A batch whose entry count exceeds what's left
+in the bucket gets `429` and spends nothing at all, the same all-or-nothing
+charge every entry count gets.
 
 ### `POST /api/v1/lookup/exact`
 
@@ -276,7 +281,11 @@ a name.
 
 `stem` or `title` is required (at least one non-empty); `duration_ms` (>0)
 is required. `studio`/`performers` are optional evidence for the scorer's
-vocabulary split. `date` (optional, `YYYY-MM-DD`, 400 `"date: want
+vocabulary split. The candidate-retrieval keys derived from
+`stem`+`title`+`studio`+`performers` are capped exactly like `GET /search`'s
+own `q`: `MaxSearchQueryLen` (200) runes of combined input, `MaxSearchQueryTokens`
+(16) entries per token/code list — truncated silently, never rejected, so
+an unusually long name still gets a scored comparison. `date` (optional, `YYYY-MM-DD`, 400 `"date: want
 YYYY-MM-DD"` otherwise) is the scene date: same-titled scenes from
 lazily-named studio releases are otherwise indistinguishable by name and
 runtime alone, so when both the query and a candidate carry a date, they
@@ -741,7 +750,9 @@ one request is what a blanket `Disallow: /` exists not to hand out. Listing
 follows the release page's own `X-Robots-Tag` exactly — a curated title and
 a moderator's pin — since a sitemap that were more generous would silently
 undo the header. Anonymous, capped at 50,000 URLs, and named by
-`/robots.txt` on nodes that serve it.
+`/robots.txt` on nodes that serve it. The rendered document is cached
+in-process for 10 minutes (`Cache-Control: public, max-age=600`) rather than
+rebuilt — and its up-to-50,000-row query re-run — on every crawler hit.
 
 ### `POST /api/v1/metadata` *(auth required)*
 

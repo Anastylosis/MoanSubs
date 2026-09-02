@@ -12,8 +12,10 @@ import (
 )
 
 // indexableServerWithToken is indexableServer plus an upload token, for
-// tests that need to put real releases behind the catalogue pages.
-func indexableServerWithToken(t *testing.T) (*httptest.Server, *store.Store, string) {
+// tests that need to put real releases behind the catalogue pages. Returns
+// the underlying Server too, so a sitemap test can call
+// InvalidateSitemapCache between renders (WP-S8).
+func indexableServerWithToken(t *testing.T) (*httptest.Server, *store.Store, *Server, string) {
 	t.Helper()
 	st := openTestStore(t)
 	srv := NewServer(st)
@@ -26,7 +28,7 @@ func indexableServerWithToken(t *testing.T) (*httptest.Server, *store.Store, str
 	if err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
-	return ts, st, token
+	return ts, st, srv, token
 }
 
 // confirmRelease pins a release's derived metadata the way a moderator
@@ -64,7 +66,7 @@ func uploadWith(t *testing.T, ts *httptest.Server, token string, extra map[strin
 // filename. This is the control that makes the privacy rule real: a
 // crawled heading outlives any later correction in this database.
 func TestReleasePage_StemOnlyStaysNoindexOnIndexableNode(t *testing.T) {
-	ts, st, token := indexableServerWithToken(t)
+	ts, st, _, token := indexableServerWithToken(t)
 
 	stemOnly := uploadWith(t, ts, token, map[string]any{
 		"oshash": "1111111111111111", "stem": "Jane Doe - SiteRip 2019",
@@ -100,7 +102,7 @@ func TestReleasePage_StemOnlyStaysNoindexOnIndexableNode(t *testing.T) {
 // indexable and renders each row's name as link text, so an uncurated
 // filename would be cached from the listing regardless.
 func TestBrowse_DoesNotRenderFilenamesOnIndexableNode(t *testing.T) {
-	ts, _, token := indexableServerWithToken(t)
+	ts, _, _, token := indexableServerWithToken(t)
 
 	uploadWith(t, ts, token, map[string]any{
 		"oshash": "3333333333333333", "stem": "Jane Doe - SiteRip 2019",

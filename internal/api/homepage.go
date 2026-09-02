@@ -48,7 +48,22 @@ func (s *Server) homepageList(ctx context.Context, releases []store.Release) ([]
 	return out, nil
 }
 
-// homepageLists assembles the three front-page lists.
+// homepageCacheTTL is how long the three front-page lists are cached
+// together (WP-S8): each runs a real query (a windowed aggregate for
+// trending, a full sort for popular), otherwise repeated on every anonymous
+// GET /.
+const homepageCacheTTL = 5 * time.Minute
+
+// homepageCache is the cached shape homepageLists stores on Server, guarded
+// by homepageCacheMu — same cache-then-fetch pattern as Stats.snapshot.
+type homepageCache struct {
+	Newest   []catalogueRelease
+	Trending []catalogueRelease
+	Popular  []catalogueRelease
+}
+
+// homepageLists assembles the three front-page lists, from the cache when
+// it's still fresh.
 //
 // Every one is best-effort, like the stats above them: this is the node's
 // front door, and a list that cannot be built is omitted rather than
@@ -58,29 +73,68 @@ func (s *Server) homepageList(ctx context.Context, releases []store.Release) ([]
 // always been good for", which still has something to show on a quiet week
 // when trending is empty.
 func (s *Server) homepageLists(ctx context.Context, data *indexPageData) {
+	s.homepageCacheMu.Lock()
+	if time.Now().Before(s.homepageCachedUntil) {
+		cached := s.homepageCached
+		s.homepageCacheMu.Unlock()
+		data.Newest, data.Trending, data.Popular = cached.Newest, cached.Trending, cached.Popular
+		return
+	}
+	s.homepageCacheMu.Unlock()
+
+	var built homepageCache
+	complete := true
 	if releases, err := s.Store.BrowseReleases(ctx, 0, ""); err != nil {
 		logHomepageList("BrowseReleases", err)
-	} else if built, err := s.homepageList(ctx, releases); err != nil {
+		complete = false
+	} else if list, err := s.homepageList(ctx, releases); err != nil {
 		logHomepageList("newest", err)
+		complete = false
 	} else {
-		data.Newest = built
+		built.Newest = list
 	}
 
 	if releases, err := s.Store.TrendingReleases(ctx, time.Now().Add(-trendingWindow), homepageListFetch); err != nil {
 		logHomepageList("TrendingReleases", err)
-	} else if built, err := s.homepageList(ctx, releases); err != nil {
+		complete = false
+	} else if list, err := s.homepageList(ctx, releases); err != nil {
 		logHomepageList("trending", err)
+		complete = false
 	} else {
-		data.Trending = built
+		built.Trending = list
 	}
 
 	if releases, err := s.Store.PopularReleases(ctx, homepageListFetch); err != nil {
 		logHomepageList("PopularReleases", err)
-	} else if built, err := s.homepageList(ctx, releases); err != nil {
+		complete = false
+	} else if list, err := s.homepageList(ctx, releases); err != nil {
 		logHomepageList("popular", err)
+		complete = false
 	} else {
-		data.Popular = built
+		built.Popular = list
 	}
+
+	// A partial build from a transient store error is served once, never
+	// cached: the next visitor gets a fresh attempt rather than an empty
+	// front page for homepageCacheTTL.
+	if complete {
+		s.homepageCacheMu.Lock()
+		s.homepageCached = built
+		s.homepageCachedUntil = time.Now().Add(homepageCacheTTL)
+		s.homepageCacheMu.Unlock()
+	}
+
+	data.Newest, data.Trending, data.Popular = built.Newest, built.Trending, built.Popular
+}
+
+// InvalidateHomepageCache clears the front page's cached lists (WP-S8),
+// forcing the next GET / to rebuild them from the store. Tests that insert
+// data after an earlier render and expect it to show up immediately call
+// this rather than waiting out homepageCacheTTL.
+func (s *Server) InvalidateHomepageCache() {
+	s.homepageCacheMu.Lock()
+	s.homepageCachedUntil = time.Time{}
+	s.homepageCacheMu.Unlock()
 }
 
 func logHomepageList(what string, err error) {

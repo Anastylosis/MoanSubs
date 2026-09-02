@@ -444,15 +444,22 @@ func stashResultKey(ehash, stashID string) string {
 
 // handleLookupBatch implements POST /api/v1/lookup/batch (PLAN.md "Lookup:
 // bucketed by default" endpoint sketch + task brief: "so a SceneCard wall
-// doesn't fire 40+ requests"). Anonymous, IP rate-limited. Each entry is
-// validated with the same rules as the single-bucket GET endpoints; the
-// first invalid entry fails the whole request with 400 rather than
-// returning partial results, so a client can't mistake a validation
-// rejection for "this bucket happens to be empty".
+// doesn't fire 40+ requests"). Anonymous, IP rate-limited — one
+// LookupLimiter token per entry (WP-S8), not one per request: a 100-entry
+// batch fans out to a store query and a SiblingTracks query per entry, so
+// charging it like a single lookup would let one request buy 100x the
+// intended budget. Each entry is validated with the same rules as the
+// single-bucket GET endpoints; the first invalid entry fails the whole
+// request with 400 rather than returning partial results, so a client can't
+// mistake a validation rejection for "this bucket happens to be empty".
 func (s *Server) handleLookupBatch(w http.ResponseWriter, r *http.Request) {
+	// An empty bucket is refused before the body is read — a client over
+	// budget doesn't get free JSON parsing — but nothing is consumed until
+	// the entry count is known, so a refused batch never spends anything.
 	key := limiterKey(s.clientIP(r))
-	if !s.LookupLimiter.Allow(key) {
-		writeRateLimited(w, s.LookupLimiter, key, "lookup rate limit exceeded")
+	if wait := s.LookupLimiter.RetryAfter(key); wait > 0 {
+		setRetryAfter(w, wait)
+		writeError(w, http.StatusTooManyRequests, "lookup rate limit exceeded")
 		return
 	}
 
@@ -471,6 +478,11 @@ func (s *Server) handleLookupBatch(w http.ResponseWriter, r *http.Request) {
 	if total > maxBatchEntries {
 		writeError(w, http.StatusBadRequest,
 			fmt.Sprintf("batch has %d entries, max %d", total, maxBatchEntries))
+		return
+	}
+	if !s.LookupLimiter.AllowN(key, total) {
+		setRetryAfter(w, s.LookupLimiter.RetryAfterN(key, total))
+		writeError(w, http.StatusTooManyRequests, "lookup rate limit exceeded")
 		return
 	}
 

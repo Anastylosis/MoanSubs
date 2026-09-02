@@ -333,10 +333,15 @@ on SIGINT/SIGTERM (in-flight requests get 10 seconds).
 
 The per-IP lookup rate limit (300/min) is compiled in; it is deliberately
 generous because browsing a scene wall fires lookups continuously, and the
-batch endpoint is the intended pressure valve. `GET /api/v1/subtitles/{id}`
-(downloads) has its own, separate per-IP limit (120/min, also compiled
-in) — a download loop must not be able to starve the lookups the same
-plugin fires while browsing, and vice versa.
+batch endpoint is the intended pressure valve — though it spends the same
+budget honestly rather than sidestepping it: `POST /api/v1/lookup/batch`
+charges one token per entry, not one per request, so a 100-entry batch
+(the plugin's own badge-wall cap) spends 100 of the 300, and a batch whose
+entry count exceeds what's left in the bucket is refused and spends
+nothing at all. `GET /api/v1/subtitles/{id}` (downloads) has its own,
+separate per-IP limit (120/min, also compiled in) — a download loop must
+not be able to starve the lookups the same plugin fires while browsing,
+and vice versa.
 
 Every `429` this node emits (lookup, download, upload, vote, fit,
 registration, login, search, removal, metadata, and this node's own
@@ -999,6 +1004,12 @@ server does not reset either counter: `downloads` lives on the track row,
 and the lookup totals are flushed to the `stats` table before shutdown
 completes.
 
+The front page's own three lists — "Recently added", "Trending this week",
+"Most downloaded" — share the same 5-minute-cache shape, all three built
+together and refreshed lazily on the first `GET /` after the cache goes
+stale: a new upload or a moderator's pin can take up to 5 minutes to appear
+there, though it's already live on `/browse` and its own release page.
+
 ## Analytics (`MOANSUBS_ANALYTICS_SCRIPT`)
 
 Unset, this node has no tracker and serves the strictest Content-Security-
@@ -1176,6 +1187,11 @@ moderator's pin — deliberately the same rule the release page's own
 would quietly undo it. `lastmod` is the confirmation's timestamp rather
 than the release's, since re-pinning after a correction is the event a
 crawler should notice.
+
+The rendered document is cached in-process for 10 minutes
+(`Cache-Control: public, max-age=600` on the response) rather than rebuilt
+on every crawler hit — its query can scan up to 50,000 rows. A release
+pinned in the last few minutes may take up to that long to appear.
 
 Every page also carries a description, a canonical URL and Open Graph
 tags, which is what makes a link pasted into a forum or a chat render as

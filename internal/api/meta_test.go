@@ -9,7 +9,7 @@ import (
 // durably as a crawled heading. So og:title follows the same rule as
 // crawlable link text: a filename never escapes, however readable.
 func TestOpenGraph_NeverPutsAFilenameInAPreview(t *testing.T) {
-	ts, _, token := indexableServerWithToken(t)
+	ts, _, _, token := indexableServerWithToken(t)
 
 	stemOnly := uploadWith(t, ts, token, map[string]any{
 		"oshash": "4d4d4d4d4d4d4d4d", "stem": "Jane Doe - SiteRip 2019",
@@ -42,7 +42,7 @@ func TestOpenGraph_NeverPutsAFilenameInAPreview(t *testing.T) {
 // Every page gets the tags, and the canonical URL drops the query so that
 // /browse?after=… is not a distinct page to a crawler or a preview.
 func TestMetaTags_PresentAndCanonicalDropsTheQuery(t *testing.T) {
-	ts, _, _ := indexableServerWithToken(t)
+	ts, _, _, _ := indexableServerWithToken(t)
 
 	_, body := getBody(t, ts.URL+"/browse?after=999")
 	for _, want := range []string{

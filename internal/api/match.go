@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -100,15 +101,12 @@ func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Retrieval keys come from the full blob (name + creator evidence),
-	// exactly the token set NewIndex would index this query under.
+	// exactly the token set NewIndex would index this query under — capped
+	// the same way /search caps its own q (WP-S8), since nothing else here
+	// bounds how many tokens an attacker-chosen name/stem/performers list
+	// can expand into.
 	blob := strings.Join(append([]string{req.Stem, req.Title, req.Studio}, req.Performers...), " ")
-	var tokens, codes []string
-	for t := range subs.Tokens(blob) {
-		tokens = append(tokens, t)
-	}
-	for c := range subs.Codes(blob) {
-		codes = append(codes, c)
-	}
+	tokens, codes := matchRetrievalKeys(blob)
 
 	candidates, err := s.Store.LookupByNameCandidates(ctx, tokens, codes)
 	if err != nil {
@@ -127,9 +125,9 @@ func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	creatorNames, err := s.Store.CreatorNames(ctx)
+	creatorNames, err := s.creatorNames(ctx)
 	if err != nil {
-		log.Printf("api: CreatorNames: %v", err)
+		log.Printf("api: creatorNames: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -197,4 +195,54 @@ func (s *Server) handleMatch(w http.ResponseWriter, r *http.Request) {
 	// candidates subs.decide judged too close to call.
 	s.Stats.record(&s.Stats.LookupsMatch, &s.Stats.HitsMatch, m.Verdict != subs.Unmatched)
 	writeJSON(w, http.StatusOK, out)
+}
+
+// matchRetrievalKeys builds the token/code lists handleMatch hands to
+// store.LookupByNameCandidates, capped exactly like GET /api/v1/search caps
+// its own q (WP-S8): MaxSearchQueryLen runes of input, MaxSearchQueryTokens
+// entries per list, truncated silently rather than rejected. Without this, a
+// pathological stem/title/studio/performers combination turns one request
+// into an unbounded GIN array-overlap scan.
+func matchRetrievalKeys(blob string) (tokens, codes []string) {
+	if blobRunes := []rune(blob); len(blobRunes) > MaxSearchQueryLen {
+		blob = string(blobRunes[:MaxSearchQueryLen])
+	}
+	for t := range subs.Tokens(blob) {
+		if len(tokens) >= MaxSearchQueryTokens {
+			break
+		}
+		tokens = append(tokens, t)
+	}
+	for c := range subs.Codes(blob) {
+		if len(codes) >= MaxSearchQueryTokens {
+			break
+		}
+		codes = append(codes, c)
+	}
+	return tokens, codes
+}
+
+// creatorNamesCacheTTL is how long Server caches store.CreatorNames' result
+// (WP-S8): that query is a DISTINCT+unnest scan across every release, run
+// otherwise on every anonymous POST /api/v1/match, and the creator
+// vocabulary moves far slower than that.
+const creatorNamesCacheTTL = 5 * time.Minute
+
+// creatorNames returns the cached creator vocabulary if it's still fresh,
+// else refreshes it from the store — same cache-then-fetch shape as
+// Stats.snapshot.
+func (s *Server) creatorNames(ctx context.Context) ([]string, error) {
+	s.creatorNamesMu.Lock()
+	defer s.creatorNamesMu.Unlock()
+
+	if time.Now().Before(s.creatorNamesCacheUntil) {
+		return s.creatorNamesCache, nil
+	}
+	names, err := s.Store.CreatorNames(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.creatorNamesCache = names
+	s.creatorNamesCacheUntil = time.Now().Add(creatorNamesCacheTTL)
+	return names, nil
 }

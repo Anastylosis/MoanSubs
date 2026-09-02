@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -541,6 +542,110 @@ func TestLookup_RateLimitExceeded(t *testing.T) {
 	}
 	if got := second.Header.Get("Retry-After"); got == "" {
 		t.Error("429 response has no Retry-After header")
+	}
+}
+
+// The batch endpoint charges one LookupLimiter token per entry, not one per
+// request (WP-S8): with a 6/min limiter, a 5-entry batch leaves exactly 1
+// token, so one more single lookup still passes and the next does not.
+func TestLookupBatch_ChargesTokenPerEntry(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	srv.LookupLimiter = NewRateLimiterPerMinute(6)
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	prefixes := make([]string, 5)
+	for i := range prefixes {
+		prefixes[i] = fmt.Sprintf("%05x", i)
+	}
+	resp := doPostJSON(t, ts, "/api/v1/lookup/batch", map[string]any{"oshash_prefixes": prefixes})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("5-entry batch status = %d, want 200", resp.StatusCode)
+	}
+
+	single, err := http.Get(ts.URL + "/api/v1/lookup/oshash/aaaaa")
+	if err != nil {
+		t.Fatalf("single GET: %v", err)
+	}
+	_ = single.Body.Close()
+	if single.StatusCode != http.StatusOK {
+		t.Fatalf("single lookup after the 5-entry batch status = %d, want 200 (1 of 6 tokens left)", single.StatusCode)
+	}
+
+	next, err := http.Get(ts.URL + "/api/v1/lookup/oshash/bbbbb")
+	if err != nil {
+		t.Fatalf("second single GET: %v", err)
+	}
+	_ = next.Body.Close()
+	if next.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("lookup once the budget is spent status = %d, want 429", next.StatusCode)
+	}
+}
+
+// A denied batch reports the wait for ALL its entries, not for one token:
+// 6/min refills a token every 10 s, so with 1 left a 5-entry batch needs
+// four more — ~40 s — and a 1 s Retry-After would be a lie the client
+// obeys straight into another 429.
+func TestLookupBatch_RetryAfterCoversWholeBatch(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	srv.LookupLimiter = NewRateLimiterPerMinute(6)
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	five := make([]string, 5)
+	for i := range five {
+		five[i] = fmt.Sprintf("%05x", i)
+	}
+	if resp := doPostJSON(t, ts, "/api/v1/lookup/batch", map[string]any{"oshash_prefixes": five}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("first batch status = %d, want 200", resp.StatusCode)
+	}
+	resp := doPostJSON(t, ts, "/api/v1/lookup/batch", map[string]any{"oshash_prefixes": five})
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("second batch status = %d, want 429", resp.StatusCode)
+	}
+	secs, err := strconv.Atoi(resp.Header.Get("Retry-After"))
+	if err != nil {
+		t.Fatalf("Retry-After = %q, want an integer", resp.Header.Get("Retry-After"))
+	}
+	if secs < 30 || secs > 41 {
+		t.Errorf("Retry-After = %d s, want ~40 (four tokens at 10 s each)", secs)
+	}
+}
+
+// A batch that costs more than the remaining budget is denied and consumes
+// nothing at all — not a partial spend down to zero.
+func TestLookupBatch_OverBudgetConsumesNothing(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	srv.LookupLimiter = NewRateLimiterPerMinute(6)
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	five := make([]string, 5)
+	for i := range five {
+		five[i] = fmt.Sprintf("%05x", i)
+	}
+	first := doPostJSON(t, ts, "/api/v1/lookup/batch", map[string]any{"oshash_prefixes": five})
+	if first.StatusCode != http.StatusOK {
+		t.Fatalf("first 5-entry batch status = %d, want 200", first.StatusCode)
+	}
+
+	// 1 token remains; a second 5-entry batch must be denied...
+	second := doPostJSON(t, ts, "/api/v1/lookup/batch", map[string]any{"oshash_prefixes": five})
+	if second.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("second 5-entry batch (only 1 token left) status = %d, want 429", second.StatusCode)
+	}
+
+	// ...and must not have touched the 1 remaining token.
+	single, err := http.Get(ts.URL + "/api/v1/lookup/oshash/aaaaa")
+	if err != nil {
+		t.Fatalf("single GET: %v", err)
+	}
+	_ = single.Body.Close()
+	if single.StatusCode != http.StatusOK {
+		t.Fatalf("single lookup status = %d, want 200 (a denied batch must consume nothing)", single.StatusCode)
 	}
 }
 

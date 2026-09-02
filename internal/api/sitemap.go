@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // maxSitemapURLs is the sitemap protocol's per-file limit. A node with more
@@ -14,6 +15,11 @@ import (
 // worth having and not one this node has: the cap is here so that reaching
 // it truncates predictably instead of serving a file crawlers reject.
 const maxSitemapURLs = 50000
+
+// sitemapCacheTTL is how long the rendered sitemap XML is cached (WP-S8):
+// IndexableReleases can scan up to maxSitemapURLs rows, too heavy to run on
+// every crawler hit.
+const sitemapCacheTTL = 10 * time.Minute
 
 // urlSet is the sitemap protocol's document shape.
 type urlSet struct {
@@ -40,7 +46,48 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	body, err := s.sitemapXML(r)
+	if err != nil {
+		log.Printf("api: IndexableReleases: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.Header().Set("X-Robots-Tag", "noindex")
+	// public: nothing in the document is per-visitor, so a shared cache
+	// (CDN, crawler's own cache) is free to reuse it for the same
+	// sitemapCacheTTL this server would anyway.
+	w.Header().Set("Cache-Control", "public, max-age=600")
+	_, _ = w.Write(body)
+}
+
+// sitemapEntry is one cached rendering of the sitemap for one origin.
+type sitemapEntry struct {
+	body  []byte
+	until time.Time
+}
+
+// maxSitemapCacheEntries bounds the per-origin cache: the document bakes in
+// publicBase(r), so with MOANSUBS_PUBLIC_URL unset a request's own Host
+// header picks the cache slot, and an unbounded map would let arbitrary
+// Host values both grow it and — worse — hand a poisoned document to every
+// crawler for sitemapCacheTTL. A node reached under more names than this
+// just renders the extras fresh.
+const maxSitemapCacheEntries = 4
+
+// sitemapXML returns the rendered sitemap document for the origin r is
+// reached under, from the cache when still fresh (WP-S8).
+func (s *Server) sitemapXML(r *http.Request) ([]byte, error) {
 	base := s.publicBase(r)
+
+	s.sitemapCacheMu.Lock()
+	if e, ok := s.sitemapCache[base]; ok && time.Now().Before(e.until) {
+		s.sitemapCacheMu.Unlock()
+		return e.body, nil
+	}
+	s.sitemapCacheMu.Unlock()
+
 	doc := urlSet{
 		NS: "http://www.sitemaps.org/schemas/sitemap/0.9",
 		URLs: []sitemapURL{
@@ -55,9 +102,7 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 
 	entries, err := s.Store.IndexableReleases(r.Context(), maxSitemapURLs-len(doc.URLs))
 	if err != nil {
-		log.Printf("api: IndexableReleases: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 	for _, e := range entries {
 		doc.URLs = append(doc.URLs, sitemapURL{
@@ -66,14 +111,36 @@ func (s *Server) handleSitemap(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
-	w.Header().Set("X-Robots-Tag", "noindex")
-	if _, err := w.Write([]byte(xml.Header)); err != nil {
-		return
+	encoded, err := xml.Marshal(doc)
+	if err != nil {
+		return nil, err
 	}
-	if err := xml.NewEncoder(w).Encode(doc); err != nil {
-		log.Printf("api: encoding sitemap: %v", err)
+	body := append([]byte(xml.Header), encoded...)
+
+	s.sitemapCacheMu.Lock()
+	if s.sitemapCache == nil {
+		s.sitemapCache = make(map[string]sitemapEntry)
 	}
+	for k, e := range s.sitemapCache {
+		if !time.Now().Before(e.until) {
+			delete(s.sitemapCache, k)
+		}
+	}
+	if _, ok := s.sitemapCache[base]; ok || len(s.sitemapCache) < maxSitemapCacheEntries {
+		s.sitemapCache[base] = sitemapEntry{body: body, until: time.Now().Add(sitemapCacheTTL)}
+	}
+	s.sitemapCacheMu.Unlock()
+
+	return body, nil
+}
+
+// InvalidateSitemapCache drops every cached sitemap rendering (WP-S8), so
+// the next GET /sitemap.xml rebuilds it — for tests that confirm a release
+// after an earlier fetch.
+func (s *Server) InvalidateSitemapCache() {
+	s.sitemapCacheMu.Lock()
+	s.sitemapCache = nil
+	s.sitemapCacheMu.Unlock()
 }
 
 // publicBase is this node's origin as a visitor reaches it — scheme and
