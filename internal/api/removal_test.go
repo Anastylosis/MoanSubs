@@ -323,3 +323,79 @@ func TestModFlagged_RemovalWithdraw_WithdrawsTrackAndMarksHandled(t *testing.T) 
 		t.Fatalf("GetRemovalRequest = %+v, want handled as withdraw", got)
 	}
 }
+
+// Re-POSTing a request's withdraw URL after it was already dismissed must
+// not withdraw the track: the request row is already handled_action
+// "dismiss", and a stale/replayed/second withdraw click must not silently
+// take the content down behind that decision. Before the fix, withdraw
+// never checked HandledAt and MarkRemovalRequestHandled's ErrNotFound (set
+// when handled_at is already non-null) was swallowed, so the track was
+// withdrawn anyway while the row kept saying "dismiss".
+func TestModFlagged_RemovalWithdraw_AfterDismissDoesNotWithdrawTrack(t *testing.T) {
+	ts, st, client, _ := sessionServer(t)
+	if err := st.SetAccountRole(context.Background(), "webuser", "mod"); err != nil {
+		t.Fatalf("SetAccountRole: %v", err)
+	}
+
+	_, uploaderToken, err := st.CreateAccount(context.Background(), "removal-dismiss-then-withdraw-uploader")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	up := mkNamedUpload(t, ts, uploaderToken, "fcf1f1f1f1f1f1f1", "Removal Dismiss Then Withdraw", "en")
+
+	form := url.Values{"track_id": {strconv.FormatInt(up.TrackID, 10)}, "reason": {"wrong_or_harmful"}}
+	if resp := doRemovalForm(t, ts, nil, ts.URL, up.ReleaseID, form); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("filing the removal request: status = %d, want 303", resp.StatusCode)
+	}
+	reqs, err := st.UnhandledRemovalRequests(context.Background())
+	if err != nil || len(reqs) != 1 {
+		t.Fatalf("UnhandledRemovalRequests = %+v, %v, want exactly one", reqs, err)
+	}
+	id := reqs[0].ID
+
+	dismissReq, err := http.NewRequest(http.MethodPost, ts.URL+"/mod/removal/"+strconv.FormatInt(id, 10)+"/dismiss", strings.NewReader(""))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	dismissReq.Header.Set("Origin", ts.URL)
+	dismissResp, err := client.Do(dismissReq)
+	if err != nil {
+		t.Fatalf("POST dismiss: %v", err)
+	}
+	_ = dismissResp.Body.Close()
+	if dismissResp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST dismiss status = %d, want 303", dismissResp.StatusCode)
+	}
+
+	withdrawForm := url.Values{"reason": {"confirmed illegal content"}}
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/mod/removal/"+strconv.FormatInt(id, 10)+"/withdraw", strings.NewReader(withdrawForm.Encode()))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", ts.URL)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST withdraw: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("POST withdraw (already dismissed) status = %d, want 404", resp.StatusCode)
+	}
+
+	track, err := st.GetSubtitleTrack(context.Background(), up.TrackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if track.WithdrawnAt != nil {
+		t.Error("re-POSTing withdraw after dismiss must not withdraw the track")
+	}
+
+	got, err := st.GetRemovalRequest(context.Background(), id)
+	if err != nil {
+		t.Fatalf("GetRemovalRequest: %v", err)
+	}
+	if got.HandledAction == nil || *got.HandledAction != "dismiss" {
+		t.Fatalf("GetRemovalRequest = %+v, want handled_action still \"dismiss\"", got)
+	}
+}

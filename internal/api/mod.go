@@ -284,14 +284,26 @@ func (s *Server) handleModRemovalWithdraw(w http.ResponseWriter, r *http.Request
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// Same 404 as handleModRemovalDismiss: a dismissed request's withdraw
+	// URL must not withdraw the track.
+	if req.HandledAt != nil {
+		http.NotFound(w, r)
+		return
+	}
 
-	if err := s.Store.WithdrawTrack(r.Context(), req.TrackID, reason); err != nil && !errors.Is(err, store.ErrNotFound) {
-		log.Printf("api: WithdrawTrack (removal request %d): %v", id, err)
+	if err := s.Store.MarkRemovalRequestHandled(r.Context(), id, ares.Account.ID, "withdraw"); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		log.Printf("api: MarkRemovalRequestHandled: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if err := s.Store.MarkRemovalRequestHandled(r.Context(), id, ares.Account.ID, "withdraw"); err != nil && !errors.Is(err, store.ErrNotFound) {
-		log.Printf("api: MarkRemovalRequestHandled: %v", err)
+	// Mark handled first so a retry cannot withdraw twice; an already
+	// withdrawn or gone track is not a failure of this request.
+	if err := s.Store.WithdrawTrack(r.Context(), req.TrackID, reason); err != nil && !errors.Is(err, store.ErrNotFound) {
+		log.Printf("api: WithdrawTrack (removal request %d): %v", id, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
