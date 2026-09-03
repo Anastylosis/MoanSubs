@@ -460,3 +460,77 @@ func TestUpload_Supersede_StaleTargetOutranksDivergence(t *testing.T) {
 		t.Errorf("release has %d heads, want 1 — a refused supersede must not leave a sibling behind", len(summaries[rev1.ReleaseID]))
 	}
 }
+
+// A machine-generated body (marker-detected) is a real, undivergent small
+// fix for revGenOrigSRT/revGenSmallFixSRT below — only the generated-marker
+// cue differs from rev*SRT's plain fixtures.
+const (
+	revGenOrigSRT = "1\n00:00:01,000 --> 00:00:03,000\nHello there my friend\n\n" +
+		"2\n00:00:10,000 --> 00:00:12,000\nGoodbye now dear friend\n\n" +
+		"3\n00:00:13,000 --> 00:00:16,000\n" +
+		"[stash-subs] machine-generated subtitles · large-v3-turbo · English · 2026-08-02\n\n"
+	revGenSmallFixSRT = "1\n00:00:01,000 --> 00:00:03,000\nHey there my friend\n\n" +
+		"2\n00:00:10,000 --> 00:00:12,000\nGoodbye now dear friend\n\n" +
+		"3\n00:00:13,000 --> 00:00:16,000\n" +
+		"[stash-subs] machine-generated subtitles · large-v3-turbo · English · 2026-08-02\n\n"
+)
+
+// PLAN_1.md's settled decision: a machine-generated upload (marker
+// detection, not the uploader's own "generated" declaration) may never
+// supersede a track whose own stored detection says human-made.
+func TestUpload_Supersede_GeneratedRefusesHumanTarget(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	first := doUpload(t, ts, token, map[string]any{
+		"oshash": "1000000000000012", "duration_ms": 13000, "lang": "en", "body": revOrigSRT,
+	})
+	target := decodeJSON[uploadResponse](t, first)
+	if target.Generated {
+		t.Fatalf("target upload Generated = true, want false (fixture has no marker)")
+	}
+
+	resp := doSupersede(t, ts, token, "1000000000000012", target.TrackID, revGenOrigSRT)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", resp.StatusCode)
+	}
+	body := decodeJSON[map[string]string](t, resp)
+	if !strings.Contains(body["error"], "machine-generated") || !strings.Contains(body["error"], "human-made") {
+		t.Errorf("error = %q, want it to explain machine-generated cannot replace human-made", body["error"])
+	}
+	if !strings.Contains(body["error"], "without supersedes") {
+		t.Errorf("error = %q, want it to mention uploading without supersedes instead", body["error"])
+	}
+}
+
+// Generated-over-generated is unaffected by the new check.
+func TestUpload_Supersede_GeneratedOverGeneratedAllowed(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	first := doUpload(t, ts, token, map[string]any{
+		"oshash": "1000000000000013", "duration_ms": 13000, "lang": "en", "body": revGenOrigSRT,
+	})
+	target := decodeJSON[uploadResponse](t, first)
+	if !target.Generated {
+		t.Fatalf("target upload Generated = false, want true (fixture carries the marker)")
+	}
+
+	resp := doSupersede(t, ts, token, "1000000000000013", target.TrackID, revGenSmallFixSRT)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201 (generated over generated stays allowed)", resp.StatusCode)
+	}
+}
+
+// Human-over-generated is unaffected by the new check.
+func TestUpload_Supersede_HumanOverGeneratedAllowed(t *testing.T) {
+	ts, _, token := newTestServer(t)
+	first := doUpload(t, ts, token, map[string]any{
+		"oshash": "1000000000000014", "duration_ms": 13000, "lang": "en", "body": revGenOrigSRT,
+	})
+	target := decodeJSON[uploadResponse](t, first)
+	if !target.Generated {
+		t.Fatalf("target upload Generated = false, want true (fixture carries the marker)")
+	}
+
+	resp := doSupersede(t, ts, token, "1000000000000014", target.TrackID, revSmallFixSRT)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d, want 201 (human over generated stays allowed)", resp.StatusCode)
+	}
+}

@@ -703,6 +703,16 @@ func (s *Server) ingestSupersede(ctx context.Context, account *store.Account, ta
 		return nil, &apiError{http.StatusConflict, msg, 0}
 	}
 
+	// A machine-generated upload may never supersede a human-made track
+	// (PLAN_1.md "Settled decisions") — detection only, on both sides:
+	// track.Generated is this upload's own marker-based detection (never
+	// its declared_generated), target.Generated is the target's stored
+	// detection. Checked before the divergence work below, which is more
+	// expensive and whose outcome this refusal must not depend on.
+	if track.Generated && !target.Generated {
+		return nil, &apiError{http.StatusConflict, "supersedes: machine-generated subtitles cannot replace a human-made track; upload without supersedes to add it as a new track instead", 0}
+	}
+
 	targetCues, err := subtitle.Parse([]byte(target.Body))
 	if err != nil {
 		log.Printf("api: parsing stored body of track %d: %v", target.ID, err)

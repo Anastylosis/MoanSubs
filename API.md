@@ -736,7 +736,10 @@ language as this upload, must not be withdrawn or revision-locked, and
 must currently be its chain's **head** — the highest live revision — or
 the whole upload is refused (status codes below); the not-a-head refusal
 names the current head's id so a client can retry against that instead of
-failing blind.
+failing blind. A machine-generated upload — marker-detected, never merely
+declared `generated: true` — may not supersede a track whose own stored
+detection is human-made (`409`, message below); generated-over-generated
+and human-over-either are both allowed.
 
 The proposed body is measured against the target's stored one before
 anything is written. A change that is a **pure retime** — same text, same
@@ -794,8 +797,10 @@ See MANUAL.md "Upload semantics" for the sanitization pipeline. Responses:
 - `409` — `supersedes` names a track that is withdrawn, or that is no
   longer its chain's head (the current head's id is named so the client can
   retry against it).
-- `409` — a machine-generated upload cannot supersede a human-made track;
-  see the note below.
+- `409` `{"error": "supersedes: machine-generated subtitles cannot replace a
+  human-made track; upload without supersedes to add it as a new track
+  instead"}` — the upload is marker-detected as generated and the target is
+  not.
 - `410` `{"error":"release withdrawn"}` — `oshash` names a release that was
   withdrawn (TAKEDOWN.md). The release is still found by `oshash` — the
   unique index makes creating a fresh one under the same hash impossible —
