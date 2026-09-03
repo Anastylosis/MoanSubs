@@ -418,10 +418,14 @@ re-displayability without this fix).
 ### `moansubs account role <name> <user|mod|admin>`
 
 Sets an account's role, matched case-insensitively like the other `account`
-commands. Every account starts as `user`. Nothing in this version of the
-server grants `mod` or `admin` any privilege beyond who may disable
-someone else's invite code (below) — the role exists now so a future
-moderation surface has somewhere to read it from.
+commands. Every account starts as `user`. `mod` unlocks the browser
+moderation surface — withdrawing/restoring tracks and releases, correcting
+a track's kind, confirming/unpinning/purging a release's metadata (or a
+whole work's), removing a wrong stash-box id, linking/unlinking releases
+into a work, and setting a sibling's manual offset — see "Moderating from
+the browser" and "Moderating metadata" below for the full list. `admin`
+adds account and invite administration on top, plus who may disable
+someone else's invite code (below).
 
 ### `moansubs account set-password <name>`
 
@@ -772,7 +776,11 @@ buttons.
   uploader.
 - `/mod/release/{id}` — a minimal page for withdrawing or restoring a whole
   release (`WithdrawRelease`/`RestoreRelease`, cascading to every one of its
-  active tracks exactly like `release withdraw`/`release restore`).
+  active tracks exactly like `release withdraw`/`release restore`). The
+  same page also removes a wrong stash-box id (below), links or unlinks
+  the release into a work, sets or clears a sibling's manual offset, and
+  carries the metadata confirm/unpin/purge actions described under
+  "Moderating metadata" below.
 
 **Role `admin`:**
 

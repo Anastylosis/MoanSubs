@@ -166,7 +166,10 @@ Every account has a role (`user`, `mod`, or `admin`; default
 disable someone else's invite code; `mod` and above can also reach the
 moderation pages (`/mod/flagged`, `/mod/track/{id}`, `/mod/release/{id}`,
 MANUAL.md "Moderating from the browser") to withdraw or restore a track or
-release; `admin` additionally reaches `/admin`, `/admin/accounts`, and
+release, correct a track's kind, confirm/unpin/purge a release's metadata
+or a whole work's (MANUAL.md "Moderating metadata"), remove a wrong
+stash-box id, link or unlink releases into a work, and set a sibling's
+manual offset; `admin` additionally reaches `/admin`, `/admin/accounts`, and
 `/admin/invites` — disabling, purging, or re-rolling any other account's
 role, and minting or disabling invite codes for anyone. An account that
 lacks the required role gets a plain `404` from any of these pages, not
