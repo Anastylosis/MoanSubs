@@ -333,7 +333,7 @@ what the score was computed against, including a date disagreement via
               "downloads": 42, "up": 3, "down": 0, "created_at": "...",
               "kind": "default", "kind_label": null,
               "fits": 2, "misfits": 0, "sync_verified": true,
-              "credited_to": "somebody"}],
+              "credited_to": "somebody", "revision": 1, "root_id": 1}],
   "title": "Some Scene (1080p)",
   "studio": "Some Studio", "performers": ["A Performer"],
   "stash_ids": [{"endpoint": "https://stashdb.org/graphql",
@@ -359,6 +359,19 @@ knowing even outside the sibling case.
 `[]` when the release carries none — and lists every stash-box scene id
 ever attached to the release, not just the one a `/lookup/stash` call
 matched on.
+
+`revision`/`root_id` (migration 0024, feature `revisions`) are additive too
+and always present, even on a track that has never been revised (`revision:
+1`, `root_id` equal to the track's own `id`). A chain — one track later
+revised by another via `supersedes` (`POST /api/v1/subtitles` below) —
+shares one `root_id`; `revision` numbers a track's place in it, starting at
+1. A release's track list here, and everywhere else a release's tracks are
+listed, shows only a chain's current **head** — the highest revision that
+hasn't been withdrawn — never an older revision alongside it; withdrawing
+the head hands the slot back to the highest-revision row that is still
+live. `downloads`/`up`/`down` above are the chain's totals summed across
+every revision, not just the head's own — a revision inherits the trust and
+reach its predecessors earned, rather than starting over at zero.
 
 `kind`/`kind_label` (migration 0021) are additive too. `kind` is one of a
 closed vocabulary — `default`, `cc`, `sdh`, `forced`, `other` — naming what
@@ -716,22 +729,73 @@ add one to a release that already has some, on top of whatever was there
 before; a moderator can remove one from the moderation page; uploads never
 do. They stay attached to the release rather than the work, which is what
 lets two releases sharing an id be recognised as the same scene.
+`supersedes` (migration 0024, feature `revisions`) is the id of a live
+track this upload proposes to **revise** instead of creating an unrelated
+new track for. The named track must belong to the same release and
+language as this upload, must not be withdrawn or revision-locked, and
+must currently be its chain's **head** — the highest live revision — or
+the whole upload is refused (status codes below); the not-a-head refusal
+names the current head's id so a client can retry against that instead of
+failing blind.
+
+The proposed body is measured against the target's stored one before
+anything is written. A change that is a **pure retime** — same text, same
+cue count, one roughly constant shift across every cue — is declined as a
+revision (`revision_declined: "retime"`) and instead lands as an ordinary
+new track: retiming is what the fit/offset feature ("Works and sibling
+subtitles" below) exists for, not a revision chain, and `revision_hint`
+spells that out when the node runs with `MOANSUBS_REVISION_RETIME_HINT`
+set. A change whose text diverges from the target by more than
+`MOANSUBS_REVISION_MAX_DIVERGENCE` (default `0.20`) is likewise declined
+(`revision_declined: "too_different"`) — a chain is for successive edits of
+the same subtitle, not a place to attach an unrelated one under someone
+else's track. Either decline still stores the upload as an ordinary new
+track (`201`, not folded into any chain, and not rate-limited as a
+revision); only an accepted supersede consumes one.
+
+Both an accepted supersede and a decline report `divergence`:
+`text_divergence` (0 identical, 1 completely disjoint — a Dice-coefficient
+distance over the whole subtitle's tokens, insensitive to reflowing the
+same words into different cues), `cue_delta` (proposed cue count minus the
+target's), `median_shift_ms`/`shift_spread_ms` (the median, and the
+max-minus-min spread, of per-cue start-time deltas over the index-aligned
+common prefix — a small spread means a near-constant offset), and
+`pure_retime` (whether the retime-decline rule above matched) — so a client
+can see why a decline happened, not just that it did.
+
+An accepted supersede is rate-limited separately from ordinary uploads
+(`MOANSUBS_REVISION_RATE_PER_HOUR`, default 20 per account per hour) and
+returns `revision` (the new track's place in its chain), `supersedes`
+(echoing the target id), and `root_id` (the chain's id) alongside the usual
+`track_id`/`release_id`.
+
 See MANUAL.md "Upload semantics" for the sanitization pipeline. Responses:
 
 - `201` `{"track_id": n, "release_id": n, "generated": bool,
   "generated_source": "provenance"|"declared"}` (`generated_source` omitted
-  when `generated` is `false`) — stored.
+  when `generated` is `false`) — stored. On an accepted `supersedes` this
+  also carries `revision`/`supersedes`/`root_id`/`divergence`; on a declined
+  one, `revision_declined`/`divergence` (and `revision_hint` when the
+  decline was a retime and the node enables the hint) in place of those.
 - `200` `{…, "duplicate": true}` — byte-identical track already existed;
   its id is returned. Re-running a bulk push is safe.
 - `400` — unparseable subtitle, bad or unusable language tag (`{"error":
   "lang: no usable base language in \"und\""}`, `{"error": "lang: no usable
   base language in \"x-klingon\""}`), over caps, a `stash_ids` endpoint
-  outside the allow-list, or a subtitle whose cues run past the end of the
+  outside the allow-list, a subtitle whose cues run past the end of the
   video (`{"error": "subtitle runs past the end of the video: its last cue
-  ends after duration_ms"}`). A subtitle that *stops* well before the end is
-  accepted: dialogue ending early says nothing about whether the pairing is
-  right.
-- `401`/`429` — bad token / over the upload budget.
+  ends after duration_ms"}`), or a `supersedes` target on a different
+  release or language than this upload. A subtitle that *stops* well before
+  the end is accepted: dialogue ending early says nothing about whether the
+  pairing is right.
+- `401`/`429` — bad token / over the upload budget; a `supersedes` upload
+  that clears those can still separately `429` on the revision budget above.
+- `404` — `supersedes` names no track.
+- `409` — `supersedes` names a track that is withdrawn, or that is no
+  longer its chain's head (the current head's id is named so the client can
+  retry against it).
+- `409` — a machine-generated upload cannot supersede a human-made track;
+  see the note below.
 - `410` `{"error":"release withdrawn"}` — `oshash` names a release that was
   withdrawn (TAKEDOWN.md). The release is still found by `oshash` — the
   unique index makes creating a fresh one under the same hash impossible —
@@ -741,6 +805,8 @@ See MANUAL.md "Upload semantics" for the sanitization pipeline. Responses:
   track that was withdrawn. A takedown must not be undoable by re-uploading
   the same file, so this is refused rather than treated as an ordinary
   `duplicate: true`.
+- `423` — `supersedes` names a track whose chain is revision-locked (no
+  current mod or CLI action sets this yet; the check exists ahead of one).
 
 The node's own `/upload` form (session-authenticated, MANUAL.md) runs the
 exact same validation, sanitization, and dedup logic — it is a multipart
