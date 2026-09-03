@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync/atomic"
 )
 
 // The node's human-facing surface: a front door, a registration form, and
@@ -83,9 +84,9 @@ func capFormBody(w http.ResponseWriter, r *http.Request) {
 var tokenPages = map[string]bool{"me.html": true, "register.html": true}
 
 // sessionLookups counts fallback session lookups (WP-R7) — incremented when
-// renderPage does a cookie lookup because authFromContext was nil. Exported
-// only for test reads, never written directly by test code.
-var sessionLookups int
+// renderPage does a cookie lookup because authFromContext was nil. Read
+// only by tests.
+var sessionLookups atomic.Int64
 
 // Parsed once at startup: a template parse error is a build-time mistake, so
 // failing here is better than discovering it on someone's first visit.
@@ -177,7 +178,7 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 				if wares, werr := authenticateWeb(r.Context(), s.Store, r); werr == nil {
 					role = wares.Role
 				}
-				sessionLookups++
+				sessionLookups.Add(1)
 			}
 		}
 		// The tracker only ever reaches a public page (analyticsPages),

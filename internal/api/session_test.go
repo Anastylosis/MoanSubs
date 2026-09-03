@@ -713,7 +713,7 @@ func TestRenderPage_ContextAuthBypassesSessionLookup(t *testing.T) {
 	// Render /me (logged-in page): the handler calls authenticate and passes
 	// ares through the context via withAuth, so renderPage should NOT do a
 	// fallback session lookup. Assert sessionLookups doesn't increment.
-	sessionLookups = 0
+	sessionLookups.Store(0)
 	resp, err := client.Get(ts.URL + "/me")
 	if err != nil {
 		t.Fatalf("GET /me: %v", err)
@@ -722,15 +722,15 @@ func TestRenderPage_ContextAuthBypassesSessionLookup(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("GET /me = %d, want 200", resp.StatusCode)
 	}
-	if sessionLookups != 0 {
-		t.Errorf("sessionLookups after /me (context auth) = %d, want 0", sessionLookups)
+	if got := sessionLookups.Load(); got != 0 {
+		t.Errorf("sessionLookups after /me (context auth) = %d, want 0", got)
 	}
 
 	// Render /browse (public page, but renderPage checks for a session cookie
 	// anyway for the nav's logged-in state). The handler doesn't call
 	// authenticate, so renderPage will do a fallback session lookup when it
 	// sees the cookie. Assert sessionLookups increments by 1.
-	sessionLookups = 0
+	sessionLookups.Store(0)
 	resp, err = client.Get(ts.URL + "/browse")
 	if err != nil {
 		t.Fatalf("GET /browse: %v", err)
@@ -739,7 +739,7 @@ func TestRenderPage_ContextAuthBypassesSessionLookup(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("GET /browse = %d, want 200", resp.StatusCode)
 	}
-	if sessionLookups != 1 {
-		t.Errorf("sessionLookups after /browse (fallback lookup) = %d, want 1", sessionLookups)
+	if got := sessionLookups.Load(); got != 1 {
+		t.Errorf("sessionLookups after /browse (fallback lookup) = %d, want 1", got)
 	}
 }
