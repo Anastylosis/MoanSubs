@@ -657,11 +657,8 @@ func bootstrapAdmin(ctx context.Context, s *store.Store, name string, enabled bo
 	if err != nil {
 		return false, fmt.Errorf("bootstrapAdmin: generating password: %w", err)
 	}
-	id, token, err := s.CreateAccountWithPassword(ctx, name, password)
+	id, token, err := s.CreateAdminAccount(ctx, name, password)
 	if err != nil {
-		return false, fmt.Errorf("bootstrapAdmin: %w", err)
-	}
-	if err := s.SetAccountRole(ctx, name, "admin"); err != nil {
 		return false, fmt.Errorf("bootstrapAdmin: %w", err)
 	}
 

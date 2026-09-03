@@ -421,6 +421,70 @@ func TestStore_HasAdmin(t *testing.T) {
 	}
 }
 
+// CreateAdminAccount must leave no window where the account exists with
+// role "user": bootstrapAdmin used to create-then-promote as two
+// statements, and a crash between them left a row later runs refused to
+// touch ("already exists and is not an admin").
+func TestStore_CreateAdminAccount_CreatesWithAdminRoleAtomically(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	id, token, err := s.CreateAdminAccount(ctx, "root-admin", "a fine password here")
+	if err != nil {
+		t.Fatalf("CreateAdminAccount: %v", err)
+	}
+	if id == 0 {
+		t.Error("id = 0, want a real account id")
+	}
+	if token == "" {
+		t.Error("token is empty, want a minted token")
+	}
+
+	account, err := s.GetAccountByName(ctx, "root-admin")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+	if account.Role != "admin" {
+		t.Errorf("Role = %q, want admin", account.Role)
+	}
+
+	has, err := s.HasAdmin(ctx)
+	if err != nil {
+		t.Fatalf("HasAdmin: %v", err)
+	}
+	if !has {
+		t.Error("HasAdmin = false after CreateAdminAccount, want true")
+	}
+
+	if _, err := s.VerifyAccountPassword(ctx, "root-admin", "a fine password here"); err != nil {
+		t.Errorf("VerifyAccountPassword: %v, want the password CreateAdminAccount hashed to work", err)
+	}
+}
+
+// CreateAdminAccount must not leave a stray role=admin row behind when the
+// name is already taken — ErrNameTaken and a clean rollback, same as
+// CreateAccountWithPassword.
+func TestStore_CreateAdminAccount_NameTaken(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if _, _, err := s.CreateAccount(ctx, "taken-admin-name"); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	if _, _, err := s.CreateAdminAccount(ctx, "taken-admin-name", "a fine password here"); !errors.Is(err, ErrNameTaken) {
+		t.Errorf("CreateAdminAccount = %v, want ErrNameTaken", err)
+	}
+
+	has, err := s.HasAdmin(ctx)
+	if err != nil {
+		t.Fatalf("HasAdmin: %v", err)
+	}
+	if has {
+		t.Error("HasAdmin = true after a failed CreateAdminAccount, want false (rolled back)")
+	}
+}
+
 func TestStore_AccountDetail(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()

@@ -90,13 +90,19 @@ func generateAccountToken() (token, tokenHash string, err error) {
 	return token, HashToken(token), nil
 }
 
+// accountInserter lets createAccount run on the pool or inside a caller's
+// transaction.
+type accountInserter interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 // createAccount is CreateAccount and CreateAccountWithPassword's shared
 // core: passwordHash is nil for an API-only account (WP-C8: "without it
 // the account is API-only until an admin sets one"), non-nil for a
 // registration that supplied one. Also writes token_enc via s.encryptToken
 // — NULL when no MOANSUBS_TOKEN_KEY is configured, matching every other
 // account-minting method.
-func (s *Store) createAccount(ctx context.Context, name string, passwordHash *string) (id int64, token string, err error) {
+func (s *Store) createAccount(ctx context.Context, q accountInserter, name string, passwordHash *string) (id int64, token string, err error) {
 	token, tokenHash, err := generateAccountToken()
 	if err != nil {
 		return 0, "", err
@@ -106,7 +112,7 @@ func (s *Store) createAccount(ctx context.Context, name string, passwordHash *st
 		return 0, "", fmt.Errorf("encrypting token: %w", err)
 	}
 
-	err = s.pool.QueryRow(ctx,
+	err = q.QueryRow(ctx,
 		`INSERT INTO accounts (name, token_hash, password_hash, token_enc) VALUES ($1, $2, $3, $4) RETURNING id`,
 		name, tokenHash, passwordHash, tokenEnc,
 	).Scan(&id)
@@ -132,7 +138,7 @@ func (s *Store) createAccount(ctx context.Context, name string, passwordHash *st
 // until CreateAccountWithPassword, SetAccountPassword, or `account
 // set-password` gives it one.
 func (s *Store) CreateAccount(ctx context.Context, name string) (id int64, token string, err error) {
-	id, token, err = s.createAccount(ctx, name, nil)
+	id, token, err = s.createAccount(ctx, s.pool, name, nil)
 	if err != nil {
 		if errors.Is(err, ErrNameTaken) {
 			return 0, "", err
@@ -152,7 +158,7 @@ func (s *Store) CreateAccount(ctx context.Context, name string) (id int64, token
 // may try two creation paths (invited, then plain), and must not pay for
 // PBKDF2 twice.
 func (s *Store) CreateAccountWithHash(ctx context.Context, name, passwordHash string) (id int64, token string, err error) {
-	return s.createAccount(ctx, name, &passwordHash)
+	return s.createAccount(ctx, s.pool, name, &passwordHash)
 }
 
 func (s *Store) CreateAccountWithPassword(ctx context.Context, name, pw string) (id int64, token string, err error) {
@@ -160,12 +166,45 @@ func (s *Store) CreateAccountWithPassword(ctx context.Context, name, pw string) 
 	if err != nil {
 		return 0, "", fmt.Errorf("store: CreateAccountWithPassword: %w", err)
 	}
-	id, token, err = s.createAccount(ctx, name, &hash)
+	id, token, err = s.createAccount(ctx, s.pool, name, &hash)
 	if err != nil {
 		if errors.Is(err, ErrNameTaken) {
 			return 0, "", err
 		}
 		return 0, "", fmt.Errorf("store: CreateAccountWithPassword: %w", err)
+	}
+	return id, token, nil
+}
+
+// CreateAdminAccount is CreateAccountWithPassword plus the admin role in one
+// transaction: a role=user account left behind by a failure between the two
+// would block every later bootstrap. Returns ErrNameTaken like its sibling.
+func (s *Store) CreateAdminAccount(ctx context.Context, name, pw string) (id int64, token string, err error) {
+	hash, err := HashPassword(pw)
+	if err != nil {
+		return 0, "", fmt.Errorf("store: CreateAdminAccount: %w", err)
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, "", fmt.Errorf("store: CreateAdminAccount: beginning tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+	id, token, err = s.createAccount(ctx, tx, name, &hash)
+	if err != nil {
+		if errors.Is(err, ErrNameTaken) {
+			return 0, "", err
+		}
+		return 0, "", fmt.Errorf("store: CreateAdminAccount: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE accounts SET role = 'admin' WHERE id = $1`, id); err != nil {
+		return 0, "", fmt.Errorf("store: CreateAdminAccount: setting role: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, "", fmt.Errorf("store: CreateAdminAccount: committing: %w", err)
 	}
 	return id, token, nil
 }
@@ -312,9 +351,7 @@ func (s *Store) SetAccountDisabled(ctx context.Context, name string, disabled bo
 // specifically so a malicious account's wrong ids could be found and
 // removed, but the old three-statement purge never did — a wrong id it
 // attached kept ranking a release "exact" for every plugin, purge or not.
-// The disable also records disabled_reason/disabled_at (migration 0018),
-// same as SetAccountDisabled, so a purged account shows why and when like
-// any other disablement instead of an unexplained flag.
+// Records disabled_reason/disabled_at like SetAccountDisabled.
 // Returns the number of tracks withdrawn.
 func (s *Store) PurgeAccount(ctx context.Context, accountID int64, name, reason string) (int, error) {
 	tx, err := s.pool.Begin(ctx)
