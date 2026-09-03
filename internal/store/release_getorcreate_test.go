@@ -84,6 +84,75 @@ func TestStore_GetOrCreateRelease_ConcurrentCallsConverge(t *testing.T) {
 	}
 }
 
+// A release that already carries writeDerived's cached title tokens
+// (migration 0016) must not lose them when its first stem arrives later:
+// the backfill used to recompute name_tokens from the stem alone, wiping
+// whatever DeriveMetadata had already put there, and an upload that only
+// supplies a stem never re-derives to repair it.
+func TestStore_GetOrCreateRelease_StemBackfillKeepsDerivedTokens(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	oh := mustOSHash(t, "8888888888888881")
+	rel, err := s.GetOrCreateRelease(ctx, Release{OSHash: oh, DurationMs: 1})
+	if err != nil {
+		t.Fatalf("GetOrCreateRelease (create): %v", err)
+	}
+
+	acct := mkAccount(t, s, "stem-backfill-uploader")
+	if _, err := s.RecordProposal(ctx, MetadataProposal{
+		ReleaseID: rel.ID, ProposedBy: &acct, Title: sp("La Hermana De Mi Amigo"),
+	}); err != nil {
+		t.Fatalf("RecordProposal: %v", err)
+	}
+	if err := s.DeriveMetadata(ctx, rel.ID); err != nil {
+		t.Fatalf("DeriveMetadata: %v", err)
+	}
+
+	// A visible track, so SearchReleases below has something to find.
+	if _, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: rel.ID, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n",
+	}); err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	stem := "totallydifferentstemidentifier"
+	if _, err := s.GetOrCreateRelease(ctx, Release{OSHash: oh, DurationMs: 1, Stem: &stem}); err != nil {
+		t.Fatalf("GetOrCreateRelease (stem backfill): %v", err)
+	}
+
+	tokens := nameTokensOf(t, s, rel.ID)
+	var hasHermana, hasStem bool
+	for _, tok := range tokens {
+		switch tok {
+		case "hermana":
+			hasHermana = true
+		case "totallydifferentstemidentifier":
+			hasStem = true
+		}
+	}
+	if !hasHermana {
+		t.Errorf("name_tokens %v lost the derived title after the stem backfill", tokens)
+	}
+	if !hasStem {
+		t.Errorf("name_tokens %v missing the new stem's own tokens", tokens)
+	}
+
+	found, err := s.SearchReleases(ctx, []string{"hermana"}, nil, "")
+	if err != nil {
+		t.Fatalf("SearchReleases: %v", err)
+	}
+	var foundIt bool
+	for _, r := range found {
+		if r.ID == rel.ID {
+			foundIt = true
+		}
+	}
+	if !foundIt {
+		t.Errorf("SearchReleases([hermana]) did not find release %d: %+v", rel.ID, found)
+	}
+}
+
 // GetOrCreateRelease must carry the phash/MIH blocks through on creation
 // too, not just the plain-insert CreateRelease path.
 func TestStore_GetOrCreateRelease_CarriesPHash(t *testing.T) {

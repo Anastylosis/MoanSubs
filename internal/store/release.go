@@ -188,13 +188,40 @@ func (s *Store) GetOrCreateRelease(ctx context.Context, r Release) (*Release, er
 	// the first upload that does. Never overwritten afterwards: every
 	// uploader has their own filename, and the row records the one that
 	// created it.
+	//
+	// Tokens are recomputed from the stem plus the row's derived metadata
+	// (migration 0016), not the stem-only pair above: a stem-only upload
+	// never re-derives, so overwriting would lose the title tokens.
 	if r.Stem != nil {
-		if _, err := s.pool.Exec(ctx, `
-			UPDATE releases SET stem = $2, name_tokens = $3, name_codes = $4
-			WHERE oshash = $1 AND stem IS NULL`,
-			string(r.OSHash), r.Stem, tokens, codes,
-		); err != nil {
-			return nil, fmt.Errorf("store: GetOrCreateRelease: recording stem: %w", err)
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("store: GetOrCreateRelease: beginning tx: %w", err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful Commit
+
+		var title, studio *string
+		var performers []string
+		err = tx.QueryRow(ctx, `
+			SELECT title, studio, performers FROM releases
+			WHERE oshash = $1 AND stem IS NULL FOR UPDATE`, string(r.OSHash),
+		).Scan(&title, &studio, &performers)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("store: GetOrCreateRelease: reading row for stem backfill: %w", err)
+		}
+		if err == nil {
+			stemTokens, stemCodes := nameColumns(Release{
+				Stem: r.Stem, Title: title, Studio: studio, Performers: performers,
+			})
+			if _, err := tx.Exec(ctx, `
+				UPDATE releases SET stem = $2, name_tokens = $3, name_codes = $4
+				WHERE oshash = $1 AND stem IS NULL`,
+				string(r.OSHash), r.Stem, stemTokens, stemCodes,
+			); err != nil {
+				return nil, fmt.Errorf("store: GetOrCreateRelease: recording stem: %w", err)
+			}
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("store: GetOrCreateRelease: committing stem backfill: %w", err)
 		}
 	}
 
