@@ -76,7 +76,7 @@ func Parse(data []byte) ([]Cue, error) {
 		i++
 
 		var body []string
-		for i < len(lines) && strings.TrimSpace(lines[i]) != "" {
+		for i < len(lines) && strings.TrimSpace(lines[i]) != "" && !cueTimeRe.MatchString(lines[i]) {
 			body = append(body, lines[i])
 			i++
 		}
@@ -165,22 +165,20 @@ func sanitizeText(s string) string {
 
 	s = strings.NewReplacer("\x00", "<", "\x01", ">").Replace(s)
 
+	// A "-->" left in cue text (possibly unmasked by the control-char strip
+	// above) would read as a timing line on the next parse.
+	s = arrowRe.ReplaceAllString(s, "->")
+
 	// Sanitizing can empty an interior line — "0\n\x19\n0" becomes "0\n\n0" —
 	// and a blank line is exactly what ends a cue. Rendered into the stored
-	// SRT, everything past it would be lost on the next parse. Parse's own
-	// notion of "blank" is Unicode-aware (strings.TrimSpace), so the two must
-	// agree: dropping by the same rule, rather than collapsing runs with an
-	// ASCII-only regex, keeps a line holding only e.g. U+3000 from surviving
-	// sanitization and then being read as blank on the next Parse.
+	// SRT, everything past it would be lost on the next parse. Parse's notion
+	// of blank is Unicode-aware, so drop by the same rule, not an ASCII regex.
 	s = dropBlankLines(s)
 
 	return strings.TrimSpace(s)
 }
 
-// dropBlankLines removes every line that strings.TrimSpace reduces to empty,
-// matching exactly the notion of "blank" that ends a cue in Parse's body
-// loop. Used instead of a regex collapse so sanitizeText and sanitizeNote
-// can never disagree with Parse about what counts as a blank line.
+// dropBlankLines removes every line Parse's body loop would treat as blank.
 func dropBlankLines(s string) string {
 	lines := strings.Split(s, "\n")
 	kept := lines[:0]

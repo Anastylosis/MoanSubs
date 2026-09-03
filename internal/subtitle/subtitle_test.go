@@ -377,6 +377,27 @@ func TestSanitize_EmptiedLineDoesNotSplitTheCue(t *testing.T) {
 	}
 }
 
+func TestParse_TimingLineInsideBodyStartsNewCue(t *testing.T) {
+	// A cue body that happens to contain a well-formed timing line (as real
+	// SRT files with a missing blank separator do) must split there, exactly
+	// as ffmpeg's demuxer and every WebVTT parser would split it — otherwise
+	// the node's cue count and timing math disagree with what viewers see.
+	src := "00:00:01,000 --> 00:00:02,000\nhello\n00:00:03,000 --> 00:00:04,000\nworld\n"
+	cues, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(cues) != 2 {
+		t.Fatalf("got %d cues, want 2: %+v", len(cues), cues)
+	}
+	if cues[0].Text != "hello" || cues[0].End != 2*time.Second {
+		t.Errorf("cue 0 = %+v, want text %q ending at 2s", cues[0], "hello")
+	}
+	if cues[1].Text != "world" || cues[1].Start != 3*time.Second {
+		t.Errorf("cue 1 = %+v, want text %q starting at 3s", cues[1], "world")
+	}
+}
+
 // -- Unicode-blank regressions (an ASCII-only regex collapse vs. Parse's
 // Unicode-aware strings.TrimSpace) ---------------------------------------
 
@@ -446,6 +467,47 @@ func TestSanitize_UnicodeWhitespacePlusControlCharLineDoesNotSplitCue(t *testing
 	}
 	if len(reparsed) != 1 || reparsed[0].Text != cues[0].Text {
 		t.Fatalf("round-trip truncated the cue: got %+v, want %+v", reparsed, cues)
+	}
+}
+
+func TestSanitize_NeutralizesArrowInCueText(t *testing.T) {
+	// A literal "-->" left in cue text renders back out as something that,
+	// once a control character elsewhere unmasks a real timestamp around it,
+	// or simply on its own in a stricter downstream parser, can be misread as
+	// a cue timing line. sanitizeNote already neutralizes arrows for the same
+	// reason; cue text needs the same treatment.
+	src := "1\n00:00:01,000 --> 00:00:02,000\nscore --> up\n\n"
+	cues, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if strings.Contains(cues[0].Text, "-->") {
+		t.Errorf("arrow survived sanitization: %q", cues[0].Text)
+	}
+	if cues[0].Text != "score -> up" {
+		t.Errorf("cue text = %q, want %q", cues[0].Text, "score -> up")
+	}
+}
+
+func TestSanitize_ControlCharUnmaskedArrowDoesNotSplitOnReparse(t *testing.T) {
+	// The control character sits between the dashes and hides the arrow from
+	// cueTimeRe while the raw body is being collected; collapseControlChars
+	// then removes it, which would otherwise unmask a full timing-line match
+	// inside stored cue text and split one cue into two on the next parse.
+	src := "1\n00:00:01,000 --> 00:00:02,000\n00:00:03,000 -\x07-> 00:00:04,000\n\n"
+	cues, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(cues) != 1 {
+		t.Fatalf("got %d cues, want 1: %+v", len(cues), cues)
+	}
+	reparsed, err := Parse([]byte(RenderSRT(cues)))
+	if err != nil {
+		t.Fatalf("re-parse: %v", err)
+	}
+	if len(reparsed) != 1 || reparsed[0].Text != cues[0].Text {
+		t.Fatalf("round-trip changed cue count/text: got %+v, want %+v", reparsed, cues)
 	}
 }
 

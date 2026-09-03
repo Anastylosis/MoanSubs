@@ -19,6 +19,8 @@ func FuzzParse(f *testing.F) {
 	f.Add([]byte("1\n00:00:01,000 --> 00:00:02,000\na\n <\nb\n"))
 	f.Add([]byte("1\n00:00:01,000 --> 00:00:02,000\na\n\u00a0<\nb\n"))
 	f.Add([]byte("1\n00:00:01,000 --> 00:00:02,000\na\n　\x07\nb\n"))
+	f.Add([]byte("00:00:01,000 --> 00:00:02,000\nhello\n00:00:03,000 --> 00:00:04,000\nworld\n"))
+	f.Add([]byte("1\n00:00:01,000 --> 00:00:02,000\n00:00:03,000 -\x07-> 00:00:04,000\n\n"))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		cues, err := Parse(data)
