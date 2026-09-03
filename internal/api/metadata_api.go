@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -181,12 +182,18 @@ func (s *Server) contributeOne(r *http.Request, accountID int64, e metadataEntry
 
 // resolveMetadataRelease finds the entry's release. A nil release with no
 // error means "this node does not hold it", which is an answer rather than
-// a failure. Never creates: see metadataEntry.
+// a failure; any other store error is reported as one. The oshash path is
+// unfiltered so a withdrawn release answers "withdrawn" by either key.
+// Never creates: see metadataEntry.
 func (s *Server) resolveMetadataRelease(ctx context.Context, e metadataEntry) (*store.Release, *apiError) {
 	if e.ReleaseID > 0 {
 		rel, err := s.Store.GetReleaseByID(ctx, e.ReleaseID)
-		if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
 			return nil, nil
+		}
+		if err != nil {
+			log.Printf("api: GetReleaseByID (metadata): %v", err)
+			return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 		}
 		return rel, nil
 	}
@@ -197,9 +204,13 @@ func (s *Server) resolveMetadataRelease(ctx context.Context, e metadataEntry) (*
 	if herr != nil {
 		return nil, &apiError{http.StatusBadRequest, "oshash: " + herr.Error(), 0}
 	}
-	rel, err := s.Store.GetReleaseByOshash(ctx, oh)
-	if err != nil {
+	rel, err := s.Store.GetReleaseByOshashAny(ctx, oh)
+	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil
+	}
+	if err != nil {
+		log.Printf("api: GetReleaseByOshashAny (metadata): %v", err)
+		return nil, &apiError{http.StatusInternalServerError, "internal error", 0}
 	}
 	return rel, nil
 }

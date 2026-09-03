@@ -196,6 +196,37 @@ func TestContributeMetadata_WithdrawnReleaseRefused(t *testing.T) {
 	}
 }
 
+// The same withdrawn release, named by oshash instead of release_id, must
+// give the identical "release withdrawn" refusal — not "known: false",
+// which GetReleaseByOshash's withdrawn_at filter would otherwise produce,
+// silently indistinguishable from a release this node never held at all.
+func TestContributeMetadata_WithdrawnReleaseRefused_ByOshash(t *testing.T) {
+	ts, st, token := newTestServer(t)
+	ctx := context.Background()
+
+	up := uploadWithToken(t, ts, token, map[string]any{"oshash": "a9a9a9a9a9a9a9a9", "stem": "doomed-by-oshash"})
+	if err := st.WithdrawRelease(ctx, up.ReleaseID, "test"); err != nil {
+		t.Fatalf("WithdrawRelease: %v", err)
+	}
+
+	resp := postMetadata(t, ts, token, map[string]any{"entries": []map[string]any{
+		{"oshash": "a9a9a9a9a9a9a9a9", "title": "Too Late"},
+	}})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("contribute = %d, want 200 with a per-entry refusal", resp.StatusCode)
+	}
+	got := decodeJSON[metadataResponse](t, resp)
+	if len(got.Results) != 1 {
+		t.Fatalf("results = %+v, want exactly one", got.Results)
+	}
+	if got.Results[0].Known != true || got.Results[0].Error != "release withdrawn" {
+		t.Errorf("results[0] = %+v, want known:true and \"release withdrawn\" (same as the release_id path)", got.Results[0])
+	}
+	if got.Results[0].Recorded {
+		t.Error("a withdrawn release recorded a proposal")
+	}
+}
+
 // The batch cap is a refusal, not a silent truncation.
 func TestContributeMetadata_RejectsOversizedBatch(t *testing.T) {
 	ts, _, token := newTestServer(t)

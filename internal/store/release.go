@@ -229,7 +229,7 @@ func (s *Store) GetOrCreateRelease(ctx context.Context, r Release) (*Release, er
 	// GetOrCreateRelease must find the row it just confirmed exists even
 	// when it's withdrawn (WP-A1's upload path returns 410 for that case,
 	// which requires actually finding the release, not ErrNotFound).
-	got, err := s.getReleaseByOshashAny(ctx, r.OSHash)
+	got, err := s.GetReleaseByOshashAny(ctx, r.OSHash)
 	if err != nil {
 		return nil, fmt.Errorf("store: GetOrCreateRelease: fetching: %w", err)
 	}
@@ -242,7 +242,7 @@ func (s *Store) GetOrCreateRelease(ctx context.Context, r Release) (*Release, er
 // surface from lookup). oshash is unique as of migration 0002, so at most
 // one row can ever match. This is the public, filtered lookup used by
 // anonymous callers (POST /api/v1/lookup/exact); GetOrCreateRelease's
-// upload path uses the unfiltered getReleaseByOshashAny instead, since it
+// upload path uses the unfiltered GetReleaseByOshashAny instead, since it
 // must be able to find a withdrawn release too.
 func (s *Store) GetReleaseByOshash(ctx context.Context, h hash.OSHash) (*Release, error) {
 	row := s.pool.QueryRow(ctx, `
@@ -258,9 +258,9 @@ func (s *Store) GetReleaseByOshash(ctx context.Context, h hash.OSHash) (*Release
 	return r, nil
 }
 
-// getReleaseByOshashAny is GetReleaseByOshash without the withdrawn_at
-// filter — see GetOrCreateRelease's use of it above.
-func (s *Store) getReleaseByOshashAny(ctx context.Context, h hash.OSHash) (*Release, error) {
+// GetReleaseByOshashAny is GetReleaseByOshash without the withdrawn_at
+// filter, for the paths that must find a withdrawn release too.
+func (s *Store) GetReleaseByOshashAny(ctx context.Context, h hash.OSHash) (*Release, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT `+releaseColumns+`
 		FROM releases WHERE oshash = $1 ORDER BY id LIMIT 1`, string(h))
@@ -269,7 +269,7 @@ func (s *Store) getReleaseByOshashAny(ctx context.Context, h hash.OSHash) (*Rele
 		return nil, ErrNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("store: getReleaseByOshashAny: %w", err)
+		return nil, fmt.Errorf("store: GetReleaseByOshashAny: %w", err)
 	}
 	return r, nil
 }
