@@ -703,12 +703,8 @@ func (s *Server) ingestSupersede(ctx context.Context, account *store.Account, ta
 		return nil, &apiError{http.StatusConflict, msg, 0}
 	}
 
-	// A machine-generated upload may never supersede a human-made track
-	// (PLAN_1.md "Settled decisions") — detection only, on both sides:
-	// track.Generated is this upload's own marker-based detection (never
-	// its declared_generated), target.Generated is the target's stored
-	// detection. Checked before the divergence work below, which is more
-	// expensive and whose outcome this refusal must not depend on.
+	// Detection only, on both sides: a declaration must never decide who
+	// may replace whom (API.md).
 	if track.Generated && !target.Generated {
 		return nil, &apiError{http.StatusConflict, "supersedes: machine-generated subtitles cannot replace a human-made track; upload without supersedes to add it as a new track instead", 0}
 	}
@@ -904,30 +900,11 @@ func (s *Server) handleGetSubtitle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Both 410 checks above passed: this is a successful download of
-	// visible content, so it counts exactly once (WP-A2 spec). A single
-	// extra statement after the checks, not folded into the fetch above —
-	// see store.IncrementDownloads's doc comment for why. A failed
-	// increment doesn't fail the download itself: the counter is
-	// telemetry, and the body the caller asked for has already been read
-	// successfully.
-	downloads := track.Downloads
-	if err := s.Store.IncrementDownloads(ctx, track.ID); err != nil {
-		log.Printf("api: IncrementDownloads: %v", err)
-	} else {
-		downloads++
-	}
-	// The same download, recorded against today's bucket for the trending
-	// list (migration 0019). In memory and flushed in batches, so this
-	// costs a map write rather than a second row write per request.
-	if s.Stats != nil {
-		s.Stats.AddDownload(track.ID, time.Now())
-	}
-
 	// for_release=N asks for this track timed against a different release
 	// of the same work — the sibling case, where one encode carries extra
 	// footage at the head and the subtitle would otherwise run early. The
 	// stored body is never modified; the shift is applied here, at render.
+	// Resolved before the download is counted: a failure here is not a 200.
 	body := track.Body
 	var appliedOffset int64
 	var offsetSource string
@@ -960,6 +937,25 @@ func (s *Server) handleGetSubtitle(w http.ResponseWriter, r *http.Request) {
 				body, appliedOffset, offsetSource = shifted, off.OffsetMs, off.Source
 			}
 		}
+	}
+
+	// Every failure exit above has already returned: this is a successful
+	// download of visible content, so it counts exactly once (WP-A2 spec).
+	// A single extra statement, not folded into the fetch above — see
+	// store.IncrementDownloads's doc comment for why. A failed increment
+	// doesn't fail the download itself: the counter is telemetry, and the
+	// body the caller asked for has already been read successfully.
+	downloads := track.Downloads
+	if err := s.Store.IncrementDownloads(ctx, track.ID); err != nil {
+		log.Printf("api: IncrementDownloads: %v", err)
+	} else {
+		downloads++
+	}
+	// The same download, recorded against today's bucket for the trending
+	// list (migration 0019). In memory and flushed in batches, so this
+	// costs a map write rather than a second row write per request.
+	if s.Stats != nil {
+		s.Stats.AddDownload(track.ID, time.Now())
 	}
 
 	// format=srt (WP-C2, the catalogue's release-page download link): the

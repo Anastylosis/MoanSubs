@@ -477,10 +477,11 @@ the track's raw `authorship` value itself is never a field here; only
 `credited_to`'s presence/absence is ever observable.
 
 Every successful (200) call here increments the track's `downloads`
-counter by exactly one — a 404 (no such track) or 410 (withdrawn track or
-release) does not. The count is stored per track, atomically, in the same
-request; no IP, account or timestamp is recorded against it, deliberately
-(see MANUAL.md).
+counter by exactly one — a 404 (no such track), 410 (withdrawn track or
+release), a 400 from a malformed `for_release` (`fits`/`offset_ms` section
+below), or a 500 from a failed offset lookup, does not. The count is
+stored per track, atomically, in the same request; no IP, account or
+timestamp is recorded against it, deliberately (see MANUAL.md).
 
 - `404` — no track with that id.
 - `410` `{"error":"track withdrawn"}` — the track itself was withdrawn

@@ -846,6 +846,37 @@ func TestGetSubtitle_WithdrawnRelease_DoesNotIncrementDownloads(t *testing.T) {
 	}
 }
 
+// A malformed for_release refuses with 400 before the download is counted
+// (API.md: only a successful 200 increments) — previously the increment ran
+// unconditionally before for_release was even parsed.
+func TestGetSubtitle_BadForRelease_DoesNotIncrementDownloads(t *testing.T) {
+	ts, st, token := newTestServer(t)
+	up := doUpload(t, ts, token, map[string]any{
+		"oshash": "d3d3d3d3d3d3d3d3", "duration_ms": 13000, "lang": "en", "body": basicSRT,
+	})
+	if up.StatusCode != http.StatusCreated {
+		t.Fatalf("upload status = %d, want 201", up.StatusCode)
+	}
+	created := decodeJSON[uploadResponse](t, up)
+
+	resp, err := http.Get(ts.URL + "/api/v1/subtitles/" + strconv.FormatInt(created.TrackID, 10) + "?for_release=abc")
+	if err != nil {
+		t.Fatalf("GET subtitle: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+
+	track, err := st.GetSubtitleTrack(context.Background(), created.TrackID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if track.Downloads != 0 {
+		t.Errorf("Downloads = %d, want 0 (a 400 must not count as a download)", track.Downloads)
+	}
+}
+
 func TestGetSubtitle_NotFound(t *testing.T) {
 	ts, _, _ := newTestServer(t)
 	resp, err := http.Get(ts.URL + "/api/v1/subtitles/999999")
