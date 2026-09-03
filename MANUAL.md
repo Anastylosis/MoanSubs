@@ -571,10 +571,11 @@ The escalation past `account disable`: in one transaction, withdraws every
 track the named account ever uploaded, deletes every `release_stash_ids`
 row it added (migration 0011/0012 — otherwise a wrong stash-box id a
 malicious account attached keeps ranking a release "exact" for every
-plugin, purge or not), disables the account, and kills its sessions, then
-prints how many tracks were withdrawn. Use this for a leaked or clearly
-abusive account, where taking down its whole contribution by hand (finding
-every track id and stash id by hand) would be impractical.
+plugin, purge or not), disables the account — recording `--reason` and the
+timestamp the same way `account disable` does — and kills its sessions,
+then prints how many tracks were withdrawn. Use this for a leaked or
+clearly abusive account, where taking down its whole contribution by hand
+(finding every track id and stash id by hand) would be impractical.
 
 ### `moansubs stashbox backfill [--endpoint URL] [--limit N] [--delay 1s] [--dry-run] [--as NAME]`
 

@@ -312,6 +312,9 @@ func (s *Store) SetAccountDisabled(ctx context.Context, name string, disabled bo
 // specifically so a malicious account's wrong ids could be found and
 // removed, but the old three-statement purge never did — a wrong id it
 // attached kept ranking a release "exact" for every plugin, purge or not.
+// The disable also records disabled_reason/disabled_at (migration 0018),
+// same as SetAccountDisabled, so a purged account shows why and when like
+// any other disablement instead of an unexplained flag.
 // Returns the number of tracks withdrawn.
 func (s *Store) PurgeAccount(ctx context.Context, accountID int64, name, reason string) (int, error) {
 	tx, err := s.pool.Begin(ctx)
@@ -337,8 +340,12 @@ func (s *Store) PurgeAccount(ctx context.Context, accountID int64, name, reason 
 		return 0, fmt.Errorf("store: PurgeAccount: deleting stash ids: %w", err)
 	}
 
-	if _, err := tx.Exec(ctx,
-		`UPDATE accounts SET disabled = true WHERE lower(name) = lower($1)`, name); err != nil {
+	if _, err := tx.Exec(ctx, `
+		UPDATE accounts SET
+			disabled = true,
+			disabled_reason = nullif(btrim($2), ''),
+			disabled_at = now()
+		WHERE lower(name) = lower($1)`, name, reason); err != nil {
 		return 0, fmt.Errorf("store: PurgeAccount: disabling account: %w", err)
 	}
 

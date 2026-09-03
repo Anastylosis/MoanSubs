@@ -522,6 +522,21 @@ func TestStore_PurgeAccount_WithdrawsDisablesAndKillsSessions(t *testing.T) {
 		t.Error("account was not disabled by PurgeAccount")
 	}
 
+	// A purge is a disablement like any other (migration 0018): it must
+	// record why and when, not just flip the flag, so `account show` and
+	// /admin/accounts explain a purged account the same way they explain a
+	// manually banned one.
+	detail, err := s.AccountDetail(ctx, "purge-account-target")
+	if err != nil {
+		t.Fatalf("AccountDetail: %v", err)
+	}
+	if detail.DisabledReason == nil || *detail.DisabledReason != "leaked token" {
+		t.Errorf("DisabledReason = %v, want %q", detail.DisabledReason, "leaked token")
+	}
+	if detail.DisabledAt == nil {
+		t.Error("DisabledAt = nil, want a timestamp")
+	}
+
 	if _, err := s.GetSessionAccount(ctx, sessionID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("GetSessionAccount after purge = %v, want ErrNotFound", err)
 	}
