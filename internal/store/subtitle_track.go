@@ -354,7 +354,8 @@ type SubtitleTrackSummary struct {
 //
 // Ordering within a release is the server's documented default (WP-C3,
 // API.md): human before generated, then by score (up - down) descending,
-// then downloads descending, then id.
+// then downloads descending, then id. Generated is the wire meaning:
+// detection OR declaration.
 func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int64) (map[int64][]SubtitleTrackSummary, error) {
 	out := make(map[int64][]SubtitleTrackSummary, len(releaseIDs))
 	if len(releaseIDs) == 0 {
@@ -376,7 +377,7 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 		LEFT JOIN accounts a ON a.id = t.uploader_id
 		`+fitCountsJoin("t.release_id", "release_id = ANY($1)")+`
 		WHERE t.release_id = ANY($1) AND `+trackIsHead("t")+`
-		ORDER BY t.release_id, t.generated ASC, (agg.up - agg.down) DESC, agg.downloads DESC,
+		ORDER BY t.release_id, (t.generated OR t.declared_generated) ASC, (agg.up - agg.down) DESC, agg.downloads DESC,
 			array_position(ARRAY['default','cc','sdh','forced','other'], t.kind), t.id ASC`, releaseIDs)
 	if err != nil {
 		return nil, fmt.Errorf("store: TrackSummariesByReleaseIDs: %w", err)

@@ -167,6 +167,60 @@ func TestStore_TrackSummariesByReleaseIDs_GroupsByRelease(t *testing.T) {
 	}
 }
 
+// The wire's "generated" meaning is detection OR declaration (migration
+// 0026): a track only declared generated, never detected, must sort after
+// human tracks exactly like a detected one would, even with a much higher
+// score — ordering by the raw t.generated column alone would put it first.
+func TestStore_TrackSummariesByReleaseIDs_DeclaredGeneratedSortsAfterHuman(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	release, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "9090909090909090"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+
+	human, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: release, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack(human): %v", err)
+	}
+	declared, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: release, Lang: "es", Body: "1\n00:00:01,000 --> 00:00:02,000\nhola\n\n",
+		DeclaredGenerated: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack(declared): %v", err)
+	}
+
+	// A much higher score than the human track's (zero), so a plain
+	// up-down ordering would rank the declared-generated track first.
+	for i, name := range []string{"voter1", "voter2", "voter3"} {
+		voter := mkAccount(t, s, name)
+		if _, _, err := s.UpsertVote(ctx, declared, voter, 1, nil, nil); err != nil {
+			t.Fatalf("UpsertVote(%d): %v", i, err)
+		}
+	}
+
+	got, err := s.TrackSummariesByReleaseIDs(ctx, []int64{release})
+	if err != nil {
+		t.Fatalf("TrackSummariesByReleaseIDs: %v", err)
+	}
+	if len(got[release]) != 2 {
+		t.Fatalf("got[release] has %d tracks, want 2: %+v", len(got[release]), got[release])
+	}
+	if got[release][0].ID != human {
+		t.Errorf("got[release][0].ID = %d, want human track %d first despite the lower score", got[release][0].ID, human)
+	}
+	if got[release][1].ID != declared {
+		t.Errorf("got[release][1].ID = %d, want declared-generated track %d last", got[release][1].ID, declared)
+	}
+	if !got[release][1].DeclaredGenerated || got[release][1].Generated {
+		t.Errorf("got[release][1] Generated=%v DeclaredGenerated=%v, want false/true", got[release][1].Generated, got[release][1].DeclaredGenerated)
+	}
+}
+
 // HasProvenance must reflect whether the jsonb column is non-null, without
 // the caller needing to fetch and parse the JSON itself.
 func TestStore_TrackSummariesByReleaseIDs_HasProvenanceFlag(t *testing.T) {
