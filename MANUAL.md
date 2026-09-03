@@ -35,6 +35,7 @@ at startup; there is no separate schema setup.
 - [Moderating from the browser](#moderating-from-the-browser)
 - [Operations](#operations)
 - [Upload semantics (what the server does to a subtitle)](#upload-semantics-what-the-server-does-to-a-subtitle)
+- [Revisions](#revisions)
 - [Counters (`GET /api/v1/stats`, API.md)](#counters-get-apiv1stats-apimd)
 - [Analytics (`MOANSUBS_ANALYTICS_SCRIPT`)](#analytics-moansubs_analytics_script)
 - [Where a release's name comes from](#where-a-releases-name-comes-from)
@@ -111,6 +112,9 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_METADATA_RATE_PER_HOUR` | `60` | Per-account budget for `POST /api/v1/metadata` (API.md), the route that says what a scene *is* without uploading a subtitle for it. Each request carries up to 25 scenes, so this is a large library in an hour; the bound exists because every entry triggers a derivation, and a grouped release derives its whole work. |
 | `MOANSUBS_VOTE_RATE_PER_HOUR` | `60` | Per-account budget for `PUT`/`DELETE /api/v1/subtitles/{id}/vote` (API.md "Votes"). Generous enough for a person triaging their own downloads in one sitting, tight enough to stop a script grinding a track's score. |
 | `MOANSUBS_FIT_RATE_PER_HOUR` | `60` | Per-account budget for `PUT`/`DELETE /api/v1/subtitles/{id}/fit` (API.md "Works and sibling subtitles"), separate from `MOANSUBS_VOTE_RATE_PER_HOUR` so one budget can't be exhausted by hammering the other. A fit report carries no offset — it can only ever mislabel a pairing, never move one. |
+| `MOANSUBS_REVISION_RATE_PER_HOUR` | `20` | Per-account budget for an accepted `supersedes` (API.md, "Revisions" below), separate from `MOANSUBS_UPLOAD_RATE_PER_HOUR` — superseding twenty tracks in an hour is the vandalism signature, uploading twenty is ordinary seeding. |
+| `MOANSUBS_REVISION_MAX_DIVERGENCE` | `0.20` | How far a proposed revision's text may diverge (0 identical, 1 disjoint) from the track it would replace before it's declined and lands as an unrelated new track instead. Outside `0..1` refuses to start rather than silently clamping. See "Revisions" below. |
+| `MOANSUBS_REVISION_RETIME_HINT` | `true` | Whether a declined pure-retime supersede's response points the uploader at the offset/fit feature instead (`revision_hint`, API.md). See "Revisions" below. |
 | `MOANSUBS_REMOVAL_RATE_PER_HOUR` | `5` | Per-IP budget for `POST /release/{id}/removal` (TAKEDOWN.md), same shape as `MOANSUBS_REGISTER_RATE_PER_HOUR` — a genuine filer needs this once per track, not repeatedly. |
 | `MOANSUBS_TOKEN_KEY` | *(unset)* | 64 hex characters (32 bytes; generate with `openssl rand -hex 32`) — the AES-256-GCM key `/me` needs to show an account's API token again after this process restarts (it's stored encrypted, alongside the one-way hash every lookup actually uses). The same key also encrypts a personal stash-box key set on `/me` (see "Stash-box lookups" below) — unlike the account token there is no one-way hash to fall back on, so without this env var set, `/me` refuses to save a stash-box key at all rather than storing one nobody can ever decrypt. Unset: tokens are never re-displayable — `/me` says so and offers "Rotate" instead. An invalid value (wrong length, not hex) refuses to start rather than silently running without encryption. |
 | `MOANSUBS_ADMIN_NAME` | `admin` | The name the first-run admin bootstrap (below) creates, when one runs at all. |
@@ -952,6 +956,42 @@ on the host disk otherwise.
    levels (a scene's own stash-box id, oshash, or phash) — the level-5
    title/filename scorer stays offer-only in the interactive panel and is
    never used by an unattended task.
+
+## Revisions
+
+A subtitle track can be **revised**: an upload names an existing track's
+id in `supersedes` (API.md, `POST /api/v1/subtitles`) instead of standing
+alone, and — when the server accepts it — becomes the next link in that
+track's chain rather than a competing one. A chain is a corrected history,
+not a set of alternatives, so only its current head is ever listed
+anywhere a release's tracks appear; API.md's release shape documents the
+`revision`/`root_id` fields that say which chain a track belongs to and
+where in it.
+
+Not every proposed replacement is accepted as a revision, and the two ways
+it can be declined say different things:
+
+- **A pure retime is declined.** Same text, same cue count, one roughly
+  constant shift — that is what the offset/fit feature exists for
+  (`MOANSUBS_FIT_RATE_PER_HOUR` above; API.md "Works and sibling
+  subtitles"), not a new revision. An offset benefits every sibling encode
+  it's recorded against; folding the same correction into a revision would
+  only fix the one release it was uploaded for, and would throw away
+  whatever votes and downloads the superseded body had already earned.
+- **A proposal too different from the target is declined.** A chain is for
+  successive edits of the *same* subtitle — a typo fixed, a line retimed by
+  hand, a credit trimmed — not a place to attach an unrelated file under
+  someone else's track's history. `MOANSUBS_REVISION_MAX_DIVERGENCE` is
+  the line a proposal's measured text divergence must stay under to still
+  count as an edit of the original.
+
+Either decline still stores the upload as an ordinary new track — nothing
+is lost, it simply isn't folded into the target's history — and the
+response says which rule fired and by how much; see API.md's `divergence`,
+`revision_declined` and `revision_hint` fields for the exact shape. Only an
+*accepted* supersede spends the separate `MOANSUBS_REVISION_RATE_PER_HOUR`
+budget above — a declined one is rate-limited as an ordinary upload
+instead.
 
 ## Counters (`GET /api/v1/stats`, API.md)
 
