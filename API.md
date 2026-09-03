@@ -570,10 +570,11 @@ registered. On success, sets the `moansubs_session` cookie and redirects
 (`303`) to `/me`.
 
 - `303` → `/me` — logged in; cookie set.
-- `401` — invalid name or password, or an account with no password set yet
-  (registered via the JSON API with none, or a row that predates this
-  feature) — `{"error":"this account has no password; ask an admin"}` in
-  that specific case, otherwise a generic invalid-credentials message.
+- `401` — invalid name or password, an unknown name, or an account with no
+  password set yet (registered via the JSON API with none, or a row that
+  predates this feature) — all render the same generic "invalid name or
+  password" HTML page; the distinction is logged server-side only, never
+  put on the wire.
 - `403` — the account is disabled.
 - `429` — over the per-IP login budget (`MOANSUBS_LOGIN_RATE_PER_HOUR`,
   default 20).
