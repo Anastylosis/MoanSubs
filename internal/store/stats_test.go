@@ -179,3 +179,39 @@ func TestStore_PublicCounts_ExcludesWithdrawn(t *testing.T) {
 		t.Errorf("DownloadsTotal = %d, want 1", got.DownloadsTotal)
 	}
 }
+
+// GeneratedShare must count a declared-but-undetected-generated track the
+// same as a detected one (migration 0026's wire meaning: detection OR
+// declaration), or the reported share undercounts relative to what every
+// other reader (TrackSummariesByReleaseIDs, catalogue badges) shows.
+func TestStore_PublicCounts_GeneratedShareIncludesDeclared(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	release, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "d000000000000005"), DurationMs: 60000})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	if _, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: release, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n",
+	}); err != nil {
+		t.Fatalf("CreateSubtitleTrack (human): %v", err)
+	}
+	if _, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: release, Lang: "fr", Body: "1\n00:00:01,000 --> 00:00:02,000\nsalut\n\n",
+		DeclaredGenerated: true,
+	}); err != nil {
+		t.Fatalf("CreateSubtitleTrack (declared generated): %v", err)
+	}
+
+	got, err := s.PublicCounts(ctx)
+	if err != nil {
+		t.Fatalf("PublicCounts: %v", err)
+	}
+	if got.Tracks != 2 {
+		t.Fatalf("Tracks = %d, want 2", got.Tracks)
+	}
+	if got.GeneratedShare != 0.5 {
+		t.Errorf("GeneratedShare = %v, want 0.5 (declared-generated track counted)", got.GeneratedShare)
+	}
+}

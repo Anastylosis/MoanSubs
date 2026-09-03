@@ -97,9 +97,10 @@ func (s *Store) Counters(ctx context.Context) (map[string]int64, error) {
 // PublicCounts is the visible-content summary behind GET /api/v1/stats's
 // tracks/releases/languages/generated_share/downloads_total fields.
 type PublicCounts struct {
-	Tracks         int64
-	Releases       int64
-	Languages      map[string]int64
+	Tracks    int64
+	Releases  int64
+	Languages map[string]int64
+	// GeneratedShare uses the wire meaning of generated: detection OR declaration.
 	GeneratedShare float64
 	DownloadsTotal int64
 }
@@ -121,7 +122,7 @@ func (s *Store) PublicCounts(ctx context.Context) (PublicCounts, error) {
 	var generated int64
 	if err := s.pool.QueryRow(ctx, `
 		SELECT count(*) FILTER (WHERE t.revision = mx.rev),
-		       count(*) FILTER (WHERE t.revision = mx.rev AND t.generated),
+		       count(*) FILTER (WHERE t.revision = mx.rev AND (t.generated OR t.declared_generated)),
 		       coalesce(sum(t.downloads), 0)
 		FROM subtitle_tracks t
 		JOIN releases r ON r.id = t.release_id
