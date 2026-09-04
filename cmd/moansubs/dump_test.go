@@ -288,7 +288,10 @@ func decodeDumpTrackLines(t *testing.T, raw []byte) map[int64]dumpTrackLine {
 // TestDump_UploaderVisibilityByAuthorship pins API.md's rule for the public
 // dump: uploader is the account name only when authorship is "credited" —
 // both "shared" and "uncredited" must come out null, same as /u/{name}
-// (a dump line is not exempt from that rule).
+// (a dump line is not exempt from that rule). It also pins the stricter
+// rule that applies to the dump alone: "uncredited" itself must never
+// appear on the wire, since the dump is public — a stored "uncredited"
+// track dumps as "shared".
 func TestDump_UploaderVisibilityByAuthorship(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
@@ -338,8 +341,35 @@ func TestDump_UploaderVisibilityByAuthorship(t *testing.T) {
 	if lines[shared].Authorship != "shared" {
 		t.Errorf("shared track line authorship = %q, want \"shared\"", lines[shared].Authorship)
 	}
-	if lines[uncredited].Authorship != "uncredited" {
-		t.Errorf("uncredited track line authorship = %q, want \"uncredited\"", lines[uncredited].Authorship)
+	if lines[uncredited].Authorship != "shared" {
+		t.Errorf("uncredited track line authorship = %q, want \"shared\" (the dump never emits \"uncredited\")", lines[uncredited].Authorship)
+	}
+}
+
+// TestDump_NeverEmitsUncreditedAuthorship is TestDump_UploaderVisibilityByAuthorship's
+// direct counterpart at the CLI/JSON level: no dumped track line's
+// "authorship" field may ever be the string "uncredited", full stop — the
+// dump is a public, redistributable export and CLAUDE.md's rule against
+// surfacing that label on any public response applies to it.
+func TestDump_NeverEmitsUncreditedAuthorship(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	release, err := s.CreateRelease(ctx, store.Release{OSHash: mustOSHash(t, "e310000000000001"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	if _, err := s.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+		ReleaseID: release, Lang: "en", Body: canonicalBody, Authorship: "uncredited",
+	}); err != nil {
+		t.Fatalf("CreateSubtitleTrack: %v", err)
+	}
+
+	lines := decodeDumpTrackLines(t, gunzip(t, runDumpToStdout(t)))
+	for id, line := range lines {
+		if line.Authorship == "uncredited" {
+			t.Errorf("track %d dumped with authorship \"uncredited\", must never appear on this public surface", id)
+		}
 	}
 }
 

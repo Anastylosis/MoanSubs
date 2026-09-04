@@ -79,7 +79,10 @@ type dumpStashID struct {
 // Authorship/DeclaredGenerated (migration 0026, WP-S2) are additive too:
 // absent on an older dump, import defaults them to "shared"/false. Generated
 // keeps meaning detection only, as it always has — DeclaredGenerated is the
-// separate wire signal a reader ORs in for display (CLAUDE.md).
+// separate wire signal a reader ORs in for display (CLAUDE.md). Authorship
+// here is only ever "credited" or "shared" — never "uncredited": since the
+// dump is public, internal/store.DumpTracksAfter folds "uncredited" into
+// "shared" before this line is even built.
 type dumpTrackLine struct {
 	Kind              string          `json:"kind"`
 	ID                int64           `json:"id"`

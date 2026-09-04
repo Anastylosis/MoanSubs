@@ -384,9 +384,13 @@ func TestDumpImportRoundTrip_CarriesKind(t *testing.T) {
 	}
 }
 
-// dump -> import must carry authorship/declared_generated through intact
-// (migration 0026, WP-S2) — a mirror must not silently import a declared-AI
-// track as human, nor every track as "shared".
+// dump -> import must carry declared_generated through intact (migration
+// 0026, WP-S2) — a mirror must not silently import a declared-AI track as
+// human. Authorship itself does not survive an "uncredited" origin: the
+// dump folds "uncredited" into "shared" before it ever leaves the node (the
+// dump is public, and "uncredited" must never appear on any public
+// surface), so a mirror imports it as "shared" — which is fine, since it
+// was never a claim the mirror is entitled to un-hide.
 func TestDumpImportRoundTrip_CarriesAuthorship(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
@@ -422,8 +426,8 @@ func TestDumpImportRoundTrip_CarriesAuthorship(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSubtitleTrack: %v", err)
 	}
-	if got.Authorship != "uncredited" || !got.DeclaredGenerated {
-		t.Errorf("imported track Authorship/DeclaredGenerated = %q/%v, want uncredited/true", got.Authorship, got.DeclaredGenerated)
+	if got.Authorship != "shared" || !got.DeclaredGenerated {
+		t.Errorf("imported track Authorship/DeclaredGenerated = %q/%v, want shared/true (the dump never emits \"uncredited\")", got.Authorship, got.DeclaredGenerated)
 	}
 }
 

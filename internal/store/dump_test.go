@@ -178,7 +178,9 @@ func TestStore_DumpTracksAfter_UploaderName(t *testing.T) {
 // the dump's LEFT JOIN must not surface an uploader's name unless authorship
 // is "credited" — "shared" is not an authorship claim, and "uncredited"
 // must never surface on any public surface, dump lines included (API.md).
-// Also checks Authorship/DeclaredGenerated scan through DumpTrack intact.
+// Also checks Authorship/DeclaredGenerated scan through DumpTrack intact,
+// and that a stored "uncredited" comes back as "shared": the dump is public,
+// so the value itself must never appear, not just the uploader's name.
 func TestStore_DumpTracksAfter_UploaderNameOnlyWhenCredited(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
@@ -230,8 +232,47 @@ func TestStore_DumpTracksAfter_UploaderNameOnlyWhenCredited(t *testing.T) {
 	if u := byID[uncredited].UploaderName; u != nil {
 		t.Errorf("uncredited.UploaderName = %v, want nil", *u)
 	}
-	if byID[uncredited].Authorship != "uncredited" || !byID[uncredited].DeclaredGenerated {
-		t.Errorf("uncredited track Authorship/DeclaredGenerated = %q/%v, want uncredited/true",
+	if byID[uncredited].Authorship != "shared" || !byID[uncredited].DeclaredGenerated {
+		t.Errorf("uncredited track Authorship/DeclaredGenerated = %q/%v, want shared/true (the dump folds uncredited into shared)",
 			byID[uncredited].Authorship, byID[uncredited].DeclaredGenerated)
+	}
+}
+
+// TestStore_DumpTracksAfter_NeverEmitsUncreditedAuthorship pins the public
+// dump's stricter rule directly: unlike every other reader, which is
+// allowed to see "uncredited" as long as it doesn't surface an uploader's
+// name, the dump must never emit the value "uncredited" at all — it is a
+// public, redistributable export, and CLAUDE.md says the label itself must
+// never appear on any public response.
+func TestStore_DumpTracksAfter_NeverEmitsUncreditedAuthorship(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	release, err := s.CreateRelease(ctx, Release{OSHash: mustOSHash(t, "d500000000000001"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	uncredited, err := s.CreateSubtitleTrack(ctx, SubtitleTrack{
+		ReleaseID: release, Lang: "en", Body: "1\n00:00:01,000 --> 00:00:02,000\nhi\n\n", Authorship: "uncredited",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack(uncredited): %v", err)
+	}
+
+	got, err := s.DumpTracksAfter(ctx, 0, 500)
+	if err != nil {
+		t.Fatalf("DumpTracksAfter: %v", err)
+	}
+	for _, tr := range got {
+		if tr.Authorship == "uncredited" {
+			t.Errorf("DumpTracksAfter returned authorship %q for track %d, want it folded into \"shared\"", tr.Authorship, tr.ID)
+		}
+	}
+	byID := make(map[int64]DumpTrack, len(got))
+	for _, tr := range got {
+		byID[tr.ID] = tr
+	}
+	if byID[uncredited].Authorship != "shared" {
+		t.Errorf("uncredited track's dumped authorship = %q, want \"shared\"", byID[uncredited].Authorship)
 	}
 }

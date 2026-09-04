@@ -31,6 +31,8 @@ func (s *Store) DumpReleasesAfter(ctx context.Context, afterID int64, limit int)
 // sessions, track_votes beyond the aggregate"). UploaderName is nil unless
 // Authorship is "credited" — a "shared" or "uncredited" track is not a
 // public credit and a dump line is not exempt from that rule (API.md).
+// Authorship is never "uncredited" here: the query folds it into "shared",
+// as on every other public surface.
 type DumpTrack struct {
 	ID           int64
 	ReleaseID    int64
@@ -81,7 +83,8 @@ func (s *Store) DumpTracksAfter(ctx context.Context, afterID int64, limit int) (
 		SELECT t.id, t.release_id, t.lang, t.body, t.generated, t.provenance, t.license, t.source,
 		       CASE WHEN t.authorship = 'credited' THEN a.name ELSE NULL END,
 		       t.created_at, t.downloads, t.up, t.down, t.kind, t.kind_label, t.root_id, t.revision, t.supersedes_id,
-		       t.authorship, t.declared_generated
+		       CASE WHEN t.authorship = 'uncredited' THEN 'shared' ELSE t.authorship END,
+		       t.declared_generated
 		FROM subtitle_tracks t
 		JOIN releases r ON r.id = t.release_id
 		LEFT JOIN accounts a ON a.id = t.uploader_id
