@@ -985,6 +985,12 @@ it can be declined say different things:
   the line a proposal's measured text divergence must stay under to still
   count as an edit of the original.
 
+A third rule is a refusal, not a decline: a machine-generated upload (by
+provenance detection, never by declaration) may not supersede a human-made
+track at all — it is refused with `409` and can be uploaded as a track of
+its own instead. Human over generated and generated over generated are
+both allowed.
+
 Either decline still stores the upload as an ordinary new track — nothing
 is lost, it simply isn't folded into the target's history — and the
 response says which rule fired and by how much; see API.md's `divergence`,
