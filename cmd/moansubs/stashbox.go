@@ -113,7 +113,10 @@ var stashboxBackfillCmd = &cobra.Command{
 		out := cmd.OutOrStdout()
 		for _, ep := range endpoints {
 			opts.endpoint = ep
-			st, err := runBackfill(ctx, s, stashbox.New(ep, key), opts, out)
+			client := stashbox.New(ep, key)
+			// The operator named this endpoint; a LAN stash-box is theirs to reach.
+			client.AllowPrivate = true
+			st, err := runBackfill(ctx, s, client, opts, out)
 			_, _ = fmt.Fprintf(out, "%s: %d attached by fingerprint, %d proposed by name, %d not found, %d errors%s\n",
 				ep, st.fingerprint, st.proposed, st.none, st.errored, dryRunSuffix(opts.dryRun))
 			if err != nil {

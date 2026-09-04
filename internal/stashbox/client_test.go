@@ -88,6 +88,7 @@ func TestFindSceneByFingerprint(t *testing.T) {
 	defer ts.Close()
 
 	c := New(ts.URL, "secret")
+	c.AllowPrivate = true
 	got, err := c.FindSceneByFingerprint(context.Background(), "OSHASH", "abc123", 1234000)
 	if err != nil {
 		t.Fatalf("FindSceneByFingerprint: %v", err)
@@ -103,6 +104,7 @@ func TestFindSceneByFingerprint_NoMatch(t *testing.T) {
 	defer ts.Close()
 
 	c := New(ts.URL, "k")
+	c.AllowPrivate = true
 	got, err := c.FindSceneByFingerprint(context.Background(), "PHASH", "def456", 0)
 	if err != nil {
 		t.Fatalf("FindSceneByFingerprint: %v", err)
@@ -118,6 +120,7 @@ func TestFindScene(t *testing.T) {
 	defer ts.Close()
 
 	c := New(ts.URL, "k")
+	c.AllowPrivate = true
 	got, err := c.FindScene(context.Background(), "c72cba4a-1e2b-4f0e-8f3a-1234567890ab")
 	if err != nil {
 		t.Fatalf("FindScene: %v", err)
@@ -133,6 +136,7 @@ func TestFindScene_UnknownIDReturnsNilNil(t *testing.T) {
 	defer ts.Close()
 
 	c := New(ts.URL, "k")
+	c.AllowPrivate = true
 	got, err := c.FindScene(context.Background(), "00000000-0000-0000-0000-000000000000")
 	if err != nil {
 		t.Fatalf("FindScene: %v", err)
@@ -148,6 +152,7 @@ func TestSearchScene(t *testing.T) {
 	defer ts.Close()
 
 	c := New(ts.URL, "k")
+	c.AllowPrivate = true
 	got, err := c.SearchScene(context.Background(), "a scene")
 	if err != nil {
 		t.Fatalf("SearchScene: %v", err)
@@ -163,6 +168,7 @@ func TestClient_Unauthorized(t *testing.T) {
 	defer ts.Close()
 
 	c := New(ts.URL, "bad-key")
+	c.AllowPrivate = true
 	if _, err := c.FindScene(context.Background(), "c72cba4a-1e2b-4f0e-8f3a-1234567890ab"); !errors.Is(err, ErrUnauthorized) {
 		t.Errorf("FindScene with a 401: got %v, want ErrUnauthorized", err)
 	}
@@ -174,6 +180,7 @@ func TestClient_RateLimited(t *testing.T) {
 	defer ts.Close()
 
 	c := New(ts.URL, "k")
+	c.AllowPrivate = true
 	if _, err := c.SearchScene(context.Background(), "term"); !errors.Is(err, ErrRateLimited) {
 		t.Errorf("SearchScene with a 429: got %v, want ErrRateLimited", err)
 	}
@@ -185,6 +192,7 @@ func TestClient_GraphQLErrorSurfaces(t *testing.T) {
 	defer ts.Close()
 
 	c := New(ts.URL, "k")
+	c.AllowPrivate = true
 	_, err := c.FindSceneByFingerprint(context.Background(), "OSHASH", "x", 0)
 	if err == nil || !strings.Contains(err.Error(), "malformed fingerprint") {
 		t.Errorf("FindSceneByFingerprint error = %v, want it to mention the GraphQL error", err)
@@ -216,6 +224,7 @@ func TestClient_RedirectNotFollowed(t *testing.T) {
 	defer first.Close()
 
 	c := New(first.URL, "secret")
+	c.AllowPrivate = true
 	_, err := c.FindScene(context.Background(), "c72cba4a-1e2b-4f0e-8f3a-1234567890ab")
 	if !errors.Is(err, ErrRedirected) {
 		t.Errorf("FindScene across a 307: got %v, want ErrRedirected", err)

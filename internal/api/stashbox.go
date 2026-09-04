@@ -72,13 +72,8 @@ func (s *Server) resolveStashBoxEndpoint(raw string) (string, bool, *apiError) {
 }
 
 // stashEndpointExplicit reports whether endpoint is named verbatim in
-// allowed. With MOANSUBS_STASH_ENDPOINTS=* any registered account can
-// store a key for, and direct a lookup at, any http(s) URL — hash.
-// NormalizeStashEndpoint only checks scheme/host/userinfo shape, not
-// where the host actually points. An endpoint admitted solely by that
-// wildcard must not be trusted with this node's ability to dial private
-// address space; one an operator actually typed into the allow-list may
-// be their own LAN stash-box, and is trusted with it.
+// allowed rather than admitted by the wildcard: only an operator-typed
+// entry may point into private address space (SECURITY.md).
 func stashEndpointExplicit(allowed []string, endpoint string) bool {
 	for _, a := range allowed {
 		if a == endpoint {
@@ -91,9 +86,7 @@ func stashEndpointExplicit(allowed []string, endpoint string) bool {
 // stashBoxClientFor builds a client authenticated as accountID's own
 // stored key for endpoint — never the node's, which does not have one
 // (MANUAL.md: a shared key is a ToS problem and a ban risk for everyone
-// behind it). allowPrivate must be true only when endpoint was named
-// verbatim in Server.StashEndpoints (stashEndpointExplicit) rather than
-// merely admitted by the wildcard "*" — see stashbox.Client.AllowPrivate.
+// behind it). allowPrivate is stashEndpointExplicit's answer.
 func (s *Server) stashBoxClientFor(ctx context.Context, accountID int64, endpoint string, allowPrivate bool) (*stashbox.Client, *apiError) {
 	key, ok, err := s.Store.StashBoxKey(ctx, accountID, endpoint)
 	if err != nil {
@@ -110,13 +103,10 @@ func (s *Server) stashBoxClientFor(ctx context.Context, accountID int64, endpoin
 
 // stashBoxAPIError turns a stashbox.Client error into the status/message
 // pair a caller sees — 401 and 429 verbatim-ish, per WP-C9b spec, and
-// never retried anywhere in this call chain. Anything else (network
-// failure, TLS error, a non-2xx/3xx status, our own redirect/private-
-// address refusal) is deliberately generic: MOANSUBS_STASH_ENDPOINTS=*
-// lets any registered account name an arbitrary http(s) URL here, and
-// echoing the transport error back would hand them a working internal-
-// network probe (dial refused vs. timeout vs. TLS error vs. a real HTTP
-// answer all look different). The detail still goes to the server log.
+// never retried anywhere in this call chain. Anything else is generic on
+// the wire: under the wildcard allow-list the endpoint is caller-chosen,
+// and a verbatim transport error would be a network probe. The log keeps
+// the detail.
 func stashBoxAPIError(endpoint string, err error) *apiError {
 	switch {
 	case errors.Is(err, stashbox.ErrUnauthorized):
