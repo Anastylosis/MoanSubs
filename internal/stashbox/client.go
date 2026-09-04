@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"syscall"
 	"time"
 )
 
@@ -35,21 +37,38 @@ var ErrRateLimited = fmt.Errorf("stashbox: rate limited (429): slow down")
 // cross-host hop, not a custom header like ours.
 var ErrRedirected = fmt.Errorf("stashbox: endpoint answered with a redirect")
 
+// ErrPrivateAddress is returned when Endpoint resolves to a loopback,
+// link-local, unspecified, or private (RFC1918/ULA) address and the
+// Client has not set AllowPrivate.
+var ErrPrivateAddress = fmt.Errorf("stashbox: refusing to dial a private or internal address")
+
 // Client talks GraphQL to one stash-box endpoint on behalf of one api key.
-// Both fields are set once at construction; a Client is safe for
-// concurrent use precisely because neither is mutated afterward.
+// Fields are set once at construction; a Client is safe for concurrent
+// use precisely because none are mutated afterward.
 type Client struct {
 	Endpoint string
 	APIKey   string
-	// HTTPClient defaults to a private client with DefaultTimeout and no
-	// redirect-following when nil.
+	// HTTPClient defaults to a private client with DefaultTimeout, dial-time
+	// private-address checking, and no redirect-following when nil.
 	HTTPClient *http.Client
+	// AllowPrivate permits dialing loopback, link-local, unspecified, and
+	// private (RFC1918/ULA) addresses -- otherwise refused at dial time.
+	// New sets this true, because a direct construction speaks for a
+	// caller who named Endpoint themselves (e.g. `moansubs stashbox
+	// backfill`, or a test's own httptest server) and is trusted with it.
+	// A caller building a Client for an endpoint chosen by someone else --
+	// internal/api's per-account stash-box lookup, where the endpoint can
+	// be admitted only by an operator's wildcard MOANSUBS_STASH_ENDPOINTS
+	// -- must set this back to false unless it independently confirms the
+	// endpoint was allow-listed by name, not by the wildcard.
+	AllowPrivate bool
 }
 
 // New returns a Client for endpoint (already normalized -- see
-// hash.NormalizeStashEndpoint) authenticating as apiKey.
+// hash.NormalizeStashEndpoint) authenticating as apiKey, with no
+// restriction on the addresses it may dial (see AllowPrivate).
 func New(endpoint, apiKey string) *Client {
-	return &Client{Endpoint: endpoint, APIKey: apiKey}
+	return &Client{Endpoint: endpoint, APIKey: apiKey, AllowPrivate: true}
 }
 
 // Scene is the subset of a stash-box scene this package's three queries
@@ -81,13 +100,50 @@ func (c *Client) httpClient() *http.Client {
 	if c.HTTPClient != nil {
 		return c.HTTPClient
 	}
-	return &http.Client{Timeout: DefaultTimeout, CheckRedirect: refuseRedirects}
+	return &http.Client{
+		Timeout:       DefaultTimeout,
+		Transport:     &http.Transport{DialContext: c.dialer().DialContext},
+		CheckRedirect: refuseRedirects,
+	}
 }
 
 // refuseRedirects stops http.Client from following a redirect on its own;
 // do() turns the resulting 3xx response into ErrRedirected.
 func refuseRedirects(*http.Request, []*http.Request) error {
 	return http.ErrUseLastResponse
+}
+
+// dialer returns the net.Dialer this Client's default transport connects
+// through. Unless AllowPrivate is set, its Control func rejects the
+// resolved address -- not the hostname -- right before the connect(2), so
+// a DNS answer that changes between resolution and dial (rebinding) is
+// checked at the address that is actually about to be used.
+func (c *Client) dialer() *net.Dialer {
+	d := &net.Dialer{Timeout: DefaultTimeout}
+	if c.AllowPrivate {
+		return d
+	}
+	d.Control = func(_, address string, _ syscall.RawConn) error {
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrPrivateAddress, err)
+		}
+		ip := net.ParseIP(host)
+		if ip == nil || isPrivateOrLocalAddress(ip) {
+			return ErrPrivateAddress
+		}
+		return nil
+	}
+	return d
+}
+
+// isPrivateOrLocalAddress reports whether ip is not routable public
+// address space: loopback, link-local (unicast or multicast), the
+// unspecified address, or RFC1918/ULA private space.
+func isPrivateOrLocalAddress(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsUnspecified() ||
+		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() ||
+		ip.IsPrivate()
 }
 
 // do executes one GraphQL query/variables pair against c.Endpoint and

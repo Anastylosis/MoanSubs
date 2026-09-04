@@ -57,23 +57,44 @@ func (s *Server) stashBoxHasKeyMap(ctx context.Context, accountID int64) map[str
 // resolveStashBoxEndpoint normalizes raw and checks it against this node's
 // allow-list (Server.StashEndpoints, WP-R6) — the same check an upload's
 // own stash_endpoint field gets, reused rather than duplicated so the two
-// can't disagree on what's accepted.
-func (s *Server) resolveStashBoxEndpoint(raw string) (string, *apiError) {
+// can't disagree on what's accepted. The second return says whether
+// endpoint is named verbatim in the allow-list, as opposed to merely
+// admitted by the wildcard "*" — see stashBoxClientFor.
+func (s *Server) resolveStashBoxEndpoint(raw string) (string, bool, *apiError) {
 	norm, err := hash.NormalizeStashEndpoint(raw)
 	if err != nil {
-		return "", &apiError{http.StatusBadRequest, err.Error(), 0}
+		return "", false, &apiError{http.StatusBadRequest, err.Error(), 0}
 	}
 	if !stashEndpointAllowed(s.StashEndpoints, norm) {
-		return "", &apiError{http.StatusBadRequest, "endpoint is not accepted by this node", 0}
+		return "", false, &apiError{http.StatusBadRequest, "endpoint is not accepted by this node", 0}
 	}
-	return norm, nil
+	return norm, stashEndpointExplicit(s.StashEndpoints, norm), nil
+}
+
+// stashEndpointExplicit reports whether endpoint is named verbatim in
+// allowed. With MOANSUBS_STASH_ENDPOINTS=* any registered account can
+// store a key for, and direct a lookup at, any http(s) URL — hash.
+// NormalizeStashEndpoint only checks scheme/host/userinfo shape, not
+// where the host actually points. An endpoint admitted solely by that
+// wildcard must not be trusted with this node's ability to dial private
+// address space; one an operator actually typed into the allow-list may
+// be their own LAN stash-box, and is trusted with it.
+func stashEndpointExplicit(allowed []string, endpoint string) bool {
+	for _, a := range allowed {
+		if a == endpoint {
+			return true
+		}
+	}
+	return false
 }
 
 // stashBoxClientFor builds a client authenticated as accountID's own
 // stored key for endpoint — never the node's, which does not have one
 // (MANUAL.md: a shared key is a ToS problem and a ban risk for everyone
-// behind it).
-func (s *Server) stashBoxClientFor(ctx context.Context, accountID int64, endpoint string) (*stashbox.Client, *apiError) {
+// behind it). allowPrivate must be true only when endpoint was named
+// verbatim in Server.StashEndpoints (stashEndpointExplicit) rather than
+// merely admitted by the wildcard "*" — see stashbox.Client.AllowPrivate.
+func (s *Server) stashBoxClientFor(ctx context.Context, accountID int64, endpoint string, allowPrivate bool) (*stashbox.Client, *apiError) {
 	key, ok, err := s.Store.StashBoxKey(ctx, accountID, endpoint)
 	if err != nil {
 		log.Printf("api: StashBoxKey: %v", err)
@@ -82,12 +103,20 @@ func (s *Server) stashBoxClientFor(ctx context.Context, accountID int64, endpoin
 	if !ok {
 		return nil, &apiError{http.StatusBadRequest, "no personal key set for " + endpoint + " — set one on /me", 0}
 	}
-	return stashbox.New(endpoint, key), nil
+	client := stashbox.New(endpoint, key)
+	client.AllowPrivate = allowPrivate
+	return client, nil
 }
 
 // stashBoxAPIError turns a stashbox.Client error into the status/message
 // pair a caller sees — 401 and 429 verbatim-ish, per WP-C9b spec, and
-// never retried anywhere in this call chain.
+// never retried anywhere in this call chain. Anything else (network
+// failure, TLS error, a non-2xx/3xx status, our own redirect/private-
+// address refusal) is deliberately generic: MOANSUBS_STASH_ENDPOINTS=*
+// lets any registered account name an arbitrary http(s) URL here, and
+// echoing the transport error back would hand them a working internal-
+// network probe (dial refused vs. timeout vs. TLS error vs. a real HTTP
+// answer all look different). The detail still goes to the server log.
 func stashBoxAPIError(endpoint string, err error) *apiError {
 	switch {
 	case errors.Is(err, stashbox.ErrUnauthorized):
@@ -95,14 +124,15 @@ func stashBoxAPIError(endpoint string, err error) *apiError {
 	case errors.Is(err, stashbox.ErrRateLimited):
 		return &apiError{http.StatusTooManyRequests, endpoint + " is asking you to slow down (429)", 0}
 	default:
-		return &apiError{http.StatusBadGateway, fmt.Sprintf("looking up %s: %v", endpoint, err), 0}
+		log.Printf("api: stashbox lookup on %s: %v", endpoint, err)
+		return &apiError{http.StatusBadGateway, endpoint + " could not be reached", 0}
 	}
 }
 
 // lookupStashBoxScenes is the shared core of both stash-box actions
 // (WP-C9b spec): a non-empty stashID takes findScene(id) ("I have the
-func (s *Server) lookupStashBoxScenes(ctx context.Context, accountID int64, endpoint, stashID, oshash, phash string, durationMs int64) ([]stashbox.Scene, *apiError) {
-	client, aerr := s.stashBoxClientFor(ctx, accountID, endpoint)
+func (s *Server) lookupStashBoxScenes(ctx context.Context, accountID int64, endpoint string, allowPrivate bool, stashID, oshash, phash string, durationMs int64) ([]stashbox.Scene, *apiError) {
+	client, aerr := s.stashBoxClientFor(ctx, accountID, endpoint, allowPrivate)
 	if aerr != nil {
 		return nil, aerr
 	}
@@ -156,7 +186,7 @@ func (s *Server) handleSetStashBoxKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	endpoint, aerr := s.resolveStashBoxEndpoint(r.PostFormValue("endpoint"))
+	endpoint, _, aerr := s.resolveStashBoxEndpoint(r.PostFormValue("endpoint"))
 	if aerr != nil {
 		s.renderMeError(w, r, ares, aerr.msg)
 		return
@@ -207,7 +237,7 @@ func (s *Server) handleClearStashBoxKey(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	endpoint, aerr := s.resolveStashBoxEndpoint(r.PostFormValue("endpoint"))
+	endpoint, _, aerr := s.resolveStashBoxEndpoint(r.PostFormValue("endpoint"))
 	if aerr != nil {
 		s.renderMeError(w, r, ares, aerr.msg)
 		return
@@ -280,13 +310,13 @@ func (s *Server) handleStashBoxLookupAPI(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	endpoint, aerr := s.resolveStashBoxEndpoint(req.Endpoint)
+	endpoint, explicit, aerr := s.resolveStashBoxEndpoint(req.Endpoint)
 	if aerr != nil {
 		writeAPIError(w, aerr)
 		return
 	}
 
-	scenes, aerr := s.lookupStashBoxScenes(r.Context(), account.ID, endpoint, req.StashID, req.OSHash, req.PHash, req.DurationMs)
+	scenes, aerr := s.lookupStashBoxScenes(r.Context(), account.ID, endpoint, explicit, req.StashID, req.OSHash, req.PHash, req.DurationMs)
 	if aerr != nil {
 		writeAPIError(w, aerr)
 		return
@@ -324,7 +354,7 @@ func (s *Server) handleReleaseStashBoxFind(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	endpoint, aerr := s.resolveStashBoxEndpoint(r.FormValue("endpoint"))
+	endpoint, explicit, aerr := s.resolveStashBoxEndpoint(r.FormValue("endpoint"))
 	if aerr != nil {
 		applyAPIErrorHeaders(w, aerr)
 		s.renderReleasePage(w, withAuth(r, ares), id, aerr.status, aerr.msg)
@@ -354,7 +384,7 @@ func (s *Server) handleReleaseStashBoxFind(w http.ResponseWriter, r *http.Reques
 	if release.PHash != nil {
 		phash = release.PHash.String()
 	}
-	scenes, aerr := s.lookupStashBoxScenes(r.Context(), ares.Account.ID, endpoint,
+	scenes, aerr := s.lookupStashBoxScenes(r.Context(), ares.Account.ID, endpoint, explicit,
 		r.FormValue("stash_id"), release.OSHash.String(), phash, release.DurationMs)
 	if aerr != nil {
 		applyAPIErrorHeaders(w, aerr)

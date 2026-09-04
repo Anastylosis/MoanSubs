@@ -224,3 +224,39 @@ func TestClient_RedirectNotFollowed(t *testing.T) {
 		t.Error("the redirect target received a request; the ApiKey-bearing request must never be forwarded")
 	}
 }
+
+// TestClient_PrivateAddressRefusedByDefault guards the other half of the
+// SSRF surface: a Client built without opting into AllowPrivate (the zero
+// value, as internal/api uses for an endpoint the wildcard admitted
+// rather than an operator naming it) must never dial the loopback address
+// its own test server happens to be listening on.
+func TestClient_PrivateAddressRefusedByDefault(t *testing.T) {
+	f := &fakeBox{}
+	ts := httptest.NewServer(f.handler(t))
+	defer ts.Close()
+
+	c := &Client{Endpoint: ts.URL, APIKey: "k"} // zero value: AllowPrivate false
+	_, err := c.FindScene(context.Background(), "c72cba4a-1e2b-4f0e-8f3a-1234567890ab")
+	if !errors.Is(err, ErrPrivateAddress) {
+		t.Errorf("FindScene against a loopback endpoint with AllowPrivate unset: got %v, want ErrPrivateAddress", err)
+	}
+}
+
+// TestClient_AllowPrivateReachesLoopback is
+// TestClient_PrivateAddressRefusedByDefault's converse: the opt-out
+// actually opts out, for the case internal/api uses it (an endpoint
+// named verbatim in the allow-list, e.g. an operator's own LAN box).
+func TestClient_AllowPrivateReachesLoopback(t *testing.T) {
+	f := &fakeBox{scene: json.RawMessage(wireScene)}
+	ts := httptest.NewServer(f.handler(t))
+	defer ts.Close()
+
+	c := &Client{Endpoint: ts.URL, APIKey: "k", AllowPrivate: true}
+	got, err := c.FindScene(context.Background(), "c72cba4a-1e2b-4f0e-8f3a-1234567890ab")
+	if err != nil {
+		t.Fatalf("FindScene with AllowPrivate: %v", err)
+	}
+	if got == nil || !reflect.DeepEqual(*got, wantScene()) {
+		t.Errorf("FindScene with AllowPrivate = %+v, want %+v", got, wantScene())
+	}
+}

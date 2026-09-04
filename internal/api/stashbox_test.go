@@ -358,6 +358,80 @@ func TestStashBoxLookupAPI_RateLimitedSurfaces429(t *testing.T) {
 	}
 }
 
+// TestStashBoxLookupAPI_WildcardRefusesPrivateEndpoint covers the medium
+// SSRF fix: MOANSUBS_STASH_ENDPOINTS=* lets an account register a key for
+// (and direct a lookup at) any http(s) URL, including one that resolves
+// to this node's own private address space. fake here happens to be an
+// httptest server on 127.0.0.1 -- a real loopback address, standing in
+// for "somewhere on the node's own network" -- and the endpoint is
+// accepted only by the wildcard, never named in the allow-list, so the
+// client must refuse to dial it rather than turning this node into an
+// internal-network probe. The error body must also not leak which
+// transport failure occurred (dial refused vs. our own address refusal
+// vs. anything else look identical from outside).
+func TestStashBoxLookupAPI_WildcardRefusesPrivateEndpoint(t *testing.T) {
+	fake := fakeStashBoxServer(t, 0)
+	defer fake.Close()
+
+	st := openTestStore(t)
+	st.SetTokenKey(stashboxTokenKey())
+	srv := NewServer(st)
+	srv.AgeGate = false
+	srv.StashEndpoints = []string{"*"}
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	token := createWebAccount(t, ts, "wildcarduser")
+	account, err := st.GetAccountByName(context.Background(), "wildcarduser")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+	if err := st.SetStashBoxKey(context.Background(), account.ID, fake.URL, "k"); err != nil {
+		t.Fatalf("SetStashBoxKey: %v", err)
+	}
+
+	resp := doStashBoxLookup(t, ts, token, stashBoxLookupRequest{Endpoint: fake.URL, OSHash: "abc"})
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("lookup at a private endpoint admitted only by the wildcard = %d, want 502: %s", resp.StatusCode, bodyString(t, resp))
+	}
+	body := bodyString(t, resp)
+	if !strings.Contains(body, "could not be reached") {
+		t.Errorf("error body = %q, want the generic \"could not be reached\" message", body)
+	}
+	for _, leak := range []string{"dial", "connection refused", "connect:", "i/o timeout", "private", "loopback"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("error body %q leaks transport/address detail %q", body, leak)
+		}
+	}
+}
+
+// TestStashBoxLookupAPI_ExplicitEndpointReachesPrivateAddress is the
+// converse of the wildcard test above: an operator who actually names
+// their own endpoint in MOANSUBS_STASH_ENDPOINTS (never the wildcard)
+// keeps being able to reach it even though it is, by nature of every
+// httptest server, a loopback address. TestStashBoxLookupAPI_
+// FingerprintSuccess already exercises this same shape end to end; this
+// test names the property explicitly so a regression here reads as what
+// it is rather than a generic lookup failure.
+func TestStashBoxLookupAPI_ExplicitEndpointReachesPrivateAddress(t *testing.T) {
+	fake := fakeStashBoxServer(t, 0)
+	defer fake.Close()
+	ts, st, token := stashboxServerWithFake(t, fake.URL) // srv.StashEndpoints = []string{fake.URL}, not "*"
+
+	account, err := st.GetAccountByName(context.Background(), "lookupuser")
+	if err != nil {
+		t.Fatalf("GetAccountByName: %v", err)
+	}
+	if err := st.SetStashBoxKey(context.Background(), account.ID, fake.URL, "k"); err != nil {
+		t.Fatalf("SetStashBoxKey: %v", err)
+	}
+
+	resp := doStashBoxLookup(t, ts, token, stashBoxLookupRequest{Endpoint: fake.URL, OSHash: "abc", DurationMs: 60000})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("lookup at an explicitly allow-listed private endpoint = %d, want 200: %s", resp.StatusCode, bodyString(t, resp))
+	}
+}
+
 func TestStashBoxLookupAPI_OwnRateLimitApplies(t *testing.T) {
 	fake := fakeStashBoxServer(t, 0)
 	defer fake.Close()
