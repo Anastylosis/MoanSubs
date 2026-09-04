@@ -190,3 +190,37 @@ func TestClient_GraphQLErrorSurfaces(t *testing.T) {
 		t.Errorf("FindSceneByFingerprint error = %v, want it to mention the GraphQL error", err)
 	}
 }
+
+// TestClient_RedirectNotFollowed guards against a stash-box (or anything
+// on the redirect chain) forwarding the caller's ApiKey header to a host
+// of its choosing. Go's http.Client strips only Authorization/Cookie/
+// WWW-Authenticate on a cross-host redirect -- ApiKey is a custom header
+// and would otherwise be forwarded verbatim.
+func TestClient_RedirectNotFollowed(t *testing.T) {
+	var sawSecond bool
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawSecond = true
+		if got := r.Header.Get("ApiKey"); got != "" {
+			t.Errorf("second server saw ApiKey header %q, want it never to receive the request at all", got)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer second.Close()
+
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("ApiKey"); got != "secret" {
+			t.Errorf("first server ApiKey header = %q, want %q", got, "secret")
+		}
+		http.Redirect(w, r, second.URL, http.StatusTemporaryRedirect)
+	}))
+	defer first.Close()
+
+	c := New(first.URL, "secret")
+	_, err := c.FindScene(context.Background(), "c72cba4a-1e2b-4f0e-8f3a-1234567890ab")
+	if !errors.Is(err, ErrRedirected) {
+		t.Errorf("FindScene across a 307: got %v, want ErrRedirected", err)
+	}
+	if sawSecond {
+		t.Error("the redirect target received a request; the ApiKey-bearing request must never be forwarded")
+	}
+}

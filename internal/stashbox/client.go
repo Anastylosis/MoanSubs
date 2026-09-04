@@ -28,13 +28,21 @@ var ErrUnauthorized = fmt.Errorf("stashbox: unauthorized (401): the api key was 
 // per-account rate limit is the backstop against hammering it anyway.
 var ErrRateLimited = fmt.Errorf("stashbox: rate limited (429): slow down")
 
+// ErrRedirected is returned when the endpoint answers with a redirect. A
+// GraphQL POST endpoint has no business issuing one, and following it
+// would carry the ApiKey header to whatever host the redirect names --
+// net/http strips only Authorization/Cookie/WWW-Authenticate on a
+// cross-host hop, not a custom header like ours.
+var ErrRedirected = fmt.Errorf("stashbox: endpoint answered with a redirect")
+
 // Client talks GraphQL to one stash-box endpoint on behalf of one api key.
 // Both fields are set once at construction; a Client is safe for
 // concurrent use precisely because neither is mutated afterward.
 type Client struct {
 	Endpoint string
 	APIKey   string
-	// HTTPClient defaults to a private client with DefaultTimeout when nil.
+	// HTTPClient defaults to a private client with DefaultTimeout and no
+	// redirect-following when nil.
 	HTTPClient *http.Client
 }
 
@@ -73,7 +81,13 @@ func (c *Client) httpClient() *http.Client {
 	if c.HTTPClient != nil {
 		return c.HTTPClient
 	}
-	return &http.Client{Timeout: DefaultTimeout}
+	return &http.Client{Timeout: DefaultTimeout, CheckRedirect: refuseRedirects}
+}
+
+// refuseRedirects stops http.Client from following a redirect on its own;
+// do() turns the resulting 3xx response into ErrRedirected.
+func refuseRedirects(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
 }
 
 // do executes one GraphQL query/variables pair against c.Endpoint and
@@ -97,6 +111,9 @@ func (c *Client) do(ctx context.Context, query string, variables map[string]any,
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return fmt.Errorf("stashbox: %s answered with a redirect (%d): %w", c.Endpoint, resp.StatusCode, ErrRedirected)
+	}
 	switch resp.StatusCode {
 	case http.StatusUnauthorized:
 		return ErrUnauthorized
