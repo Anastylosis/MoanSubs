@@ -193,8 +193,11 @@ stash_boxes:
 # `pin_on` is deliberately narrower than `stash_boxes.accept`: an id from
 # a broad, scraper-driven database is excellent evidence that two files are
 # the same scene, and thin evidence that a particular name is the right one
-# to publish uncorrected on a page a crawler will cache. Empty means
-# nothing pins itself. (MOANSUBS_AUTOCONFIRM / _ENDPOINTS)
+# to publish uncorrected on a page a crawler will cache. Empty means the
+# default list below, not "nothing pins itself" -- an empty list here
+# exports no MOANSUBS_AUTOCONFIRM_ENDPOINTS at all, and the server falls
+# back to its own default when the variable is unset. To stop pinning,
+# set `enabled: false` instead. (MOANSUBS_AUTOCONFIRM / _ENDPOINTS)
 autoconfirm:
   enabled: false
   pin_on:
