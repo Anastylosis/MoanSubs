@@ -400,8 +400,11 @@ matter what `ufw status` says. The script writes the allow-list into
 Docker's `DOCKER-USER` chain by way of `/etc/ufw/after.rules` and
 `after6.rules`, where it survives `ufw reload` and a reboot; re-run it to
 refresh the ranges, `sudo ./cloudflare-ufw.sh --remove` to take it out
-again. Any other firewall needs the same shape — rules in `DOCKER-USER`
-(or your provider's edge firewall in front of the host), not in `INPUT`.
+again — `ufw reload` alone would leave the DROP rules live in `DOCKER-USER`
+until the next reboot, so `--remove` flushes that chain itself (back to
+Docker's own single `-j RETURN` rule) rather than relying on it. Any other
+firewall needs the same shape — rules in `DOCKER-USER` (or your provider's
+edge firewall in front of the host), not in `INPUT`.
 
 **2. Tell Traefik and moansubs about the CDN hop.** Fetch the current ranges
 and set them before starting the stack:

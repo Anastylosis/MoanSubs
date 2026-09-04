@@ -34,7 +34,14 @@ if [[ ${1:-} == --remove ]]; then
 	strip_block /etc/ufw/after.rules
 	strip_block /etc/ufw/after6.rules
 	ufw reload >/dev/null
-	echo "cloudflare-ufw.sh: managed rules removed; 80/443 are open to everyone again"
+	# ufw reload never touches DOCKER-USER, so the DROP rules would stay
+	# live until reboot.
+	for cmd in iptables ip6tables; do
+		"$cmd" -L DOCKER-USER -n >/dev/null 2>&1 || continue
+		"$cmd" -F DOCKER-USER
+		"$cmd" -A DOCKER-USER -j RETURN
+	done
+	echo "cloudflare-ufw.sh: managed rules removed and DOCKER-USER reset; 80/443 are open to everyone again"
 	exit 0
 fi
 
