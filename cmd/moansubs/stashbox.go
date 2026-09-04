@@ -71,16 +71,12 @@ var stashboxBackfillCmd = &cobra.Command{
 			return fmt.Errorf("moansubs stashbox backfill: %w", err)
 		}
 
-		s, _, cancel, err := openStore(cmd, "stashbox backfill")
+		s, ctx, cancel, err := openStore(cmd, "stashbox backfill")
 		if err != nil {
 			return err
 		}
 		defer cancel()
 		defer s.Close()
-		// openStore's 30 s budget suits one query, not a sweep paced at one
-		// request per second.
-		ctx, cancelSweep := context.WithCancel(cmd.Context())
-		defer cancelSweep()
 
 		opts := backfillOptions{limit: backfillLimit, delay: backfillDelay, dryRun: backfillDryRun, maxRetries: 3}
 		if backfillAs != "" {

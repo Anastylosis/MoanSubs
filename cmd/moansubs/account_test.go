@@ -9,7 +9,35 @@ import (
 	"testing"
 
 	"github.com/Anastylosis/MoanSubs/internal/store"
+	"github.com/spf13/cobra"
 )
+
+// TestCommandContext_HasNoDeadline pins openStore's split: store.Open gets
+// its own fixed 30 s budget (openStore's openCtx, never returned), while the
+// ctx handed back for the command body is cancel-only — a batched walk
+// (dump/import/resanitize/work suggest) must not inherit a timeout sized for
+// one connection attempt.
+func TestCommandContext_HasNoDeadline(t *testing.T) {
+	cmd := &cobra.Command{}
+	// A bare *cobra.Command's ctx is nil until cobra's own Execute(C) sets
+	// it — mirrored here rather than relying on that, since this test never
+	// runs the command tree.
+	cmd.SetContext(context.Background())
+	ctx, cancel := commandContext(cmd)
+	defer cancel()
+
+	if _, ok := ctx.Deadline(); ok {
+		t.Error("commandContext's ctx has a deadline, want none")
+	}
+	if err := ctx.Err(); err != nil {
+		t.Errorf("commandContext's ctx.Err() = %v before cancel, want nil", err)
+	}
+
+	cancel()
+	if err := ctx.Err(); !errors.Is(err, context.Canceled) {
+		t.Errorf("commandContext's ctx.Err() after cancel = %v, want context.Canceled", err)
+	}
+}
 
 // runAccount executes `moansubs account <args...>` against rootCmd's real
 // command tree, same pattern as track_test.go's runTrack.

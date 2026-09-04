@@ -471,11 +471,16 @@ the **host's** crontab (not `deploy/backup/crontab`, which only the backup
 container's own crond reads):
 
 ```
-0 4 * * 0 cd /path/to/this/directory && docker compose exec -T server moansubs dump | rclone rcat s3:<bucket>/dumps/latest.jsonl.gz
+0 4 * * 0 cd /path/to/this/directory && sh -c 'set -o pipefail; docker compose exec -T server moansubs dump | rclone rcat s3:<bucket>/dumps/latest.jsonl.gz'
 ```
 
-`moansubs dump` already gzips its own output — don't pipe it through `gzip`
-again, or `latest.jsonl.gz` ends up double-compressed and nothing default
-can read it back with a plain `gunzip`. `-T` disables `exec`'s pseudo-tty
-allocation, which would otherwise mangle the binary gzip stream going
-through the pipe.
+`set -o pipefail` matters here: without it, the shell reports the pipeline's
+exit status as `rclone`'s alone, so a `dump` that fails mid-stream (it never
+closes its own gzip trailer on error, precisely so a truncated stream can't
+pass for a complete one) would still let `rclone` see a normal-looking EOF
+on its stdin and exit 0, silently overwriting a good `latest.jsonl.gz` with
+a broken one. `moansubs dump` already gzips its own output — don't pipe it
+through `gzip` again, or `latest.jsonl.gz` ends up double-compressed and
+nothing default can read it back with a plain `gunzip`. `-T` disables
+`exec`'s pseudo-tty allocation, which would otherwise mangle the binary
+gzip stream going through the pipe.

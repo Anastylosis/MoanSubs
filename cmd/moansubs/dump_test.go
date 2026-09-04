@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -339,6 +340,35 @@ func TestDump_UploaderVisibilityByAuthorship(t *testing.T) {
 	}
 	if lines[uncredited].Authorship != "uncredited" {
 		t.Errorf("uncredited track line authorship = %q, want \"uncredited\"", lines[uncredited].Authorship)
+	}
+}
+
+// TestWriteDump_ErrorLeavesNoOutput pins the dump-failure contract: when
+// writeDump errors, dumpCmd's RunE returns immediately, calling neither
+// bw.Flush() nor gz.Close() — closing the gzip writer is what appends its
+// trailer, and doing that after a mid-stream failure would make a
+// truncated, incomplete dump look like a valid, complete one to `gunzip` or
+// `rclone rcat`'s receiving end. Not flushing the buffered writer either
+// means a failure this early reaches the underlying writer as no bytes at
+// all, never a stream that merely looks short.
+func TestWriteDump_ErrorLeavesNoOutput(t *testing.T) {
+	s := openTestStore(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	buf := &bytes.Buffer{}
+	gz := gzip.NewWriter(buf)
+	bw := bufio.NewWriter(gz)
+	enc := json.NewEncoder(bw)
+
+	if _, err := writeDump(ctx, s, enc); err == nil {
+		t.Fatal("writeDump with an already-canceled context = nil error, want one")
+	}
+	// dumpCmd's RunE only reaches bw.Flush()/gz.Close() after a successful
+	// writeDump — mirrored here by simply not calling them.
+	if buf.Len() != 0 {
+		t.Errorf("underlying writer received %d bytes before any flush/close, want 0", buf.Len())
 	}
 }
 

@@ -52,7 +52,14 @@ func statementTimeoutFromEnv() (time.Duration, error) {
 	return d, nil
 }
 
-// openStore is the DATABASE_URL boilerplate every account subcommand needs.
+// commandContext is cancel-only: a batched walk (dump, import, resanitize)
+// must not inherit store.Open's budget.
+func commandContext(cmd *cobra.Command) (context.Context, context.CancelFunc) {
+	return context.WithCancel(cmd.Context())
+}
+
+// openStore is the DATABASE_URL boilerplate every subcommand needs. Only
+// store.Open is bounded; the returned ctx has no deadline.
 func openStore(cmd *cobra.Command, what string) (*store.Store, context.Context, context.CancelFunc, error) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -62,19 +69,19 @@ func openStore(cmd *cobra.Command, what string) (*store.Store, context.Context, 
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("moansubs %s: %w", what, err)
 	}
-	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
-	s, err := store.Open(ctx, dsn, store.Options{StatementTimeout: statementTimeout})
+	openCtx, openCancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+	defer openCancel()
+	s, err := store.Open(openCtx, dsn, store.Options{StatementTimeout: statementTimeout})
 	if err != nil {
-		cancel()
 		return nil, nil, nil, fmt.Errorf("moansubs %s: %w", what, err)
 	}
 	tokenKey, err := tokenKeyFromEnv()
 	if err != nil {
-		cancel()
 		s.Close()
 		return nil, nil, nil, fmt.Errorf("moansubs %s: %w", what, err)
 	}
 	s.SetTokenKey(tokenKey)
+	ctx, cancel := commandContext(cmd)
 	return s, ctx, cancel, nil
 }
 
