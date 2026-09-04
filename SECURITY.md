@@ -88,7 +88,32 @@ than recover it. Both lookup actions
 session-authenticated, Origin-checked, and rate-limited per account
 (30/hour) — a `401` from the box means the stored key was rejected, a
 `429` means the box itself is asking for less traffic, and neither is
-ever retried automatically.
+ever retried automatically. Every other failure — network error, a
+non-2xx/3xx status, our own refusals below — is reported to the caller as
+a generic "could not be reached"; the actual cause is logged server-side
+only, never handed back verbatim, so a lookup can't be turned into a
+network probe that distinguishes "refused", "timed out", and "answered"
+for a host the caller doesn't otherwise have access to.
+
+The endpoint itself is one of an account's own choosing, bounded by
+`MOANSUBS_STASH_ENDPOINTS` (MANUAL.md): with that variable set to `*`,
+any registered account can store a key for, and direct a lookup at, an
+arbitrary http(s) host — meaning this node will originate a request to
+whatever public host that account names, not only the curated boxes the
+default list ships with. Two things keep that from turning into a
+request forwarder against the node's own network: the client never
+follows a redirect (a GraphQL endpoint has no business issuing one, and
+following it would carry the account's `ApiKey` header — a custom header
+`net/http`'s cross-host redirect stripping does not touch — to whatever
+host the redirect names), and an endpoint admitted only by the wildcard
+is refused at dial time if it resolves to loopback, link-local, or
+private (RFC1918/ULA) address space, checked against the address that is
+actually about to be connected to rather than the hostname, which also
+defeats a DNS answer that changes between resolution and connect. An
+endpoint an operator names explicitly in `MOANSUBS_STASH_ENDPOINTS` —
+never one admitted only by `*` — is exempt from that address check, so a
+node's own LAN stash-box keeps working when it's actually configured by
+name.
 
 `moansubs stashbox backfill` (MANUAL.md) looks like the exception to "the
 node never holds a stash-box key", and is not one. The key it uses comes

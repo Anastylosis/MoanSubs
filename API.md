@@ -112,7 +112,15 @@ verbatim — the only stash-box endpoints `POST /api/v1/subtitles`'s
 The plugin filters what it sends on a push against this list rather than
 racing the upload endpoint's `400` one id at a time; a node that predates
 this field omits it entirely, which a client reads the same as "send
-everything", the behavior on a node that predates the allow-list.
+everything", the behavior on a node that predates the allow-list. The
+same allow-list gates what a registered account may store a personal key
+for and query with the session-authenticated stash-box lookup
+(`POST /api/v1/stashbox/lookup`, `POST /release/{id}/stashbox/find` —
+MANUAL.md "Stash-box lookups"): with `*`, this node will originate a
+request to whatever public host the account names, but refuses at dial
+time to reach loopback, link-local, or private (RFC1918/ULA) address
+space for an endpoint admitted only by the wildcard — an endpoint listed
+here by name, rather than only via `*`, may be private.
 
 ### `GET /api/v1/lookup/oshash/{prefix}`
 

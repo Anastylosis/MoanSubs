@@ -127,7 +127,7 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_CONTACT_EMAIL` | *(unset)* | Contact email address shown on the `/contact` page. The page is visible when this is set or `MOANSUBS_CONTACT` is `true`. |
 | `MOANSUBS_CONTACT` | `false` | Show the `/contact` page even without an email address, for nodes that handle mail elsewhere. |
 | `MOANSUBS_CONTACT_NOTE` | *(unset)* | Optional site policy or instructions rendered on the `/contact` page below the takedown information. |
-| `MOANSUBS_STASH_ENDPOINTS` | `https://stashdb.org/graphql,https://fansdb.cc/graphql,https://theporndb.net/graphql,https://javstash.org/graphql,https://pmvstash.org/graphql` | Comma-separated allow-list of stash-box GraphQL endpoints an upload's `stash_ids` may name (defense in depth against a rogue uploader attaching an arbitrary URL the UI would render as a link — API.md "`POST /api/v1/subtitles`"). An endpoint outside it is rejected with `400 stash_ids: endpoint not accepted by this node`. The single value `*` accepts any http(s) endpoint. `GET /api/v1/version` advertises the resolved list as `stash_endpoints`, so the plugin filters what it pushes against it rather than racing the 400 one id at a time; the `/upload` form's endpoint `<select>` lists exactly this set too (plus "other" only when it's `*`). |
+| `MOANSUBS_STASH_ENDPOINTS` | `https://stashdb.org/graphql,https://fansdb.cc/graphql,https://theporndb.net/graphql,https://javstash.org/graphql,https://pmvstash.org/graphql` | Comma-separated allow-list of stash-box GraphQL endpoints an upload's `stash_ids` may name (defense in depth against a rogue uploader attaching an arbitrary URL the UI would render as a link — API.md "`POST /api/v1/subtitles`"), and of what a registered account may store a personal key for and query via the stash-box lookup ("Stash-box lookups" below). An endpoint outside it is rejected with `400 stash_ids: endpoint not accepted by this node`. The single value `*` accepts any http(s) endpoint — including ones outside your own network, so any registered account can make this node originate a request to an arbitrary public host under their own stash-box key; **private address space (loopback, link-local, and RFC1918/ULA) is always refused for an endpoint admitted only by the wildcard.** An endpoint named explicitly here, by contrast, may be private — an operator's own LAN stash-box works only when listed by its own name, never via `*`. `GET /api/v1/version` advertises the resolved list as `stash_endpoints`, so the plugin filters what it pushes against it rather than racing the 400 one id at a time; the `/upload` form's endpoint `<select>` lists exactly this set too (plus "other" only when it's `*`). |
 | `MOANSUBS_STATEMENT_TIMEOUT` | `30s` | Caps how long any single query may run before Postgres kills it (SQLSTATE `57014`), parsed with `time.ParseDuration`. Without it an anonymous fuzzy phash lookup (a full `bit_count` scan) or `CreatorNames`' DISTINCT+unnest over every release could pin every pooled connection with nothing able to kill the slow statements. `0` removes the limit entirely. Applies to every command that opens the store (`serve` and the CLI subcommands alike), not only the server. **The DSN's own `statement_timeout` connection parameter, if present, always wins over this setting** — this variable only fills the gap when the DSN leaves it unset. Migrations themselves are exempt regardless (schema changes on a large existing table may legitimately need longer than a query budget meant for application traffic). |
 
 **Invite economy.** An account's invite budget is `earned =
@@ -321,10 +321,20 @@ ban risk nobody should take on another's behalf. Both actions are rate
 limited per account (30/hour) since they spend that personal key against
 a third party; a `401` from the box (bad/revoked key) or a `429` (the box
 itself asking to slow down) is shown close to verbatim and never retried
-in a loop. There is no admin-configured endpoint list beyond
-`MOANSUBS_STASH_ENDPOINTS` itself — narrowing it removes an endpoint from
-both the key list on `/me` and every lookup button, the same allow-list
-every upload's own `stash_id` is already checked against.
+in a loop. Any other failure (a network error, a non-2xx/3xx answer, a
+redirect, an address this node refuses to dial — see below) is reported
+as a generic "could not be reached", with the actual cause only in the
+server log: under `MOANSUBS_STASH_ENDPOINTS=*` the endpoint is whatever a
+registered account typed in, and echoing the transport error back would
+turn the lookup into an internal-network probe. There is no
+admin-configured endpoint list beyond `MOANSUBS_STASH_ENDPOINTS` itself —
+narrowing it removes an endpoint from both the key list on `/me` and
+every lookup button, the same allow-list every upload's own `stash_id` is
+already checked against; under the wildcard, this node also refuses to
+dial loopback, link-local, or private (RFC1918/ULA) addresses for the
+lookup, so the wildcard cannot be used to reach this node's own private
+network — an endpoint named explicitly in the allow-list, rather than
+admitted only by `*`, is exempt from that restriction.
 
 Every other page is self-contained — no assets, no JavaScript. The
 catalogue pages (`/browse`, `/search`, `/release/*`,
