@@ -2,9 +2,13 @@
 # and adjust before running `docker compose up`.
 services:
   server:
-    # Pinned rather than a moving tag, so a restart cannot change versions
-    # under you. To run local changes instead, comment this out and
-    # uncomment the build line below.
+    # :latest is a moving tag, not a pin -- that's fine day to day, since a
+    # restart policy restarts the existing container on its already-resolved
+    # image id, so only an explicit `docker compose pull` moves it. Pin to a
+    # specific version instead (e.g. :0.3.0, no leading "v") for anything
+    # you care about: `serve` applies pending migrations on startup, so the
+    # version you run is the version your schema gets. To run local changes
+    # instead, comment this out and uncomment the build line below.
     image: ghcr.io/anastylosis/moansubs:latest
     # build: .
     restart: unless-stopped
