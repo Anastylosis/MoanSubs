@@ -591,7 +591,7 @@ then prints how many tracks were withdrawn. Use this for a leaked or
 clearly abusive account, where taking down its whole contribution by hand
 (finding every track id and stash id by hand) would be impractical.
 
-### `moansubs stashbox backfill [--endpoint URL] [--limit N] [--delay 1s] [--dry-run] [--as NAME]`
+### `moansubs stashbox backfill [--endpoint URL] [--limit N] [--delay 1s] [--dry-run] [--as NAME] [--skip ID,...]`
 
 Walks every active release that has no stash-box id yet and asks a
 stash-box about it, so a corpus seeded before ids were first-class (or from
@@ -628,6 +628,14 @@ the untried release left untried; a `401` stops at once, because a rejected
 key only gets a limiter's attention by being retried. `--dry-run` still
 queries the box but writes to neither table; `--limit` caps the releases
 per endpoint. Read-only against every box, on every path.
+
+A fingerprint hit is only as good as the box's crowd-submitted fingerprints,
+so read a `--dry-run` before the real sweep. `--skip 127,256` names releases
+whose match you reject: they are not queried, and are recorded as `skipped`
+for that endpoint, so no later sweep — with or without the flag — attaches
+anything to them. A release that already has an id from that box, or was
+already answered by it, is not a candidate and the flag does nothing to it —
+detach a wrong id that already landed on `/mod/release/{id}`.
 
 ### `moansubs work`
 

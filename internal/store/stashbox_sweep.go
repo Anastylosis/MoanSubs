@@ -13,6 +13,7 @@ const (
 	LookupProposed    = "proposed"
 	LookupNone        = "none"
 	LookupError       = "error"
+	LookupSkipped     = "skipped"
 )
 
 // Releases still worth asking endpoint about: active, no id from that box

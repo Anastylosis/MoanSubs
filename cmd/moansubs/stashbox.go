@@ -29,6 +29,7 @@ var (
 	backfillDryRun   bool
 	backfillKey      string
 	backfillAs       string
+	backfillSkip     []int64
 )
 
 type backfillOptions struct {
@@ -38,19 +39,22 @@ type backfillOptions struct {
 	dryRun     bool
 	proposer   *int64
 	autoPin    []string // nil: auto-confirm off
+	skip       map[int64]bool
 	maxRetries int
 }
 
 type backfillStats struct {
-	fingerprint, proposed, none, errored int
+	fingerprint, proposed, none, errored, skipped int
 }
 
 var stashboxBackfillCmd = &cobra.Command{
-	Use:   "backfill [--endpoint URL] [--limit N] [--delay 1s] [--dry-run] [--as NAME]",
+	Use:   "backfill [--endpoint URL] [--limit N] [--delay 1s] [--dry-run] [--as NAME] [--skip ID,...]",
 	Short: "Attach stash-box ids to releases that have none, using your own key",
 	Long: "Sweeps releases without a stash-box id. A fingerprint hit attaches the id;\n" +
 		"a title+date hit only becomes a metadata proposal from --as, a trusted\n" +
 		"account, so the auto-confirm rules decide what reaches a crawler.\n" +
+		"--skip names releases whose match you have already rejected: they are\n" +
+		"not queried and are recorded as skipped, so later sweeps leave them alone.\n" +
 		"The key (--key or MOANSUBS_STASHBOX_KEY) is yours, used for this run and\n" +
 		"never stored.",
 	Args: cobra.NoArgs,
@@ -79,6 +83,12 @@ var stashboxBackfillCmd = &cobra.Command{
 		defer s.Close()
 
 		opts := backfillOptions{limit: backfillLimit, delay: backfillDelay, dryRun: backfillDryRun, maxRetries: 3}
+		if len(backfillSkip) > 0 {
+			opts.skip = make(map[int64]bool, len(backfillSkip))
+			for _, id := range backfillSkip {
+				opts.skip[id] = true
+			}
+		}
 		if backfillAs != "" {
 			id, trusted, disabled, err := s.AccountStanding(ctx, backfillAs)
 			if errors.Is(err, store.ErrNotFound) {
@@ -113,8 +123,8 @@ var stashboxBackfillCmd = &cobra.Command{
 			// The operator named this endpoint; a LAN stash-box is theirs to reach.
 			client.AllowPrivate = true
 			st, err := runBackfill(ctx, s, client, opts, out)
-			_, _ = fmt.Fprintf(out, "%s: %d attached by fingerprint, %d proposed by name, %d not found, %d errors%s\n",
-				ep, st.fingerprint, st.proposed, st.none, st.errored, dryRunSuffix(opts.dryRun))
+			_, _ = fmt.Fprintf(out, "%s: %d attached by fingerprint, %d proposed by name, %d not found, %d skipped, %d errors%s\n",
+				ep, st.fingerprint, st.proposed, st.none, st.skipped, st.errored, dryRunSuffix(opts.dryRun))
 			if err != nil {
 				return fmt.Errorf("moansubs stashbox backfill: %w", err)
 			}
@@ -178,6 +188,17 @@ func runBackfill(ctx context.Context, s *store.Store, client *stashbox.Client, o
 	retries := 0
 	for i := 0; i < len(cands); {
 		rel := cands[i]
+		if opts.skip[rel.ID] {
+			st.skipped++
+			_, _ = fmt.Fprintf(out, "skipped %s%s\n", releaseLabel(rel), dryRunSuffix(opts.dryRun))
+			if !opts.dryRun {
+				if err := s.RecordStashBoxLookup(ctx, rel.ID, opts.endpoint, store.LookupSkipped); err != nil {
+					return st, err
+				}
+			}
+			i++
+			continue
+		}
 		if i > 0 || retries > 0 {
 			if err := sleepCtx(ctx, opts.delay*time.Duration(1+retries)); err != nil {
 				return st, err
@@ -335,6 +356,7 @@ func init() {
 	f.DurationVar(&backfillDelay, "delay", time.Second, "pause between requests")
 	f.BoolVar(&backfillDryRun, "dry-run", false, "query the box but write nothing")
 	f.StringVar(&backfillKey, "key", "", "your stash-box api key (or MOANSUBS_STASHBOX_KEY); never stored")
+	f.Int64SliceVar(&backfillSkip, "skip", nil, "release ids to leave unqueried and record as skipped (e.g. a rejected fingerprint match)")
 	f.StringVar(&backfillAs, "as", "", "trusted account that name-only hits are proposed as; without it they are skipped")
 	stashboxCmd.AddCommand(stashboxBackfillCmd)
 	rootCmd.AddCommand(stashboxCmd)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -64,6 +65,8 @@ func (f *fakeBox) serve(t *testing.T) *httptest.Server {
 
 func runBackfillCmd(t *testing.T, args ...string) (string, error) {
 	t.Helper()
+	// Flag vars outlive Execute, and a slice flag has no empty spelling to reset it with.
+	backfillSkip = nil
 	buf := &bytes.Buffer{}
 	rootCmd.SetOut(buf)
 	rootCmd.SetErr(buf)
@@ -276,5 +279,31 @@ func TestBackfill_RequiresAKey(t *testing.T) {
 	_, err := runBackfillCmd(t, "--endpoint="+f.endpoint, "--key=", "--as=")
 	if err == nil || !strings.Contains(err.Error(), "no key") {
 		t.Fatalf("err = %v, want a missing-key error", err)
+	}
+}
+
+func TestBackfill_SkipRecordsWithoutQueryingAndSticks(t *testing.T) {
+	f := newSweepFixture(t, &fakeBox{byFinger: []map[string]any{boxScene("uuid-wrong", "Something Else", "2024-05-01")}})
+	out, err := f.run(t, "--skip="+strconv.FormatInt(f.releaseID, 10))
+	if err != nil {
+		t.Fatalf("backfill: %v\n%s", err, out)
+	}
+	if n := f.box.requests.Load(); n != 0 {
+		t.Errorf("requests = %d, want a skipped release left unqueried", n)
+	}
+	if len(f.stashIDs(t)) != 0 {
+		t.Error("a skipped release had an id attached")
+	}
+	if got := f.outcome(t); got != store.LookupSkipped {
+		t.Errorf("outcome = %q, want skipped", got)
+	}
+	if !strings.Contains(out, "1 skipped") {
+		t.Errorf("output = %q", out)
+	}
+	if out, err := f.run(t); err != nil {
+		t.Fatalf("second backfill: %v\n%s", err, out)
+	}
+	if f.box.requests.Load() != 0 || len(f.stashIDs(t)) != 0 {
+		t.Error("a re-run without --skip re-queried a skipped release")
 	}
 }
