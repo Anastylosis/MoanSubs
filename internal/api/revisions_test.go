@@ -488,7 +488,12 @@ func TestUpload_Supersede_GeneratedRefusesHumanTarget(t *testing.T) {
 		t.Fatalf("target upload Generated = true, want false (fixture has no marker)")
 	}
 
-	resp := doSupersede(t, ts, token, "1000000000000012", target.TrackID, revGenOrigSRT)
+	// revGenSmallFixSRT, not revGenOrigSRT: the marker cue is stripped
+	// before the body is rendered, so a "generated" upload whose only
+	// difference from the target WAS the marker is now byte-identical to it
+	// and exits earlier as a duplicate. The refusal being tested here needs
+	// an upload that genuinely differs.
+	resp := doSupersede(t, ts, token, "1000000000000012", target.TrackID, revGenSmallFixSRT)
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("status = %d, want 409", resp.StatusCode)
 	}

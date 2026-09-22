@@ -344,11 +344,15 @@ func TestUpload_HappyPath_GeneratedSubtitleAutoDetected(t *testing.T) {
 	if !track.Generated {
 		t.Error("stored track.Generated = false, want true")
 	}
-	// The marker cue itself is a real cue as far as subtitle.Parse is
-	// concerned (SRT has no comment syntax to hide it in), so it is
-	// legitimately present in the sanitized, re-rendered body too.
-	if !strings.Contains(track.Body, "stash-subs") {
-		t.Errorf("stored body lost the marker cue: %q", track.Body)
+	// The marker cue is a real cue as far as subtitle.Parse is concerned
+	// (SRT has no comment syntax to hide it in), but by this point Detect
+	// has already read it into the columns asserted above -- so it is
+	// dropped rather than stored and played back over the viewer's video.
+	if strings.Contains(track.Body, "stash-subs") {
+		t.Errorf("stored body kept the marker cue: %q", track.Body)
+	}
+	if !strings.Contains(track.Body, "Hello there.") || !strings.Contains(track.Body, "Goodbye now.") {
+		t.Errorf("stripping the marker took real dialogue with it: %q", track.Body)
 	}
 }
 

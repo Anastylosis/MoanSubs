@@ -554,8 +554,6 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 	if err != nil {
 		return nil, &apiError{http.StatusBadRequest, "unparseable subtitle: " + err.Error(), 0}
 	}
-	rendered := subtitle.RenderSRT(cues)
-
 	// Provenance is detected on the RAW uploaded bytes, before
 	// subtitle.Parse's sanitization discards headers and NOTE blocks —
 	// those are exactly where the stash-subs marker and its structured
@@ -568,6 +566,15 @@ func (s *Server) ingest(ctx context.Context, account *store.Account, req uploadR
 			log.Printf("api: marshaling detected provenance: %v", err)
 		}
 	}
+
+	// Detection has taken what the marker says into the columns above, so
+	// the annotation cue itself is dropped rather than stored and played
+	// back at the viewer, and a machine transcript's cue geometry is bounded
+	// (see subtitle.ClampCues). Both run after Detect and before rendering,
+	// so the stored body is what `track resanitize` reproduces and what
+	// FindIdenticalTrack compares a re-upload against.
+	cues = machineTranscriptCues(cues, generated, req.Generated)
+	rendered := subtitle.RenderSRT(cues)
 
 	// Runtime sanity check -- see checkRuntimeFit.
 	if aerr := checkRuntimeFit(rendered, req.DurationMs); aerr != nil {

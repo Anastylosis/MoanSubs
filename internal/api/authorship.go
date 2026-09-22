@@ -37,6 +37,24 @@ func generatedSource(detected, declared bool) string {
 	}
 }
 
+// machineTranscriptCues applies the two body transforms that belong only to
+// a machine-made track, and returns the cues untouched for a human-made one.
+//
+// Takes detection and declaration separately, in generatedSource's
+// vocabulary, rather than the OR: the OR is the wire meaning of `generated`
+// and every caller already has both halves, so there is nowhere for the two
+// to drift apart.
+//
+// Must run AFTER provenance.Detect -- StripMarkerCues says why -- and BEFORE
+// the body is rendered, because the rendered body is both what gets stored
+// and what FindIdenticalTrack dedupes a re-upload against.
+func machineTranscriptCues(cues []subtitle.Cue, detected, declared bool) []subtitle.Cue {
+	if !detected && !declared {
+		return cues
+	}
+	return subtitle.ClampCues(provenance.StripMarkerCues(cues))
+}
+
 // provenanceLine renders a compact human-readable line from a track's
 // stored provenance jsonb, for the release page's badge explainer — tool
 // and version, the ASR model, and, when the track was machine-translated
