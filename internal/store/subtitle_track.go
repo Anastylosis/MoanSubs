@@ -408,6 +408,10 @@ func (s *Store) TrackSummariesByReleaseIDs(ctx context.Context, releaseIDs []int
 type SubtitleTrackBody struct {
 	ID   int64
 	Body string
+	// Generated is the wire meaning — detection OR declaration — so a
+	// backfill applies the machine-transcript-only body transforms to
+	// exactly the tracks an upload would have applied them to.
+	Generated bool
 }
 
 // SubtitleTracksAfter returns up to limit tracks with id > afterID, ordered
@@ -422,7 +426,7 @@ type SubtitleTrackBody struct {
 // ever restored and needs it.
 func (s *Store) SubtitleTracksAfter(ctx context.Context, afterID int64, limit int) ([]SubtitleTrackBody, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, body FROM subtitle_tracks
+		SELECT id, body, (generated OR declared_generated) FROM subtitle_tracks
 		WHERE id > $1 AND withdrawn_at IS NULL
 		ORDER BY id
 		LIMIT $2`, afterID, limit)
@@ -434,7 +438,7 @@ func (s *Store) SubtitleTracksAfter(ctx context.Context, afterID int64, limit in
 	var out []SubtitleTrackBody
 	for rows.Next() {
 		var t SubtitleTrackBody
-		if err := rows.Scan(&t.ID, &t.Body); err != nil {
+		if err := rows.Scan(&t.ID, &t.Body, &t.Generated); err != nil {
 			return nil, fmt.Errorf("store: SubtitleTracksAfter: scanning: %w", err)
 		}
 		out = append(out, t)

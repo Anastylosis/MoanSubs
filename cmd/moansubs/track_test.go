@@ -335,3 +335,89 @@ func TestTrackShow_UnknownID(t *testing.T) {
 		t.Fatal("Execute(track show 999999): want error, got nil")
 	}
 }
+
+// The corpus repair: a machine-made track written before Scriptorium 0.9.1
+// carries the tool's annotation cue and cues stretched across the silence
+// the VAD removed. resanitize is what fixes both in place.
+const seededGeneratedBody = "1\n00:00:01,000 --> 00:00:03,000\nHello there.\n\n" +
+	"2\n00:00:10,000 --> 00:09:30,000\nDaddy.\n\n" +
+	"3\n00:09:31,000 --> 00:09:34,000\n" +
+	"[scriptorium] machine-generated subtitles · large-v3-turbo · English · 2026-08-26\n\n"
+
+func TestTrackResanitize_RepairsASeededGeneratedTrack(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, store.Release{OSHash: mustOSHash(t, "a5a5a5a5a5a5a5a5"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	genID, err := s.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: seededGeneratedBody, Generated: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack(generated): %v", err)
+	}
+
+	runTrack(t, "resanitize", "--dry-run=false", "--id=0")
+
+	got, err := s.GetSubtitleTrack(ctx, genID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if strings.Contains(got.Body, "scriptorium") {
+		t.Errorf("repaired body kept the marker cue: %q", got.Body)
+	}
+	if !strings.Contains(got.Body, "Hello there.") || !strings.Contains(got.Body, "Daddy.") {
+		t.Errorf("repair took real dialogue with it: %q", got.Body)
+	}
+	if strings.Contains(got.Body, "00:09:30,000") {
+		t.Errorf("repaired body still holds a cue for nine minutes: %q", got.Body)
+	}
+	if !got.Generated {
+		t.Error("repair cleared the generated flag; detection lives in the column, not the body")
+	}
+
+	// Idempotent: the corpus is walked more than once in practice, and a
+	// second pass must be a no-op rather than eroding the cues further.
+	before := got.Body
+	out := runTrack(t, "resanitize", "--dry-run=false", "--id=0")
+	after, err := s.GetSubtitleTrack(ctx, genID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack (second pass): %v", err)
+	}
+	if after.Body != before {
+		t.Errorf("second pass changed the body again:\n%q\n%q", before, after.Body)
+	}
+	if !strings.Contains(out, "updated 0") {
+		t.Errorf("second pass reported work to do: %q", out)
+	}
+}
+
+// A hand-authored track may legitimately hold a cue, and a marker-looking
+// line in someone's dialogue is theirs. Neither transform touches it.
+func TestTrackResanitize_LeavesAHumanTrackAlone(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	releaseID, err := s.CreateRelease(ctx, store.Release{OSHash: mustOSHash(t, "a6a6a6a6a6a6a6a6"), DurationMs: 1})
+	if err != nil {
+		t.Fatalf("CreateRelease: %v", err)
+	}
+	humanID, err := s.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+		ReleaseID: releaseID, Lang: "en", Body: seededGeneratedBody, Generated: false,
+	})
+	if err != nil {
+		t.Fatalf("CreateSubtitleTrack(human): %v", err)
+	}
+
+	runTrack(t, "resanitize", "--dry-run=false", "--id=0")
+
+	got, err := s.GetSubtitleTrack(ctx, humanID)
+	if err != nil {
+		t.Fatalf("GetSubtitleTrack: %v", err)
+	}
+	if got.Body != seededGeneratedBody {
+		t.Errorf("a human-made track was rewritten:\n%q\n%q", seededGeneratedBody, got.Body)
+	}
+}

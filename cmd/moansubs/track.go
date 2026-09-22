@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Anastylosis/MoanSubs/internal/provenance"
 	"github.com/Anastylosis/MoanSubs/internal/store"
 	"github.com/Anastylosis/MoanSubs/internal/subtitle"
 	"github.com/spf13/cobra"
@@ -222,16 +223,23 @@ var (
 )
 
 // trackResanitizeCmd runs every stored subtitle body through the current
-// internal/subtitle parse+render pair — the same entry points
-// handleUploadSubtitle uses on ingest (internal/api/subtitles.go) — so a
-// backfill can never disagree with what a fresh upload would produce.
+// ingest pipeline — the same entry points handleUploadSubtitle uses
+// (internal/api/subtitles.go) — so a backfill can never disagree with what a
+// fresh upload would produce. That equality is the point and not a detail:
+// FindIdenticalTrack dedupes a re-upload by comparing rendered bodies, so a
+// transform applied here and not there (or the reverse) turns every
+// re-upload of an already-stored file into a second track.
+//
 // Bodies are already sanitized SRT, so a parse failure here is a bug in the
 // stored data, not bad input: printed and skipped, never withdrawn (there is
 // no withdrawal mechanism to invoke yet, and even once WP-A1 lands, a parse
 // regression is not the uploader's fault).
+//
+// Idempotent, and --dry-run prints what would change without writing. Worth
+// running after any change to the parse/render pair or to either transform.
 var trackResanitizeCmd = &cobra.Command{
 	Use:   "resanitize",
-	Short: "Re-render stored subtitle bodies through the current sanitizer",
+	Short: "Re-render stored subtitle bodies through the current ingest pipeline",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		s, ctx, cancel, err := openStore(cmd, "track resanitize")
@@ -251,6 +259,16 @@ var trackResanitizeCmd = &cobra.Command{
 				_, _ = fmt.Fprintf(out, "id: %d parse error, skipping: %v\n", t.ID, err)
 				skipped++
 				return nil
+			}
+			// The same two machine-transcript transforms the upload path
+			// applies after provenance detection (api.machineTranscriptCues):
+			// drop the tool's own annotation cue, now that what it said lives
+			// in the track's columns, and bound cue duration. Gated on
+			// generated for the reason ClampCues documents -- a hand-authored
+			// subtitle's timing is not ours to rewrite. t.Generated is
+			// already detection-OR-declaration, the wire meaning.
+			if t.Generated {
+				cues = subtitle.ClampCues(provenance.StripMarkerCues(cues))
 			}
 			rendered := subtitle.RenderSRT(cues)
 			if rendered == t.Body {
@@ -273,7 +291,10 @@ var trackResanitizeCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("moansubs track resanitize: %w", err)
 			}
-			if err := resanitize(store.SubtitleTrackBody{ID: track.ID, Body: track.Body}); err != nil {
+			if err := resanitize(store.SubtitleTrackBody{
+				ID: track.ID, Body: track.Body,
+				Generated: track.Generated || track.DeclaredGenerated,
+			}); err != nil {
 				return err
 			}
 		} else {
