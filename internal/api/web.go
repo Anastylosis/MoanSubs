@@ -5,6 +5,7 @@ import (
 	"embed"
 	"html/template"
 	"log"
+	"math"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -343,6 +344,12 @@ type indexPageData struct {
 	Open    bool
 	Stats   *statsResponse
 	DumpURL string
+	// GeneratedPct is Stats.GeneratedShare as a whole percentage. Rounded
+	// here rather than in the template because html/template has no
+	// formatter for it, and 0 when there is nothing generated to report --
+	// the tile is omitted rather than rendering "0% machine-transcribed" on
+	// a node that has never seen a machine-made track.
+	GeneratedPct int
 	// Newest, Trending and Popular are the three front-page lists
 	// (homepage.go). Each is nil when it could not be built or has nothing
 	// to show, and the template omits the whole section rather than
@@ -372,6 +379,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		log.Printf("api: Stats.snapshot (index): %v", err)
 	} else {
 		data.Stats = &body
+		data.GeneratedPct = int(math.Round(body.GeneratedShare * 100))
 	}
 	s.homepageLists(r.Context(), &data)
 

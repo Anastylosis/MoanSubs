@@ -10,6 +10,7 @@
   <div><strong>{{.Stats.Tracks}}</strong>subtitle tracks</div>
   <div><strong>{{.Stats.Releases}}</strong>releases</div>
   <div><strong>{{.Stats.DownloadsTotal}}</strong>downloads served</div>
+  {{if .GeneratedPct}}<div><strong>{{.GeneratedPct}}%</strong>machine-transcribed</div>{{end}}
 </div>
 {{end}}
 

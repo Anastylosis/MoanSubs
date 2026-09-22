@@ -238,3 +238,35 @@ func TestHomepage_FailedBuildIsNotCached(t *testing.T) {
 		t.Fatal("a successful homepage build was not cached")
 	}
 }
+
+// The front page reports how much of the catalogue is machine-made. The
+// number is the storefront's only honesty about a corpus that is mostly
+// transcribed rather than written, so it has to be right and it has to
+// disappear rather than render "0%" on a node that has none.
+func TestHomepage_ReportsTheMachineGeneratedShare(t *testing.T) {
+	ts, st := webServer(t, true)
+	ctx := context.Background()
+	relID, _ := homepageFixture(t, st, "1000000020000000", "Counted", true)
+	for i, generated := range []bool{true, true, false} {
+		if _, err := st.CreateSubtitleTrack(ctx, store.SubtitleTrack{
+			ReleaseID: relID, Lang: "en", Generated: generated,
+			Body: "1\n00:00:0" + string(rune('1'+i)) + ",000 --> 00:00:09,000\nx\n\n",
+		}); err != nil {
+			t.Fatalf("CreateSubtitleTrack: %v", err)
+		}
+	}
+	// homepageFixture's own track is human, so 2 of 4 are generated.
+	_, body := getBody(t, ts.URL+"/")
+	if !strings.Contains(body, "<strong>50%</strong>machine-transcribed") {
+		t.Errorf("front page did not report a 50%% generated share; got:\n%s", body)
+	}
+}
+
+func TestHomepage_OmitsTheShareWhenNothingIsGenerated(t *testing.T) {
+	ts, st := webServer(t, true)
+	homepageFixture(t, st, "1000000030000000", "AllHuman", true)
+	_, body := getBody(t, ts.URL+"/")
+	if strings.Contains(body, "machine-transcribed") {
+		t.Error("front page claimed a generated share on a corpus with none")
+	}
+}
