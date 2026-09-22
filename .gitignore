@@ -46,6 +46,14 @@ site/
 /config.yaml
 /config.yml
 
+# The filled-in copy of docker-compose.example.yml. The README's quick start
+# is `cp docker-compose.example.yml docker-compose.yml`, then "set a real
+# POSTGRES_PASSWORD" -- which leaves a live database password in a file a
+# fork would otherwise commit without noticing. Anchored to the root so the
+# deploy kit's own tracked compose files are unaffected.
+/docker-compose.yml
+/docker-compose.override.yml
+
 # Operator-supplied TLS cert and key for the deploy kit (deploy/README.md).
 # A private key must never enter this repository.
 deploy/certs/
