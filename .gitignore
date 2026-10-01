@@ -66,3 +66,7 @@ deploy/dynamic/analytics.yml
 deploy/dynamic/tls.yml
 deploy/backup/rclone.conf
 deploy/.env
+
+# Operator-local files: production env and a one-off seeding script
+/prod.env
+/seed-titles.py
