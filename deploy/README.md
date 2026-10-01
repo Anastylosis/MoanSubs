@@ -15,7 +15,9 @@ the stack — private infrastructure details never enter tracked files.
 - [Configuring with a file instead](#configuring-with-a-file-instead)
 - [Upgrades](#upgrades)
 - [Upgrading Postgres](#upgrading-postgres)
+- [Backups](#backups)
 - [Restore drill](#restore-drill)
+- [Restoring for real](#restoring-for-real)
 - [TLS without Let's Encrypt](#tls-without-lets-encrypt)
   - [What this does to the Stash plugin](#what-this-does-to-the-stash-plugin)
 - [Being found (indexing, sitemap, link previews)](#being-found-indexing-sitemap-link-previews)
@@ -185,6 +187,36 @@ newer servers read older dumps happily; the reverse is what breaks. Keep
 `pre-upgrade.sql` until `/healthz` answers `ok` and `/browse` lists what you
 expect.
 
+## Backups
+
+The `backup` service is off by default (a first boot should not wait on
+object storage). There is no on/off variable: it is a compose profile, and
+it runs only when the profile is active. To enable it:
+
+1. Create `backup/rclone.conf` (gitignored) with one remote, e.g. an `[s3]`
+   section for any S3-compatible bucket (rclone supports many other
+   backends; the remote just has to be somewhere other than this host's
+   disk if you want protection from a disk failure).
+2. In `docker-compose.yml`, set the `backup` service's `RCLONE_REMOTE` to
+   that remote's name and `BACKUP_BUCKET` to the bucket (or path) to write
+   into. `BACKUP_RETENTION_DAYS` defaults to 30.
+3. Start it: `docker compose --profile backup up -d --build backup`. To
+   make every later plain `docker compose up -d` include it, put
+   `COMPOSE_PROFILES=backup` in this directory's `.env`; without that, a
+   plain `up -d` neither starts nor updates the backup service.
+4. Confirm: `docker compose --profile backup exec backup backup.sh` runs a
+   dump right now, and `docker compose --profile backup ps` shows the
+   service `healthy` once a dump has landed.
+
+What it does: nightly at 03:00 UTC (`backup/crontab`) it writes
+`<RCLONE_REMOTE>:<BACKUP_BUCKET>/backups/<UTC timestamp>.sql.gz`, a full
+`pg_dump --clean --if-exists` of the `moansubs` database. Only after that
+dump is confirmed on the remote does it delete objects under `backups/`
+older than the retention period, so a broken job never prunes the last good
+copy. The service reports unhealthy if there has been no successful dump in
+48 hours; failures are in `docker compose logs backup`. The dump contains
+account password hashes and every track, so treat the bucket as private.
+
 ## Restore drill
 
 Practice this before you need it for real — a backup nobody has restored
@@ -211,6 +243,28 @@ even though the backup itself is fine. `pg_dump --clean --if-exists`
 (backup.sh) is what makes replaying the dump into `moansubs_drill` safe
 to repeat — each object is dropped and recreated rather than colliding
 with whatever a previous drill run left behind.
+
+## Restoring for real
+
+The drill above proves a dump is usable; this is the same replay into the
+live database. Because dumps are made with `--clean --if-exists`, replaying
+into the existing `moansubs` database drops and recreates each object.
+Stop the writer first so nothing is written mid-restore:
+
+```sh
+docker compose stop server
+docker compose --profile backup exec -T backup sh -c \
+  'rclone cat "${RCLONE_REMOTE}:${BACKUP_BUCKET}/backups/<date>.sql.gz" | gunzip' \
+  | docker compose exec -T postgres psql -U moansubs -v ON_ERROR_STOP=1 -d moansubs
+docker compose start server
+curl https://<DOMAIN>/healthz
+```
+
+To list what is available: `docker compose --profile backup exec -T backup
+sh -c 'rclone lsl "${RCLONE_REMOTE}:${BACKUP_BUCKET}/backups/"'`. On a
+fresh host with an empty volume, bring up `postgres` and `backup` first,
+then run the same pipeline. Work lost between the dump and the failure is
+not recoverable; the nightly schedule bounds it to about a day.
 
 ## TLS without Let's Encrypt
 
