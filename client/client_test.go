@@ -946,3 +946,94 @@ func TestRetryAfter_NonHTTPStatusError(t *testing.T) {
 		t.Errorf("RetryAfter(nil) = %v, %v, want 0, false", d, ok)
 	}
 }
+
+func TestUpload_SupersedesWireAndResult(t *testing.T) {
+	var got map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = nil
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Error(err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"track_id":5,"release_id":1,"generated":false,"revision":2,"supersedes":3,"root_id":3,
+"divergence":{"text_divergence":0.1,"cue_delta":1,"median_shift_ms":0,"shift_spread_ms":0,"pure_retime":false}}`))
+	}))
+	defer ts.Close()
+	c := New(ts.URL, "tok")
+	req := UploadRequest{OSHash: "00000000deadbeef", DurationMs: 1, Lang: "en", Body: "x"}
+
+	if _, err := c.Upload(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["supersedes"]; ok {
+		t.Errorf("zero Supersedes was sent: %v", got)
+	}
+
+	req.Supersedes = 3
+	res, err := c.Upload(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["supersedes"] != float64(3) {
+		t.Errorf("supersedes on wire = %v, want 3", got["supersedes"])
+	}
+	if res.Revision != 2 || res.Supersedes != 3 || res.RootID != 3 || res.Divergence == nil || res.Divergence.TextDivergence != 0.1 || res.Divergence.CueDelta != 1 {
+		t.Errorf("result = %+v", res)
+	}
+}
+
+func TestUpload_RevisionDeclinedDecodes(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"track_id":6,"release_id":1,"generated":false,"revision_declined":"retime","revision_hint":"use fit",
+"divergence":{"text_divergence":0,"cue_delta":0,"median_shift_ms":500,"shift_spread_ms":0,"pure_retime":true}}`))
+	}))
+	defer ts.Close()
+	res, err := New(ts.URL, "tok").Upload(context.Background(), UploadRequest{Supersedes: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.RevisionDeclined != "retime" || res.RevisionHint != "use fit" || res.Divergence == nil || !res.Divergence.PureRetime || res.Revision != 0 {
+		t.Errorf("result = %+v", res)
+	}
+}
+
+func TestUpload_SupersedeErrors(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		want   error
+	}{
+		{http.StatusNotFound, ErrSupersedeNotFound},
+		{http.StatusConflict, ErrSupersedeConflict},
+		{http.StatusLocked, ErrSupersedeLocked},
+	} {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(tc.status)
+			_, _ = w.Write([]byte(`{"error":"supersedes: nope"}`))
+		}))
+		c := New(ts.URL, "tok")
+		_, err := c.Upload(context.Background(), UploadRequest{Supersedes: 3})
+		if !errors.Is(err, tc.want) {
+			t.Errorf("status %d: err = %v, want %v", tc.status, err, tc.want)
+		}
+		if st, ok := StatusCode(err); !ok || st != tc.status {
+			t.Errorf("status %d: StatusCode = %d, %v", tc.status, st, ok)
+		}
+		// Without Supersedes the same status is not a supersede error.
+		_, err = c.Upload(context.Background(), UploadRequest{})
+		if errors.Is(err, tc.want) {
+			t.Errorf("status %d without Supersedes mapped to %v", tc.status, tc.want)
+		}
+		ts.Close()
+	}
+}
+
+func TestLookup_TrackRevisionFieldsDecode(t *testing.T) {
+	var tr TrackSummary
+	if err := json.Unmarshal([]byte(`{"id":5,"revision":2,"root_id":3}`), &tr); err != nil {
+		t.Fatal(err)
+	}
+	if tr.Revision != 2 || tr.RootID != 3 {
+		t.Errorf("track = %+v", tr)
+	}
+}

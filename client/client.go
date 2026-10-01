@@ -83,6 +83,11 @@ type TrackSummary struct {
 	// track's authorship (server migration 0026) is "credited". Empty on a
 	// server predating the field, same as any other additive field here.
 	CreditedTo string `json:"credited_to,omitempty"`
+	// Revision/RootID (server migration 0024, feature "revisions"): the
+	// track's place in its chain and the chain's id. Downloads/Up/Down are
+	// the chain's totals. Zero on a server predating the feature.
+	Revision int   `json:"revision"`
+	RootID   int64 `json:"root_id"`
 }
 
 // StashID is one stash-box scene identity (migration 0011, WP-C9a) — sent
@@ -532,6 +537,10 @@ type UploadRequest struct {
 	// clearable) — sending false is indistinguishable from not sending the
 	// field at all, so there is no reason to.
 	Generated bool `json:"generated,omitempty"`
+	// Supersedes (server migration 0024, feature "revisions") is the id of
+	// the chain-head track this upload revises. Omitempty so an older node
+	// sees no field at all.
+	Supersedes int64 `json:"supersedes,omitempty"`
 }
 
 // UploadResult mirrors the server's upload response.
@@ -545,6 +554,47 @@ type UploadResult struct {
 	// Duplicate means a byte-identical track already existed server-side —
 	// the normal outcome when a push task is re-run.
 	Duplicate bool `json:"duplicate"`
+	// Set on an accepted supersede (migration 0024).
+	Revision   int64 `json:"revision,omitempty"`
+	Supersedes int64 `json:"supersedes,omitempty"`
+	RootID     int64 `json:"root_id,omitempty"`
+	// RevisionDeclined ("retime" or "too_different") means the supersede was
+	// refused but the upload was still stored as an ordinary new track.
+	RevisionDeclined string      `json:"revision_declined,omitempty"`
+	RevisionHint     string      `json:"revision_hint,omitempty"`
+	Divergence       *Divergence `json:"divergence,omitempty"`
+}
+
+// Divergence is how a supersede's body measured against its target.
+type Divergence struct {
+	TextDivergence float64 `json:"text_divergence"`
+	CueDelta       int     `json:"cue_delta"`
+	MedianShiftMs  int64   `json:"median_shift_ms"`
+	ShiftSpreadMs  int64   `json:"shift_spread_ms"`
+	PureRetime     bool    `json:"pure_retime"`
+}
+
+// Upload errors for a Supersedes request; the underlying error (and so
+// StatusCode) is still reachable through errors.As.
+var (
+	ErrSupersedeNotFound = errors.New("client: supersedes target does not exist")
+	// ErrSupersedeConflict covers a withdrawn target, a target that is no
+	// longer its chain's head (the server's message names the current head),
+	// and a generated upload over a human-made track.
+	ErrSupersedeConflict = errors.New("client: supersedes target refused")
+	ErrSupersedeLocked   = errors.New("client: supersedes target's chain is revision-locked")
+)
+
+func supersedeError(err error) error {
+	switch status, _ := StatusCode(err); status {
+	case http.StatusNotFound:
+		return fmt.Errorf("%w: %w", ErrSupersedeNotFound, err)
+	case http.StatusConflict:
+		return fmt.Errorf("%w: %w", ErrSupersedeConflict, err)
+	case http.StatusLocked:
+		return fmt.Errorf("%w: %w", ErrSupersedeLocked, err)
+	}
+	return err
 }
 
 // Upload pushes one subtitle to the server. Requires the account token.
@@ -586,6 +636,9 @@ func (c *Client) Upload(ctx context.Context, req UploadRequest) (*UploadResult, 
 	httpReq.Header.Set("Authorization", "Bearer "+c.Token)
 	var res UploadResult
 	if err := c.do(httpReq, &res); err != nil {
+		if req.Supersedes != 0 {
+			err = supersedeError(err)
+		}
 		return nil, err
 	}
 	return &res, nil
