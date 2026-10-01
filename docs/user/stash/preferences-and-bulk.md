@@ -14,7 +14,9 @@ tracks appear in — they never hide anything:
   `default`.
 
 Every track still shows up regardless of these settings — they sort and
-preselect, that's all.
+preselect, that's all. The one exception is the library-wide download task,
+which also uses **Preferred languages** to decide what to fetch; see
+[Bulk switches](#bulk-switches).
 
 ## Bulk switches
 
@@ -24,6 +26,13 @@ effect on the per-scene panel:
 - **Download all languages (bulk tasks)** — off by default. When on, the
   bulk download task fetches every language a release has instead of
   stopping at **Preferred languages**.
+
+**The bulk download needs one of the two.** Set **Preferred languages**, or
+turn on **Download all languages**, before running **Download subtitles**
+(or its dry run). With neither, the task stops immediately with
+`download_all: set "languages" or enable "download all languages"...` and
+writes nothing. For this task, Preferred languages is a filter on what gets
+downloaded, not only a sort order.
 - **Replace existing captions (bulk tasks)** — off by default. A
   library-wide download has no per-file prompt to ask through, so this
   setting is the only control you get over whether it replaces a caption
@@ -47,6 +56,12 @@ encode** / **Possible match** levels the per-scene panel shows, plus a
 scene's own stash-box id) are used here — the **Name match** fallback
 never runs unattended, since it isn't reliable enough to write a file on
 its own.
+
+## Checking the connection
+
+**Probe**, in the same Plugin tasks list, checks the plugin can reach the
+server before you start a long run. A passing Probe logs nothing at the
+default Info level — see [Installing the plugin](install.md#check-it-works-the-probe-task).
 
 ## Where the result shows up
 

@@ -31,7 +31,10 @@ Stash → **Settings → Plugins → Available Plugins → Add Source**, with:
 | linux/amd64 | `https://plugins.moansubs.org/plugin/amd64/index.yml` |
 | linux/arm64 | `https://plugins.moansubs.org/plugin/arm64/index.yml` |
 
-Then install **moansubs** from that source. Later releases show up as
+In the Add Source dialog use Name `MoanSubs`, the Source URL above, and
+Local path `moansubs` (the subfolder under Stash's plugins directory that
+packages from this source install into). Then install **moansubs** from that
+source. Later releases show up as
 upgrades in the same place. Adding the index for the wrong architecture
 installs a binary that cannot execute — Stash reports the plugin as
 failing to start.
@@ -49,8 +52,9 @@ Build with `make plugin`, then copy `moansubs.yml`, `moansubs.js` and your
 architecture's binary (renamed to `moansubs-plugin`, `chmod +x`) into
 `<stash plugins dir>/moansubs/`.
 
-Whichever route: Stash → **Settings → Plugins → Reload plugins**, then
-run the **Probe** task — it fails loudly with the reason if anything is
+Whichever route: if the plugin doesn't appear, Stash → **Settings →
+Plugins → Reload plugins** (not needed on Stash 0.31.1 after a package
+install). Then run the **Probe** task — it fails loudly with the reason if anything is
 misconfigured. After install the plugin works against the public node
 (https://moansubs.org) with no configuration except an upload token if you
 want to upload or vote.
@@ -72,9 +76,9 @@ want to upload or vote.
 | **Stash API key** | Recommended if your Stash has auth: the session cookie Stash hands plugins expires mid-run on long tasks. |
 | **Hide the per-scene push button** | Off. Ticking it stops the *Push local subs* button from appearing on scene pages. It reads as an opt-out because a Stash checkbox cannot default to checked — an unticked box means the button is offered. |
 | **Full-hash lookup** | Off by default. Sends complete fingerprints to the server for wider fuzzy matching (Hamming ≤8 instead of ≤4) — reveals your exact hashes to the node operator. Separate from this setting: a scene's own stash-box ids, when Stash has any, go along on every lookup either way. |
-| **Preferred languages** | Empty by default. BCP-47 tags in preference order, comma-separated (e.g. `en,pl`). Sorts the per-scene panel's tracks so a preferred language's tracks come first — it never hides any track, and an unparseable entry is dropped with a log line rather than disabling the rest of the list. |
+| **Preferred languages** | Empty by default. BCP-47 tags in preference order, comma-separated (e.g. `en,pl`). Sorts the per-scene panel's tracks so a preferred language's tracks come first — it never hides any track in the panel (the bulk download task, however, needs this or **Download all languages** set, or it errors out), and an unparseable entry is dropped with a log line rather than disabling the rest of the list. |
 | **Preferred subtitle kind** | Empty (meaning `default`). One of `default`, `cc`, `sdh`, `forced`, `other`. Breaks a tie between same-language tracks in the sort above — e.g. prefer `sdh` over `default` when both exist for your top language. |
-| **Download all languages (bulk tasks)** | Off. The bulk download task fetches every language a release has instead of stopping at **Preferred languages**. No effect on the per-scene panel, which always lists everything. |
+| **Download all languages (bulk tasks)** | Off. The bulk download task fetches every language a release has instead of stopping at **Preferred languages**. No effect on the per-scene panel, which always lists everything. The bulk download refuses to run unless this is on or **Preferred languages** is set (`download_all: set "languages" or enable ...`). |
 | **Replace existing captions (bulk tasks)** | Off. Governs unattended/bulk download paths only — the per-scene panel always warns, names the file, and requires a second *Overwrite* click before replacing anything on disk. |
 
 **Enable phash generation in Stash** (Settings → Tasks → Generate →

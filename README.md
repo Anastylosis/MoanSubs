@@ -118,12 +118,18 @@ Homebrew installs are on its releases page.
    | linux/amd64 | `https://plugins.moansubs.org/plugin/amd64/index.yml` |
    | linux/arm64 | `https://plugins.moansubs.org/plugin/arm64/index.yml` |
 
+   In the Add Source dialog, enter Name `MoanSubs`, the Source URL from the
+   table, and Local path `moansubs` (the subfolder under Stash's plugins
+   directory that this source installs into).
+
    The exec half is a native binary and Stash's package source has no
    notion of architecture, hence one index per arch — match the machine
    **Stash** runs on, not the one running the server. The binary is static,
    so it runs in any Stash container regardless of base image.
 
-2. **Settings → Plugins → Reload plugins.** The server URL already
+2. If **moansubs** doesn't appear after installing, **Settings → Plugins →
+   Reload plugins**. Only amd64 and arm64 are published; other platforms
+   build from source (`plugin/README.md`). The server URL already
    defaults to `https://moansubs.org`; leave it alone unless you're
    running your own. Downloading is anonymous — you need no account at
    all to start pulling subtitles.
