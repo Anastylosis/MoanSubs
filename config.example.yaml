@@ -111,6 +111,23 @@ contact:
   enabled: false
   note: ""
 
+# ── Privacy page ────────────────────────────────────────────────────────
+
+# Facts about this deployment that /privacy states only when set. They
+# change no behaviour; they make the page true for your setup.
+#
+# `hosting_country` — where the server runs, e.g. "Germany".
+#   (MOANSUBS_PRIVACY_HOSTING_COUNTRY)
+# `cdn` — a CDN/proxy in front of the site that sees visitor IP addresses
+#   and requests. "" (none) or "cloudflare". (MOANSUBS_PRIVACY_CDN)
+# `analytics_self_hosted` — the analytics backend runs on the operator's
+#   own server, so no analytics data reaches a third party.
+#   (MOANSUBS_PRIVACY_ANALYTICS_SELF_HOSTED)
+privacy:
+  hosting_country: ""
+  cdn: ""
+  analytics_self_hosted: false
+
 # ── Accounts ────────────────────────────────────────────────────────────
 
 # Who may create an account: "open" (anyone), "invite" (a code from an

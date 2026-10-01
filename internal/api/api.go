@@ -410,6 +410,10 @@ type Server struct {
 	ContactEmail   string
 	ContactEnabled bool
 	ContactNote    string
+	// Privacy-page statements about the deployment (MOANSUBS_PRIVACY_*).
+	PrivacyHostingCountry      string
+	PrivacyCDN                 *CDN
+	PrivacyAnalyticsSelfHosted bool
 	// StashBoxLimiter is the per-account budget for POST
 	// /api/v1/stashbox/lookup and POST /release/{id}/stashbox/find
 	// (WP-C9b): both spend the caller's own personal key against a

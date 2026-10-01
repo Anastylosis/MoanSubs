@@ -452,6 +452,19 @@ var serveCmd = &cobra.Command{
 		}
 		contactNote := os.Getenv("MOANSUBS_CONTACT_NOTE")
 
+		privacyCDN, err := api.ParseCDN(os.Getenv("MOANSUBS_PRIVACY_CDN"))
+		if err != nil {
+			return fmt.Errorf("moansubs serve: invalid MOANSUBS_PRIVACY_CDN: %w", err)
+		}
+		analyticsSelfHosted := false
+		if v := os.Getenv("MOANSUBS_PRIVACY_ANALYTICS_SELF_HOSTED"); v != "" {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("moansubs serve: invalid MOANSUBS_PRIVACY_ANALYTICS_SELF_HOSTED %q", v)
+			}
+			analyticsSelfHosted = b
+		}
+
 		// Cancelled on SIGINT/SIGTERM, which also starts the graceful
 		// shutdown below.
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
@@ -512,6 +525,9 @@ var serveCmd = &cobra.Command{
 		apiSrv.ContactEmail = contactEmail
 		apiSrv.ContactEnabled = contactEnabled
 		apiSrv.ContactNote = contactNote
+		apiSrv.PrivacyHostingCountry = strings.TrimSpace(os.Getenv("MOANSUBS_PRIVACY_HOSTING_COUNTRY"))
+		apiSrv.PrivacyCDN = privacyCDN
+		apiSrv.PrivacyAnalyticsSelfHosted = analyticsSelfHosted
 		srv := &http.Server{
 			Addr:    listen,
 			Handler: api.NewMux(apiSrv),

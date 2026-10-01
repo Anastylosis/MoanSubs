@@ -20,6 +20,8 @@ if this page and it ever disagree. This is the same content in short.
   [CC0](https://creativecommons.org/publicdomain/zero/1.0/) and may be
   copied, dumped and mirrored. The kind, authorship and AI-generated
   labels you choose are your own statements.
+- **Your account.** You can delete it at any time from `/me`; your
+  uploads stay, without your name, since they were given away as CC0.
 - **Removal.** The operator may remove any track, release or account.
   Rights holders and people depicted can ask for removal at
   wasylq@protonmail.com or with the form under any subtitle — see
@@ -43,10 +45,18 @@ a year) and `moansubs_session` (only when you log in). Nothing else, no
 advertising.
 
 **Analytics**: public pages load an [Umami](https://umami.is/) script from
-the site's own domain (`/s/script.js`). Umami sets no cookies and does not
-store IP addresses; it records the page, referrer, browser, operating
-system, device type and country. Search terms are stripped before they are
-sent. Account, moderation and admin pages carry no analytics.
+the site's own domain (`/s/script.js`). Umami runs on the operator's own
+server, so no analytics data goes to a third party. It sets no cookies and
+does not store IP addresses; it records the page, referrer, browser,
+operating system, device type and country. Search terms are stripped
+before they are sent. Account, moderation and admin pages carry no
+analytics.
+
+**Where it runs**: the server is hosted in Germany.
+[Cloudflare](https://www.cloudflare.com/) sits in front of the site as a
+CDN and proxy, so every request passes through it and it processes your IP
+address and the request data on the operator's behalf; see
+[Cloudflare's privacy policy](https://www.cloudflare.com/privacypolicy/).
 
 **With an account**: your account name, a salted password hash, a hash of
 your API token (and possibly an encrypted copy so your account page can
@@ -80,3 +90,16 @@ written are not edited; they go with normal log rotation.
 withdrawn or disabled rather than erased, so the removal can be explained
 and reversed. Dumps made afterwards leave withdrawn tracks out; copies
 already taken by mirrors are outside the site's control. To ask for removal, write to wasylq@protonmail.com.
+
+## Your rights
+
+The EU General Data Protection Regulation (GDPR) applies. You have the
+right to access the personal data held about you, to have it corrected,
+to have it erased, to restrict its processing, to object to its
+processing, and to receive it in a portable format. You also have the
+right to lodge a complaint with a data protection supervisory authority,
+in particular in the EU country where you live or work.
+
+Deleting your account is self-service on `/me`. For anything else, write
+to wasylq@protonmail.com and name your account; no email address is
+stored, so the account name is how your data is found.

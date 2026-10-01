@@ -15,7 +15,12 @@
   <p>No other cookies, and no advertising.</p>
   {{if .Analytics}}
   <h2>Analytics</h2>
-  <p>Public pages load an <a href="https://umami.is/">Umami</a> analytics script{{if .AnalyticsSameOrigin}}, served from this site's own domain{{else}} from <code class="mono">{{.AnalyticsScript}}</code>{{end}}. Umami sets no cookies and does not store your IP address; it records the page, referrer, and the browser, operating system, device type and country derived from the request. Query strings are stripped, so search terms are not sent. Account, moderation and admin pages carry no analytics.</p>
+  <p>Public pages load an <a href="https://umami.is/">Umami</a> analytics script{{if .AnalyticsSameOrigin}}, served from this site's own domain{{else}} from <code class="mono">{{.AnalyticsScript}}</code>{{end}}. Umami sets no cookies and does not store your IP address; it records the page, referrer, and the browser, operating system, device type and country derived from the request. Query strings are stripped, so search terms are not sent. Account, moderation and admin pages carry no analytics.{{if .AnalyticsSelfHosted}} Umami runs on the operator's own server; no analytics data goes to a third party.{{end}}</p>
+  {{end}}
+  {{if or .HostingCountry .CDN}}
+  <h2>Where it runs</h2>
+  {{if .HostingCountry}}<p>The server is hosted in {{.HostingCountry}}.</p>{{end}}
+  {{if .CDN}}<p>{{.CDN.Name}} sits in front of the site as a CDN and proxy. Every request passes through it, so it processes your IP address and the request data on the operator's behalf. See <a href="{{.CDN.PrivacyPolicy}}">{{.CDN.Name}}'s privacy policy</a>.</p>{{end}}
   {{end}}
   <h2>If you register</h2>
   <p>Stored: your account name, a salted hash of your password (never the password itself), a hash of your API token (plus, if the operator has turned it on, an encrypted copy so your account page can show it again), your role, when the account was created, who invited you if registration needed an invite, and the reason if an account is ever disabled. Sessions store only their id, your account and their expiry, not your IP address. If you save a stash-box API key, it is stored encrypted, used only for lookups you start, and can be removed from your account page.</p>
@@ -30,8 +35,13 @@
 
   <h2>Deleting things</h2>
   <p>You can delete your own account from your <a href="/me">account page</a>: it asks for your password once more, then erases the account, its sessions, votes, fit reports, stash-box keys and invite codes. Your uploads stay, without your name or any link to you; metadata suggestions and removal requests stay with the account link removed. Dumps made afterwards don't contain your name; dumps already published can't be recalled. Server log lines already written are not edited; they go with the operator's log rotation.</p>
-  <p>Tracks and accounts removed by moderators are withdrawn or disabled rather than erased, so that removals can be explained and reversed. To ask for something to be removed, {{if .ContactEmail}}write to <code class="mono">{{.ContactEmail}}</code>{{else if .ContactShown}}use the <a href="/contact">contact page</a>{{else}}contact the operator of this site{{end}}; <a href="https://github.com/Anastylosis/MoanSubs/blob/master/TAKEDOWN.md">TAKEDOWN.md</a> describes how requests are handled.</p>
+  <p>Tracks and accounts removed by moderators are withdrawn or disabled rather than erased, so that removals can be explained and reversed. To ask for something to be removed, {{template "legal_contact" .}}; <a href="https://github.com/Anastylosis/MoanSubs/blob/master/TAKEDOWN.md">TAKEDOWN.md</a> describes how requests are handled.</p>
+
+  <h2>Your rights</h2>
+  <p>The EU General Data Protection Regulation (GDPR) applies. You have the right to access the personal data held about you, to have it corrected, to have it erased, to restrict its processing, to object to its processing, and to receive it in a portable format. You also have the right to lodge a complaint with a data protection supervisory authority, in particular in the EU country where you live or work.</p>
+  <p>Deleting your account is self-service on your <a href="/me">account page</a>. For anything else, {{template "legal_contact" .}}, naming your account; no email address is stored, so the account name is how your data is found.</p>
 
   <p>See also the <a href="/terms">terms of service</a>.</p>
 </div>
 {{end}}
+{{define "legal_contact"}}{{if .ContactEmail}}write to <code class="mono">{{.ContactEmail}}</code>{{else if .ContactShown}}use the <a href="/contact">contact page</a>{{else}}contact the operator of this site{{end}}{{end}}

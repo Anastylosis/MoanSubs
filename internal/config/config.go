@@ -56,6 +56,7 @@ type File struct {
 	StashBoxes  StashBoxes  `yaml:"stash_boxes"`
 	AutoConfirm AutoConfirm `yaml:"autoconfirm"`
 	Contact     Contact     `yaml:"contact"`
+	Privacy     Privacy     `yaml:"privacy"`
 	Revisions   Revisions   `yaml:"revisions"`
 }
 
@@ -97,6 +98,12 @@ type Contact struct {
 	Email   *string `yaml:"email"`
 	Enabled *bool   `yaml:"enabled"`
 	Note    *string `yaml:"note"`
+}
+
+type Privacy struct {
+	HostingCountry      *string `yaml:"hosting_country"`
+	CDN                 *string `yaml:"cdn"`
+	AnalyticsSelfHosted *bool   `yaml:"analytics_self_hosted"`
 }
 
 // Revisions is migration 0024's config (PLAN_1.md WP-R3): how different a
@@ -186,6 +193,10 @@ func (f *File) env() map[string]string {
 	set("MOANSUBS_CONTACT_EMAIL", f.Contact.Email)
 	setBool("MOANSUBS_CONTACT", f.Contact.Enabled)
 	set("MOANSUBS_CONTACT_NOTE", f.Contact.Note)
+
+	set("MOANSUBS_PRIVACY_HOSTING_COUNTRY", f.Privacy.HostingCountry)
+	set("MOANSUBS_PRIVACY_CDN", f.Privacy.CDN)
+	setBool("MOANSUBS_PRIVACY_ANALYTICS_SELF_HOSTED", f.Privacy.AnalyticsSelfHosted)
 
 	setFloat("MOANSUBS_REVISION_MAX_DIVERGENCE", f.Revisions.MaxTextDivergence)
 	setBool("MOANSUBS_REVISION_RETIME_HINT", f.Revisions.RetimeHint)

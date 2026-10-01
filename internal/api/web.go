@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"embed"
+	"fmt"
 	"html/template"
 	"log"
 	"math"
@@ -488,6 +489,33 @@ type legalPageData struct {
 	Analytics           bool
 	AnalyticsSameOrigin bool
 	AnalyticsScript     string
+	AnalyticsSelfHosted bool
+	HostingCountry      string
+	CDN                 *CDN
+}
+
+// CDN is a proxy in front of the node that the privacy page must name.
+type CDN struct {
+	Name          string
+	PrivacyPolicy string
+}
+
+var knownCDNs = map[string]CDN{
+	"cloudflare": {Name: "Cloudflare", PrivacyPolicy: "https://www.cloudflare.com/privacypolicy/"},
+}
+
+// ParseCDN resolves MOANSUBS_PRIVACY_CDN: "" is none, anything unknown is
+// an error rather than a page naming a processor without its policy.
+func ParseCDN(v string) (*CDN, error) {
+	v = strings.ToLower(strings.TrimSpace(v))
+	if v == "" {
+		return nil, nil
+	}
+	c, ok := knownCDNs[v]
+	if !ok {
+		return nil, fmt.Errorf("unknown CDN %q (known: cloudflare)", v)
+	}
+	return &c, nil
 }
 
 func (s *Server) legalPageData(title string) legalPageData {
@@ -496,16 +524,19 @@ func (s *Server) legalPageData(title string) legalPageData {
 		ttl = DefaultSessionTTL
 	}
 	d := legalPageData{
-		Title:        title,
-		ContactEmail: s.ContactEmail,
-		ContactShown: s.contactShown(),
-		AgeGate:      s.AgeGate,
-		SessionTTL:   humanDuration(ttl),
+		Title:          title,
+		ContactEmail:   s.ContactEmail,
+		ContactShown:   s.contactShown(),
+		AgeGate:        s.AgeGate,
+		SessionTTL:     humanDuration(ttl),
+		HostingCountry: s.PrivacyHostingCountry,
+		CDN:            s.PrivacyCDN,
 	}
 	if s.Analytics != nil {
 		d.Analytics = true
 		d.AnalyticsScript = s.Analytics.Script
 		d.AnalyticsSameOrigin = strings.HasPrefix(s.Analytics.Script, "/") && !strings.HasPrefix(s.Analytics.Script, "//")
+		d.AnalyticsSelfHosted = s.PrivacyAnalyticsSelfHosted
 	}
 	return d
 }

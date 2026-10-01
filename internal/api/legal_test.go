@@ -97,6 +97,67 @@ func TestPrivacy_AnalyticsAndAgeGate(t *testing.T) {
 	}
 }
 
+func TestPrivacy_DeploymentFactsAndRights(t *testing.T) {
+	st := openTestStore(t)
+	srv := NewServer(st)
+	srv.AgeGate = false
+	srv.ContactEmail = "contact@example.com"
+	a, err := ParseAnalytics("/s/script.js", "site-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Analytics = a
+	srv.PrivacyAnalyticsSelfHosted = true
+	srv.PrivacyHostingCountry = "Germany"
+	if srv.PrivacyCDN, err = ParseCDN("Cloudflare"); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(NewMux(srv))
+	t.Cleanup(ts.Close)
+
+	_, body := getBody(t, ts.URL+"/privacy")
+	for _, want := range []string{
+		"hosted in Germany",
+		"Cloudflare sits in front of the site",
+		`href="https://www.cloudflare.com/privacypolicy/"`,
+		"no analytics data goes to a third party",
+		"GDPR", "supervisory authority", "portable format",
+		`href="/me"`, "contact@example.com",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("privacy page missing %q", want)
+		}
+	}
+}
+
+// Deployment facts are statements the operator opts into; a bare node
+// makes none of them.
+func TestPrivacy_NoDeploymentFactsByDefault(t *testing.T) {
+	ts, _ := webServer(t, true)
+
+	_, body := getBody(t, ts.URL+"/privacy")
+	for _, unwanted := range []string{"hosted in", "Cloudflare", "third party"} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("privacy page on an unconfigured node says %q", unwanted)
+		}
+	}
+	if !strings.Contains(body, "GDPR") {
+		t.Error("privacy page missing the rights section")
+	}
+}
+
+func TestParseCDN(t *testing.T) {
+	if c, err := ParseCDN(""); c != nil || err != nil {
+		t.Errorf(`ParseCDN("") = %v, %v; want nil, nil`, c, err)
+	}
+	if c, err := ParseCDN(" cloudflare "); err != nil || c.Name != "Cloudflare" {
+		t.Errorf("ParseCDN(cloudflare) = %v, %v", c, err)
+	}
+	if _, err := ParseCDN("akamai"); err == nil {
+		t.Error("ParseCDN(akamai) accepted an unknown CDN")
+	}
+}
+
 func TestLegal_FooterLinks(t *testing.T) {
 	ts, _ := webServer(t, true)
 
