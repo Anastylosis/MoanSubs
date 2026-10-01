@@ -609,6 +609,26 @@ cookie regardless, then redirects (`303`) to `/`.
 
 - `403` — Origin/Referer does not match this node's host.
 
+### `POST /me/delete`
+
+Self-service account deletion. Form-encoded (`password=...`),
+session-cookie only, Origin/Referer-checked like `/logout`; `GET /me/delete`
+is the confirmation page that posts here. There is no Bearer or JSON
+equivalent. In one transaction it deletes the account row (name, password
+hash, token hash and encrypted token), its sessions, votes (track up/down
+recomputed), fit reports, stash-box keys and invite codes. The account's
+uploads stay, with `uploader_id` cleared and `credited` turned into `uncredited`,
+so no surface credits them any more; metadata proposals, stash ids it
+attached and removal requests it filed or handled stay with the account
+link cleared, and accounts it invited lose their `invited_by`. Dumps made
+afterwards carry no trace of the name; dumps already published can't be
+recalled.
+
+- `200` — deleted; cookie cleared.
+- `400` — wrong password; nothing changed.
+- `403` — Origin/Referer does not match this node's host.
+- `409` — the account is the node's only admin.
+
 ### `POST /api/v1/subtitles` *(auth required)*
 
 ```json

@@ -397,6 +397,76 @@ func (s *Store) PurgeAccount(ctx context.Context, accountID int64, name, reason 
 	return n, nil
 }
 
+// ErrLastAdmin refuses deleting the only remaining admin account.
+var ErrLastAdmin = errors.New("store: cannot delete the last admin account")
+
+// DeleteAccount erases accountID and everything personal tied to it, in one
+// transaction. Tracks, metadata proposals, stash ids and handled removal
+// requests stay, unlinked (migration 0028's ON DELETE rules).
+func (s *Store) DeleteAccount(ctx context.Context, accountID int64) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("store: DeleteAccount: beginning tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var role string
+	err = tx.QueryRow(ctx, `SELECT role FROM accounts WHERE id = $1 FOR UPDATE`, accountID).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("store: DeleteAccount: %w", err)
+	}
+	if role == "admin" {
+		// Locks every admin row so two admins deleting themselves at once
+		// can't both see the other as the survivor.
+		var admins int
+		if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM (SELECT 1 FROM accounts WHERE role = 'admin' FOR UPDATE) a`).Scan(&admins); err != nil {
+			return fmt.Errorf("store: DeleteAccount: counting admins: %w", err)
+		}
+		if admins <= 1 {
+			return ErrLastAdmin
+		}
+	}
+
+	// credited -> uncredited keeps "the uploader made this" without a name to show.
+	if _, err := tx.Exec(ctx, `
+		UPDATE subtitle_tracks SET uploader_id = NULL,
+			authorship = CASE WHEN authorship = 'credited' THEN 'uncredited' ELSE authorship END
+		WHERE uploader_id = $1`, accountID); err != nil {
+		return fmt.Errorf("store: DeleteAccount: unlinking tracks: %w", err)
+	}
+
+	rows, err := tx.Query(ctx, `
+		SELECT t.id FROM subtitle_tracks t
+		WHERE t.id IN (SELECT track_id FROM track_votes WHERE account_id = $1)
+		ORDER BY t.id FOR UPDATE`, accountID)
+	if err != nil {
+		return fmt.Errorf("store: DeleteAccount: locking voted tracks: %w", err)
+	}
+	voted, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	if err != nil {
+		return fmt.Errorf("store: DeleteAccount: locking voted tracks: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM track_votes WHERE account_id = $1`, accountID); err != nil {
+		return fmt.Errorf("store: DeleteAccount: deleting votes: %w", err)
+	}
+	for _, id := range voted {
+		if _, _, err := recomputeVoteCounts(ctx, tx, id); err != nil {
+			return fmt.Errorf("store: DeleteAccount: %w", err)
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, accountID); err != nil {
+		return fmt.Errorf("store: DeleteAccount: deleting account: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("store: DeleteAccount: %w", err)
+	}
+	return nil
+}
+
 // GetAccountByName returns the account named name, matched
 // case-insensitively like SetAccountDisabled, or ErrNotFound. Needed
 // wherever a CLI command works from a name but a store call needs the

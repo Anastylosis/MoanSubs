@@ -29,7 +29,8 @@
   <p>The removal form on release pages stores what you type (reason, note, optional contact) and, only if you happened to be logged in, your account. Your IP address is not stored, and requests are never shown publicly.</p>
 
   <h2>Deleting things</h2>
-  <p>There is no self-service account deletion. Removed tracks and accounts are withdrawn or disabled rather than erased, so that removals can be explained and reversed. To ask for something to be removed, {{if .ContactEmail}}write to <code class="mono">{{.ContactEmail}}</code>{{else if .ContactShown}}use the <a href="/contact">contact page</a>{{else}}contact the operator of this site{{end}}; <a href="https://github.com/Anastylosis/MoanSubs/blob/master/TAKEDOWN.md">TAKEDOWN.md</a> describes how requests are handled.</p>
+  <p>You can delete your own account from your <a href="/me">account page</a>: it asks for your password once more, then erases the account, its sessions, votes, fit reports, stash-box keys and invite codes. Your uploads stay, without your name or any link to you; metadata suggestions and removal requests stay with the account link removed. Dumps made afterwards don't contain your name; dumps already published can't be recalled. Server log lines already written are not edited; they go with the operator's log rotation.</p>
+  <p>Tracks and accounts removed by moderators are withdrawn or disabled rather than erased, so that removals can be explained and reversed. To ask for something to be removed, {{if .ContactEmail}}write to <code class="mono">{{.ContactEmail}}</code>{{else if .ContactShown}}use the <a href="/contact">contact page</a>{{else}}contact the operator of this site{{end}}; <a href="https://github.com/Anastylosis/MoanSubs/blob/master/TAKEDOWN.md">TAKEDOWN.md</a> describes how requests are handled.</p>
 
   <p>See also the <a href="/terms">terms of service</a>.</p>
 </div>

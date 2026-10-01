@@ -231,8 +231,11 @@ rotate-token, restricted to the code's own creator or an admin), the list
 of members who joined through one of them, a **stash-box keys** section
 (one row per endpoint in `MOANSUBS_STASH_ENDPOINTS`, a "set"/"replace" and
 a "clear" form each, `POST /me/stashbox` / `POST /me/stashbox/clear`,
-session + Origin-checked — see "Stash-box lookups" below), and a link to
-`/upload`.
+session + Origin-checked — see "Stash-box lookups" below), a link to
+`/upload`, and a "Delete account" link to `/me/delete` (re-asks for the
+password; `POST /me/delete`, session + Origin-checked — see API.md for
+what is deleted and what stays, unlinked; the node's last admin is
+refused).
 `/upload` (session required,
 redirects to `/login` otherwise) is a multipart form for the same
 `POST /api/v1/subtitles` upload — same fields, same rate limit

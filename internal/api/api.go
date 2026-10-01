@@ -527,6 +527,8 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("GET /me", s.page(s.handleMe))
 	mux.HandleFunc("POST /me/rotate-token", s.page(s.handleRotateToken))
 	mux.HandleFunc("POST /me/password", s.page(s.handleChangePassword))
+	mux.HandleFunc("GET /me/delete", s.page(s.handleDeleteAccountForm))
+	mux.HandleFunc("POST /me/delete", s.page(s.handleDeleteAccount))
 	mux.HandleFunc("POST /me/invites", s.page(s.handleCreateInvite))
 	mux.HandleFunc("POST /me/invites/{code}/disable", s.page(s.handleDisableInvite))
 	mux.HandleFunc("POST /me/stashbox", s.page(s.handleSetStashBoxKey))

@@ -1,0 +1,32 @@
+{{define "me_delete.html"}}
+{{if .Deleted}}
+<h1>Account deleted</h1>
+<div class="prose">
+  <p>Your account and everything personal tied to it are gone, and you have been logged out. Subtitles you uploaded stay on the site without your name.</p>
+  <p><a href="/">Back to the front page</a></p>
+</div>
+{{else}}
+<h1>Delete account</h1>
+<div class="prose">
+  <p>This deletes <b>{{.Name}}</b> permanently. There is no undo.</p>
+  <h2>Removed</h2>
+  <ul>
+    <li>The account itself: name, password hash, API token, role and invite history.</li>
+    <li>Every login session, your votes and vote notes, fit reports, saved stash-box keys and the invite codes you created.</li>
+  </ul>
+  <h2>Kept, without your name</h2>
+  <ul>
+    <li>Your {{.UploadCount}} upload{{if ne .UploadCount 1}}s{{end}}: they stay public and in future dumps, but lose every link to you, including any "credit me" label. Your profile page goes away.</li>
+    <li>Metadata suggestions, stash ids you attached and removal requests you filed or handled, with no account attached.</li>
+  </ul>
+  <p>Public dumps already published may contain your name next to uploads you marked "credit me". Copies already taken can't be recalled; dumps made after this won't contain it. Your name becomes free for someone else to register.</p>
+</div>
+{{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+<form method="post" action="/me/delete" class="stack">
+  <label for="password">Your password, to confirm</label>
+  <input type="password" id="password" name="password" required autocomplete="current-password">
+  <button type="submit">Delete my account</button>
+</form>
+<p><a href="/me">Cancel</a></p>
+{{end}}
+{{end}}

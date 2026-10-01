@@ -263,8 +263,9 @@ are swept on the next login.
 
 CSRF is stopped by an Origin/Referer check, not a token: every
 state-changing route that accepts the session cookie (`POST /logout`,
-`POST /me/rotate-token`, `POST /me/password`, and `POST /api/v1/subtitles`
-when it authenticated via cookie rather than Bearer) requires the request's
+`POST /me/rotate-token`, `POST /me/password`, `POST /me/delete`, and
+`POST /api/v1/subtitles` when it authenticated via cookie rather than
+Bearer) requires the request's
 `Origin` (or `Referer` as fallback) to name this node's own host, or it's
 refused with `403`. A Bearer-authenticated call is exempt — a script
 sending its own token is not the cross-site-browser case this defends

@@ -52,6 +52,8 @@ func pageViewName(body string) string {
 		return "admin"
 	case strings.HasPrefix(name, "mod_"):
 		return "mod"
+	case name == "me_delete":
+		return "me"
 	}
 	return name
 }

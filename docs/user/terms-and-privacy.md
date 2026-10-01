@@ -69,8 +69,14 @@ response and dump; moderators can still see it.
 you were logged in, your account — never your IP address — and are never
 shown publicly.
 
-**Deleting things**: there is no self-service account deletion. Removed
-tracks and accounts are withdrawn or disabled rather than erased, so the
-removal can be explained and reversed. Dumps made afterwards leave
-withdrawn tracks out; copies already taken by mirrors are outside the
-site's control. To ask for removal, write to wasylq@protonmail.com.
+**Deleting your account**: "Delete account" on `/me` asks for your
+password again, then erases the account, its sessions, votes, fit
+reports, stash-box keys and invite codes. Your uploads stay, without your
+name or any link to you. Dumps made afterwards don't contain your name;
+dumps already published can't be recalled. Server log lines already
+written are not edited; they go with normal log rotation.
+
+**Moderator removals**: tracks and accounts removed by moderators are
+withdrawn or disabled rather than erased, so the removal can be explained
+and reversed. Dumps made afterwards leave withdrawn tracks out; copies
+already taken by mirrors are outside the site's control. To ask for removal, write to wasylq@protonmail.com.
