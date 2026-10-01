@@ -1,9 +1,10 @@
 # syntax=docker/dockerfile:1.7
 
-# GO_VERSION mirrors the `go` directive in go.mod. CI workflows override this
-# from go.mod via scripts/go-version.sh; the default below is the fallback for
-# `docker build .` invocations that don't pass --build-arg, and a lint guard
-# in CI enforces that this default stays in sync with go.mod.
+# GO_VERSION picks the builder image. CI passes go.mod's `go` directive; the
+# default below is only the fallback for a plain `docker build .`, and it may
+# lag go.mod: GOTOOLCHAIN=auto in the builder makes Go fetch the toolchain
+# go.mod asks for, so a dependency bump that raises the directive builds
+# without anyone editing this file.
 ARG GO_VERSION=1.25.0
 ARG ALPINE_VERSION=3.21
 
@@ -15,6 +16,10 @@ ARG TARGETARCH
 ARG VERSION=dev
 ARG COMMIT=none
 ARG DATE=unknown
+
+# The golang image sets GOTOOLCHAIN=local, which refuses a go.mod newer
+# than the image instead of fetching the toolchain it names.
+ENV GOTOOLCHAIN=auto
 
 WORKDIR /src
 
