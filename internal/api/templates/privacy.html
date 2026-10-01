@@ -1,0 +1,36 @@
+{{define "privacy.html"}}
+<h1>Privacy</h1>
+<div class="prose">
+  <p>What this site stores about you, and what it shows to others. It never asks for an email address or any real-world identity.</p>
+
+  <h2>Visiting without an account</h2>
+  <p>Browsing, searching, lookups and downloads need no account. For each request the server writes one log line: method, route (the page type such as <code class="mono">/release/{id}</code>, never the query string, so search terms are not logged), status, size, time taken, your IP address and the first 80 characters of your browser's User-Agent. Moderation actions and metadata proposals are logged with the account name involved. This software sets no log retention period; how long logs are kept depends on the operator's log rotation.</p>
+  <p>Rate limits count requests per IP address or per account, in memory only; they are never written to the database and reset on restart. Download counts are kept per track per day, and page-view and lookup counts as plain totals, with no IP address or account attached.</p>
+
+  <h2>Cookies</h2>
+  <ul>
+    {{if .AgeGate}}<li><code class="mono">moansubs_age</code>: set when you confirm you are 18 or older. Holds the value <code class="mono">1</code> and nothing else; lasts a year.</li>{{end}}
+    <li><code class="mono">moansubs_session</code>: set only when you log in. A random id linked to your account; lasts {{.SessionTTL}} or until you log out.</li>
+  </ul>
+  <p>No other cookies, and no advertising.</p>
+  {{if .Analytics}}
+  <h2>Analytics</h2>
+  <p>Public pages load an <a href="https://umami.is/">Umami</a> analytics script{{if .AnalyticsSameOrigin}}, served from this site's own domain{{else}} from <code class="mono">{{.AnalyticsScript}}</code>{{end}}. Umami sets no cookies and does not store your IP address; it records the page, referrer, and the browser, operating system, device type and country derived from the request. Query strings are stripped, so search terms are not sent. Account, moderation and admin pages carry no analytics.</p>
+  {{end}}
+  <h2>If you register</h2>
+  <p>Stored: your account name, a salted hash of your password (never the password itself), a hash of your API token (plus, if the operator has turned it on, an encrypted copy so your account page can show it again), your role, when the account was created, who invited you if registration needed an invite, and the reason if an account is ever disabled. Sessions store only their id, your account and their expiry, not your IP address. If you save a stash-box API key, it is stored encrypted, used only for lookups you start, and can be removed from your account page.</p>
+
+  <h2>What you contribute</h2>
+  <p>An upload stores the subtitle text (re-rendered; the original file is not kept), its language, kind, your authorship choice, whether you declared it AI-generated, any tool markers detected in it, and the video it belongs to: its fingerprints, duration and resolution, plus the scene details your Stash reported (title, file name, date, studio, performers). Votes, vote notes, fit reports and metadata suggestions are stored with your account.</p>
+  <p>Public: subtitle text and its labels, the video details above, vote totals, and vote notes with your name. Your name appears next to uploads you marked "I made this, credit me"; your profile page <code class="mono">/u/&lt;name&gt;</code> lists those and the ones you marked "I'm sharing a file I found". "Don't credit me" keeps your name off every public page, API response and dump, though moderators can still see who uploaded it.</p>
+  <p>The operator can publish a dump of the public catalogue for mirroring. It contains the subtitles and video details, no account data beyond the names of credited uploaders, and leaves out removed tracks. Copies already taken by mirrors are outside this site's control.</p>
+
+  <h2>Removal requests</h2>
+  <p>The removal form on release pages stores what you type (reason, note, optional contact) and, only if you happened to be logged in, your account. Your IP address is not stored, and requests are never shown publicly.</p>
+
+  <h2>Deleting things</h2>
+  <p>There is no self-service account deletion. Removed tracks and accounts are withdrawn or disabled rather than erased, so that removals can be explained and reversed. To ask for something to be removed, {{if .ContactEmail}}write to <code class="mono">{{.ContactEmail}}</code>{{else if .ContactShown}}use the <a href="/contact">contact page</a>{{else}}contact the operator of this site{{end}}; <a href="https://github.com/Anastylosis/MoanSubs/blob/master/TAKEDOWN.md">TAKEDOWN.md</a> describes how requests are handled.</p>
+
+  <p>See also the <a href="/terms">terms of service</a>.</p>
+</div>
+{{end}}

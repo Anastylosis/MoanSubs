@@ -242,6 +242,12 @@ See [MANUAL.md](MANUAL.md) for the upload pipeline and moderation tools.
   takedown procedure; it is a 404 until `MOANSUBS_CONTACT_EMAIL` (or
   `MOANSUBS_CONTACT=true`) is set, so an unconfigured node never serves a
   hollow page for crawlers to cache.
+- **Terms and privacy.** `/terms` and `/privacy` are always served and
+  linked from every page's footer. The privacy page is rendered from the
+  node's own configuration (age gate, session lifetime, analytics,
+  contact), so a self-hosted node never claims what it doesn't do. Neither
+  names a legal entity, jurisdiction or log retention period; an operator
+  who needs those adds them in a fork.
 - **Removal requests.** Every release page carries a per-track, anonymous
   removal-request form — no account needed, since the rights-holder or the
   person depicted is exactly the party least likely to have one

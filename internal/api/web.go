@@ -7,8 +7,10 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
 // The node's human-facing surface: a front door, a registration form, and
@@ -471,4 +473,64 @@ func (s *Server) handleContact(w http.ResponseWriter, r *http.Request) {
 	s.renderPage(w, r, http.StatusOK, "contact.html", contactPageData{
 		Title: "Contact", Email: s.ContactEmail, Note: s.ContactNote,
 	}, false)
+}
+
+// legalPageData feeds terms.html and privacy.html. Both are always served:
+// their content is derived from this node's own configuration (age gate,
+// session lifetime, analytics, contact) so a self-hosted node never claims
+// what it doesn't do.
+type legalPageData struct {
+	Title               string
+	ContactEmail        string
+	ContactShown        bool
+	AgeGate             bool
+	SessionTTL          string
+	Analytics           bool
+	AnalyticsSameOrigin bool
+	AnalyticsScript     string
+}
+
+func (s *Server) legalPageData(title string) legalPageData {
+	ttl := s.SessionTTL
+	if ttl <= 0 {
+		ttl = DefaultSessionTTL
+	}
+	d := legalPageData{
+		Title:        title,
+		ContactEmail: s.ContactEmail,
+		ContactShown: s.contactShown(),
+		AgeGate:      s.AgeGate,
+		SessionTTL:   humanDuration(ttl),
+	}
+	if s.Analytics != nil {
+		d.Analytics = true
+		d.AnalyticsScript = s.Analytics.Script
+		d.AnalyticsSameOrigin = strings.HasPrefix(s.Analytics.Script, "/") && !strings.HasPrefix(s.Analytics.Script, "//")
+	}
+	return d
+}
+
+// humanDuration renders a session lifetime the way a reader expects it:
+// "30 days", not "720h0m0s".
+func humanDuration(d time.Duration) string {
+	unit, size := "day", 24*time.Hour
+	if d < size || d%size != 0 {
+		unit, size = "hour", time.Hour
+	}
+	if d < size || d%size != 0 {
+		return d.String()
+	}
+	n := int64(d / size)
+	if n == 1 {
+		return "1 " + unit
+	}
+	return strconv.FormatInt(n, 10) + " " + unit + "s"
+}
+
+func (s *Server) handleTerms(w http.ResponseWriter, r *http.Request) {
+	s.renderPage(w, r, http.StatusOK, "terms.html", s.legalPageData("Terms of service"), false)
+}
+
+func (s *Server) handlePrivacy(w http.ResponseWriter, r *http.Request) {
+	s.renderPage(w, r, http.StatusOK, "privacy.html", s.legalPageData("Privacy"), false)
 }

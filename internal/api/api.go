@@ -520,6 +520,8 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("POST /register", s.page(s.handleRegisterSubmit))
 	mux.HandleFunc("GET /login", s.page(s.handleLoginForm))
 	mux.HandleFunc("GET /contact", s.page(s.handleContact))
+	mux.HandleFunc("GET /terms", s.page(s.handleTerms))
+	mux.HandleFunc("GET /privacy", s.page(s.handlePrivacy))
 	mux.HandleFunc("POST /login", s.page(s.handleLogin))
 	mux.HandleFunc("POST /logout", s.page(s.handleLogout))
 	mux.HandleFunc("GET /me", s.page(s.handleMe))
