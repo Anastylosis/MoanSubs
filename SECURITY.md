@@ -218,9 +218,12 @@ origin, forms post only to this node), `Referrer-Policy: same-origin`, and
 `Cache-Control: no-store` on any page that displays a token or reflects an
 account's own data.
 
-Two things widen that policy, both narrowly. `img-src 'self'` is
-unconditional and exists solely so the browser will fetch the site's own
-favicon, which `default-src 'none'` would otherwise block. And an operator
+Two things widen that policy, both narrowly. `img-src 'self'` and
+`font-src 'self'` are unconditional and exist solely so the browser will
+fetch the site's own icons and its self-hosted typefaces (Atkinson
+Hyperlegible Next and Mono, SIL OFL, `internal/api/static/fonts/`), which
+`default-src 'none'` would otherwise block; no font is ever requested from
+a third party. And an operator
 who configures `MOANSUBS_ANALYTICS_SCRIPT` (MANUAL.md) grants that
 tracker's origin `script-src` and `connect-src` — on public pages only:
 `/me`, `/admin/*` and `/mod/*` never carry the tag and keep the unwidened

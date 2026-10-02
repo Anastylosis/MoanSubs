@@ -18,7 +18,12 @@
 <meta property="og:url" content="{{canonicalURL}}">
 <meta property="og:image" content="{{siteOrigin}}/static/icon-180.png">
 <meta name="twitter:card" content="summary">
+<link rel="preload" href="/static/fonts/atkinson-hyperlegible-next.woff2" as="font" type="font/woff2" crossorigin>
 <style>
+  @font-face { font-family: "Atkinson Hyperlegible Next"; src: url(/static/fonts/atkinson-hyperlegible-next.woff2) format("woff2");
+               font-weight: 200 800; font-style: normal; font-display: swap; }
+  @font-face { font-family: "Atkinson Hyperlegible Mono"; src: url(/static/fonts/atkinson-hyperlegible-mono.woff2) format("woff2");
+               font-weight: 200 800; font-style: normal; font-display: swap; }
   /* Tokens. Dark is the native scheme: the site's metaphor is a paused
      frame with a burned-in subtitle, and its audience lives in Stash's dark
      UI. Light flips ground and ink; the cue bars stay black, as burned-in
@@ -28,9 +33,9 @@
     --bg: #1b1d22; --surface: #22252b; --fg: #ece8df; --muted: #9a9ea8;
     --line: #33373f; --accent: {{theme.AccentDark}}; --accent-ink: {{theme.InkDark}};
     --cue-bg: #0b0c0f; --cue-fg: #f7f4ec; --danger: #e2675a; --ok: #7fc27a;
-    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
-    --sans: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
-    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", "Helvetica Neue", Arial, system-ui, sans-serif;
+    --serif: var(--sans);
+    --mono: "Atkinson Hyperlegible Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   }
   @media (prefers-color-scheme: light) {
     :root { --bg: #e9e7e1; --surface: #f3f1ec; --fg: #1b1d22; --muted: #5e626b;

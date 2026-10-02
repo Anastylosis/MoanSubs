@@ -42,13 +42,16 @@ var touchIconPNG []byte
 //go:embed static/logo-96.png
 var logoPNG []byte
 
+//go:embed static/fonts
+var fontFS embed.FS
+
 // defaultCSP is every page's Content-Security-Policy except /upload: the
 // page is entirely self-contained, so the strictest useful policy applies
 // — nothing loads from anywhere but this node, and the only form target is
-// this node itself. img-src 'self' is the favicon's doing and nothing
-// else's: under default-src 'none' a browser refuses to fetch even a
-// same-origin icon.
-const defaultCSP = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+// this node itself. img-src and font-src 'self' are there for the icons
+// and the self-hosted typefaces: under default-src 'none' a browser refuses
+// to fetch even a same-origin asset.
+const defaultCSP = "default-src 'none'; img-src 'self'; font-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
 // uploadCSP is /upload's policy: script-src 'self' allows static/upload.js
 // (served from this node, not inlined — CSP has no clean way to allow an
@@ -59,13 +62,13 @@ const defaultCSP = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline
 // stash-box" action (WP-C9b): under default-src 'none' a same-origin
 // fetch() is blocked exactly like a cross-origin one unless connect-src
 // says otherwise.
-const uploadCSP = "default-src 'none'; script-src 'self'; img-src 'self'; style-src 'unsafe-inline'; media-src blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+const uploadCSP = "default-src 'none'; script-src 'self'; img-src 'self'; font-src 'self'; style-src 'unsafe-inline'; media-src blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
 // tokenCSP is the policy for the two pages that display an API token and
 // therefore load static/copy.js. Deliberately not uploadCSP: these pages
 // need script-src 'self' and nothing else, and granting them media-src
 // blob: as well would widen a page that shows a secret for no reason.
-const tokenCSP = "default-src 'none'; script-src 'self'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+const tokenCSP = "default-src 'none'; script-src 'self'; img-src 'self'; font-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
 // formBodyCap is the read ceiling for a plain HTML form POST, applied
 // before r.ParseForm() ever runs: generous for anything a human types into
@@ -301,6 +304,32 @@ func (s *Server) handleCopyJS(w http.ResponseWriter, _ *http.Request) {
 func serveScript(w http.ResponseWriter, body []byte) {
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = w.Write(body)
+}
+
+// handleFont serves the self-hosted typefaces and their licence. Self-hosted
+// rather than linked from a font CDN because the privacy page promises no
+// third-party requests. A week's cache: the files change only when the
+// typeface is updated, which is rarer than any deploy.
+func (s *Server) handleFont(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	var ct string
+	switch {
+	case strings.HasSuffix(name, ".woff2"):
+		ct = "font/woff2"
+	case name == "OFL.txt":
+		ct = "text/plain; charset=utf-8"
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	body, err := fontFS.ReadFile("static/fonts/" + name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Cache-Control", "public, max-age=604800")
 	_, _ = w.Write(body)
 }
 
