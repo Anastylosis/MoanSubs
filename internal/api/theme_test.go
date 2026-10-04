@@ -1,6 +1,8 @@
 package api
 
 import (
+	"html/template"
+	"math"
 	"strings"
 	"testing"
 )
@@ -41,46 +43,116 @@ func TestParseAccent_AcceptsWithOrWithoutHash(t *testing.T) {
 	}
 }
 
+var accentInputs = []string{
+	DefaultAccent,
+	"#3b82f6", // blue
+	"#22c55e", // green
+	"#ffff00", // yellow: brightest hue at a given HSL lightness
+	"#0000ff", // pure blue: darkest
+	"#ffffff", // white: must be darkened for the light theme
+	"#000000", // black: must be lightened for the dark theme
+	"#808080", // achromatic, saturation 0
+	"#19171a", // close to the dark background itself — the worst case
+	"#faf7f8", // close to the light background itself
+}
+
+func ratio(a, b template.CSS) float64 {
+	return contrast(mustParseHex(string(a)), mustParseHex(string(b)))
+}
+
 // The whole point of deriving rather than using the operator's colour
 // verbatim: whatever they pick, the rendered accent stays legible on every
 // ground the layout actually paints it on.
 func TestParseAccent_AlwaysMeetsContrastOnEveryGround(t *testing.T) {
-	inputs := []string{
-		DefaultAccent,
-		"#3b82f6", // blue
-		"#22c55e", // green
-		"#ffffff", // white: must be darkened for the light theme
-		"#000000", // black: must be lightened for the dark theme
-		"#808080", // achromatic, saturation 0
-		"#1b1d22", // the dark background itself — the worst case
-		"#e9e7e1", // the light background itself
-	}
-	for _, in := range inputs {
+	for _, in := range accentInputs {
 		th, err := ParseAccent(in)
 		if err != nil {
 			t.Fatalf("ParseAccent(%s): %v", in, err)
 		}
-		for _, c := range []struct {
-			name, accent, ground string
-		}{
-			{"dark/bg", string(th.AccentDark), darkBG},
-			{"dark/surface", string(th.AccentDark), darkSurface},
-			{"light/bg", string(th.AccentLight), lightBG},
-			{"light/surface", string(th.AccentLight), lightSurface},
-		} {
-			if got := contrast(mustParseHex(c.accent), mustParseHex(c.ground)); got < contrastTarget {
-				t.Errorf("accent %s: %s = %s on %s is %.2f:1, want >= %.1f",
-					in, c.name, c.accent, c.ground, got, contrastTarget)
+		for name, p := range map[string]Palette{"dark": th.Dark, "light": th.Light} {
+			for _, c := range []struct {
+				what     string
+				fg, bg   template.CSS
+				minRatio float64
+			}{
+				{"accent/bg", p.Accent, p.BG, contrastTarget},
+				{"accent/surface", p.Accent, p.Surface, contrastTarget},
+				{"fg/bg", p.FG, p.BG, 7},
+				{"fg/surface", p.FG, p.Surface, 7},
+				{"muted/bg", p.Muted, p.BG, contrastTarget},
+				{"muted/surface", p.Muted, p.Surface, contrastTarget},
+				{"edge/bg", p.Edge, p.BG, edgeTarget},
+				{"edge/surface", p.Edge, p.Surface, edgeTarget},
+				// Button labels sit on the accent itself.
+				{"ink/accent", p.Ink, p.Accent, contrastTarget},
+			} {
+				if got := ratio(c.fg, c.bg); got < c.minRatio {
+					t.Errorf("accent %s, %s %s: %s on %s is %.2f:1, want >= %.1f",
+						in, name, c.what, c.fg, c.bg, got, c.minRatio)
+				}
 			}
 		}
-		// Button labels sit on the accent itself.
-		if got := contrast(mustParseHex(string(th.AccentDark)), mustParseHex(string(th.InkDark))); got < contrastTarget {
-			t.Errorf("accent %s: dark ink %s on %s is %.2f:1", in, th.InkDark, th.AccentDark, got)
+	}
+}
+
+// The neutrals carry the accent's hue, faintly, so another accent does not
+// sit on pink-tinted greys.
+func TestParseAccent_NeutralsFollowTheAccentHue(t *testing.T) {
+	for _, in := range []string{DefaultAccent, "#3b82f6", "#22c55e"} {
+		th, err := ParseAccent(in)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if got := contrast(mustParseHex(string(th.AccentLight)), mustParseHex(string(th.InkLight))); got < contrastTarget {
-			t.Errorf("accent %s: light ink %s on %s is %.2f:1", in, th.InkLight, th.AccentLight, got)
+		wantH, _, _ := toHSL(mustParseHex(in))
+		for _, v := range []template.CSS{th.Dark.BG, th.Dark.Surface, th.Light.BG, th.Light.Surface, th.Light.Line} {
+			h, _, s := toHSL(mustParseHex(string(v)))
+			if s == 0 || s > 0.3 {
+				t.Errorf("accent %s: neutral %s has saturation %.2f, want a faint tint", in, v, s)
+				continue
+			}
+			d := math.Abs(h - wantH)
+			if d > 0.5 {
+				d = 1 - d
+			}
+			if d > 0.06 {
+				t.Errorf("accent %s: neutral %s has hue %.0f°, want near %.0f°", in, v, h*360, wantH*360)
+			}
 		}
 	}
+}
+
+func TestParseAccent_GreyAccentGivesPureGreys(t *testing.T) {
+	th, err := ParseAccent("#808080")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []template.CSS{th.Dark.BG, th.Dark.FG, th.Light.BG, th.Light.Muted} {
+		c := mustParseHex(string(v))
+		if c.R != c.G || c.G != c.B {
+			t.Errorf("neutral %s from a grey accent is tinted", v)
+		}
+	}
+}
+
+// The default must stay close to the approved design. Its dark-theme pink
+// is not compared: the design's #f02460 misses 4.5:1 on the surface, so the
+// fitting lightens it slightly, by design.
+func TestParseAccent_DefaultMatchesTheDesign(t *testing.T) {
+	th := defaultTheme
+	for _, c := range []struct {
+		got  template.CSS
+		want string
+	}{
+		{th.Dark.BG, "#19171a"}, {th.Dark.FG, "#f2edf0"}, {th.Light.BG, "#faf7f8"}, {th.Light.FG, "#211a1e"}, {th.Light.Accent, "#dc124b"},
+	} {
+		if d := colourDistance(mustParseHex(string(c.got)), mustParseHex(c.want)); d > 24 {
+			t.Errorf("got %s, want near %s (distance %.0f)", c.got, c.want, d)
+		}
+	}
+}
+
+func colourDistance(a, b rgb) float64 {
+	return math.Sqrt((a.R-b.R)*(a.R-b.R) + (a.G-b.G)*(a.G-b.G) + (a.B-b.B)*(a.B-b.B))
 }
 
 // Hue and saturation are the operator's choice; only lightness is ours.
@@ -89,7 +161,7 @@ func TestParseAccent_KeepsTheHue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseAccent: %v", err)
 	}
-	for _, got := range []string{string(th.AccentDark), string(th.AccentLight)} {
+	for _, got := range []string{string(th.Dark.Accent), string(th.Light.Accent)} {
 		c := mustParseHex(got)
 		if c.B <= c.R || c.B <= c.G {
 			t.Errorf("derived %s from a blue accent, but blue is not the dominant channel", got)
@@ -105,9 +177,11 @@ func TestParseAccent_OutputIsAlwaysAPlainHexLiteral(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseAccent: %v", err)
 	}
-	for _, v := range []string{string(th.AccentDark), string(th.InkDark), string(th.AccentLight), string(th.InkLight)} {
-		if !hexColor.MatchString(v) || !strings.HasPrefix(v, "#") {
-			t.Errorf("derived value %q is not a plain #rrggbb literal", v)
+	for _, p := range []Palette{th.Dark, th.Light} {
+		for _, v := range []template.CSS{p.BG, p.Surface, p.Line, p.Edge, p.Wave, p.Muted, p.FG, p.Accent, p.Ink} {
+			if !hexColor.MatchString(string(v)) || !strings.HasPrefix(string(v), "#") {
+				t.Errorf("derived value %q is not a plain #rrggbb literal", v)
+			}
 		}
 	}
 }
@@ -127,8 +201,12 @@ func TestContrast_KnownValues(t *testing.T) {
 // whenever it clears contrastTarget against that accent.
 func TestPickInk_PrefersPaletteInkWhenReadable(t *testing.T) {
 	// Near-black accent: the light ink is comfortably readable on it.
-	if got := pickInk(mustParseHex("#101014"), lightInk); got != lightInk {
-		t.Errorf("pickInk = %q, want the preferred palette ink %q", got, lightInk)
+	if got := pickInk(mustParseHex("#101014"), "#fffdf5"); got != "#fffdf5" {
+		t.Errorf("pickInk = %q, want the preferred palette ink", got)
+	}
+	// The first readable preference wins, not merely the first one.
+	if got := pickInk(mustParseHex("#101014"), "#1b1d22", "#fffdf5"); got != "#fffdf5" {
+		t.Errorf("pickInk = %q, want the second, readable preference", got)
 	}
 }
 
@@ -154,7 +232,7 @@ func TestPickInk_FallsBackToWhiteOnDarkAccent(t *testing.T) {
 func TestPickInk_ResultAlwaysClearsContrastTarget(t *testing.T) {
 	for _, accent := range []string{"#f02460", "#ffffff", "#000000", "#808080", "#00ff00", "#123456"} {
 		a := mustParseHex(accent)
-		for _, preferred := range []string{darkInk, lightInk} {
+		for _, preferred := range []string{"#19171a", "#faf7f8"} {
 			ink := pickInk(a, preferred)
 			if c := contrast(a, mustParseHex(ink)); c < contrastTarget {
 				t.Errorf("pickInk(%s, %s) = %s with contrast %.2f, want >= %.1f",

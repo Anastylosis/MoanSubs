@@ -14,34 +14,47 @@ import (
 // lips rather than picked by eye.
 const DefaultAccent = "#f02460"
 
-// The grounds the accent is actually painted on. Both themes use two — the
-// page background and the slightly-offset surface behind the nav bar, tags
-// and notices — and the accent has to stay legible on the worse of the
-// pair, which is not always the one you would guess.
-const (
-	darkBG      = "#1b1d22"
-	darkSurface = "#22252b"
-	darkInk     = "#1b1d22"
+// tone is one neutral expressed as HSL lightness and saturation; the hue
+// always comes from the accent, so a node with a green accent gets faintly
+// green greys instead of pink ones clashing with it.
+type tone struct{ L, S float64 }
 
-	lightBG      = "#e9e7e1"
-	lightSurface = "#f3f1ec"
-	lightInk     = "#fffdf5"
+// The neutrals of each scheme, from the approved design. Saturation is
+// scaled by the accent's own (see tint), so a grey accent gives pure greys.
+var (
+	darkTones = map[string]tone{
+		"bg": {0.096, 0.06}, "surface": {0.133, 0.06}, "line": {0.21, 0.08},
+		"wave": {0.275, 0.06}, "muted": {0.62, 0.06}, "fg": {0.94, 0.16},
+	}
+	lightTones = map[string]tone{
+		"bg": {0.975, 0.23}, "surface": {0.929, 0.17}, "line": {0.847, 0.13},
+		"wave": {0.773, 0.10}, "muted": {0.398, 0.065}, "fg": {0.116, 0.12},
+	}
 )
 
 // contrastTarget is WCAG AA for body-sized text. The accent is link text,
 // not decoration, so this is the bar it has to clear rather than the 3:1
-// large-text allowance.
-const contrastTarget = 4.5
+// large-text allowance. edgeTarget is the 3:1 WCAG asks of the boundary of
+// a form control.
+const (
+	contrastTarget = 4.5
+	edgeTarget     = 3.0
+)
 
-// Theme is the palette page.html renders into its :root blocks. The fields
-// are template.CSS because they are interpolated inside a <style> element:
-// they reach the template already validated as six hex digits by
-// ParseAccent, which is what makes bypassing contextual escaping safe here.
+// Palette is one colour scheme as page.html renders it into a :root block.
+// The fields are template.CSS because they are interpolated inside a
+// <style> element: every one is produced by toHex from a colour ParseAccent
+// validated as six hex digits, which is what makes bypassing contextual
+// escaping safe here.
+type Palette struct {
+	BG, Surface, Line, Edge, Wave, Muted, FG template.CSS
+	Accent, Ink                              template.CSS
+}
+
+// Theme is the pair of palettes the layout switches between with
+// prefers-color-scheme.
 type Theme struct {
-	AccentDark  template.CSS
-	InkDark     template.CSS
-	AccentLight template.CSS
-	InkLight    template.CSS
+	Dark, Light Palette
 }
 
 var hexColor = regexp.MustCompile(`^#?[0-9a-fA-F]{6}$`)
@@ -57,11 +70,11 @@ var defaultTheme = func() *Theme {
 	return t
 }()
 
-// ParseAccent turns one operator-supplied colour into the four values the
-// layout needs. Only the hue and saturation survive: the lightness is
-// re-derived per theme until the result clears contrastTarget on both of
-// that theme's grounds, so an operator cannot accidentally configure an
-// unreadable site by picking a colour they liked in isolation.
+// ParseAccent turns one operator-supplied colour into both palettes. Only
+// the hue and saturation survive: the accent's lightness is re-derived per
+// theme until it clears contrastTarget on both of that theme's grounds, so
+// an operator cannot accidentally configure an unreadable site by picking a
+// colour they liked in isolation. The neutrals take the accent's hue too.
 //
 // An empty value means DefaultAccent, so an unset knob and the default are
 // the same code path.
@@ -74,29 +87,56 @@ func ParseAccent(value string) (*Theme, error) {
 		return nil, fmt.Errorf("accent %q must be six hex digits, e.g. %s", value, DefaultAccent)
 	}
 	base := mustParseHex(value)
-
-	accentDark := fit(base, true, mustParseHex(darkBG), mustParseHex(darkSurface))
-	accentLight := fit(base, false, mustParseHex(lightBG), mustParseHex(lightSurface))
-
 	return &Theme{
-		AccentDark:  template.CSS(toHex(accentDark)),
-		InkDark:     template.CSS(pickInk(accentDark, darkInk)),
-		AccentLight: template.CSS(toHex(accentLight)),
-		InkLight:    template.CSS(pickInk(accentLight, lightInk)),
+		Dark:  palette(base, true, darkTones),
+		Light: palette(base, false, lightTones),
 	}, nil
 }
 
-// fit walks the base colour's lightness — up for a dark theme, down for a
-// light one — until it clears contrastTarget against every ground, keeping
+func palette(base rgb, dark bool, tones map[string]tone) Palette {
+	n := func(k string) rgb { return tint(base, tones[k]) }
+	bg, surface := n("bg"), n("surface")
+	// The text tones are measured rather than trusted: at a fixed HSL
+	// lightness, luminance still drifts with hue.
+	muted := fit(n("muted"), tones["muted"].L, dark, contrastTarget, bg, surface)
+	fg := fit(n("fg"), tones["fg"].L, dark, 7, bg, surface)
+	edgeStart := 0.40
+	if !dark {
+		edgeStart = 0.62
+	}
+	edge := fit(n("line"), edgeStart, dark, edgeTarget, bg, surface)
+	startL := 0.55
+	if !dark {
+		startL = 0.50
+	}
+	accent := fit(base, startL, dark, contrastTarget, bg, surface)
+	return Palette{
+		BG: css(bg), Surface: css(surface), Line: css(n("line")), Edge: css(edge),
+		Wave: css(n("wave")), Muted: css(muted), FG: css(fg),
+		Accent: css(accent), Ink: template.CSS(pickInk(accent, toHex(bg), "#ffffff")),
+	}
+}
+
+func css(c rgb) template.CSS { return template.CSS(toHex(c)) }
+
+// tint builds a neutral on the accent's hue. The tone's saturation is
+// scaled down for a dull accent so a grey accent yields true greys.
+func tint(accent rgb, t tone) rgb {
+	h, _, s := toHSL(accent)
+	return quantise(fromHSL(h, t.L, t.S*math.Min(1, s/0.5)))
+}
+
+// fit walks a colour's lightness from startL — up for a dark theme, down
+// for a light one — until it clears target against every ground, keeping
 // hue and saturation. If no lightness manages it (a hue too close to the
 // ground to ever separate), the best attempt wins rather than failing
 // startup: a hard-to-read accent is a cosmetic problem, and refusing to
 // boot over one would be worse than serving it.
-func fit(base rgb, lighten bool, grounds ...rgb) rgb {
+func fit(base rgb, startL float64, lighten bool, target float64, grounds ...rgb) rgb {
 	h, _, s := toHSL(base)
-	step, l := 0.005, 0.55
+	step, l := 0.005, startL
 	if !lighten {
-		step, l = -0.005, 0.50
+		step = -0.005
 	}
 	best, bestScore := base, -1.0
 	for i := 0; i < 200; i++ {
@@ -114,7 +154,7 @@ func fit(base rgb, lighten bool, grounds ...rgb) rgb {
 				worst = r
 			}
 		}
-		if worst >= contrastTarget {
+		if worst >= target {
 			return c
 		}
 		if worst > bestScore {
@@ -126,12 +166,14 @@ func fit(base rgb, lighten bool, grounds ...rgb) rgb {
 }
 
 // pickInk returns the label colour for text sitting on the accent (the
-// button fill). The palette's own ink is preferred so buttons stay part of
-// the same set; plain black or white is the fallback when it cannot reach
-// contrastTarget against a given accent.
-func pickInk(accent rgb, preferred string) string {
-	if p := mustParseHex(preferred); contrast(accent, p) >= contrastTarget {
-		return preferred
+// button fill). The palette's own inks are preferred, in order, so buttons
+// stay part of the same set; plain black or white is the fallback when none
+// reaches contrastTarget against a given accent.
+func pickInk(accent rgb, preferred ...string) string {
+	for _, p := range preferred {
+		if contrast(accent, mustParseHex(p)) >= contrastTarget {
+			return p
+		}
 	}
 	if contrast(accent, rgb{0, 0, 0}) > contrast(accent, rgb{255, 255, 255}) {
 		return "#000000"
