@@ -257,7 +257,7 @@ func TestHomepage_ReportsTheMachineGeneratedShare(t *testing.T) {
 	}
 	// homepageFixture's own track is human, so 2 of 4 are generated.
 	_, body := getBody(t, ts.URL+"/")
-	if !strings.Contains(body, "<strong>50%</strong>machine-transcribed") {
+	if !strings.Contains(body, "<b>50%</b> machine-transcribed") {
 		t.Errorf("front page did not report a 50%% generated share; got:\n%s", body)
 	}
 }

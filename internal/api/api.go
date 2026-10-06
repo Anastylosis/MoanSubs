@@ -542,6 +542,7 @@ func NewMux(s *Server) http.Handler {
 	mux.HandleFunc("GET /static/upload.js", s.handleUploadJS)
 	mux.HandleFunc("GET /static/phash.js", s.handlePhashJS)
 	mux.HandleFunc("GET /static/copy.js", s.handleCopyJS)
+	mux.HandleFunc("GET /static/tabs.js", s.handleTabsJS)
 	mux.HandleFunc("GET /static/favicon.png", s.handleFavicon)
 	mux.HandleFunc("GET /static/icon-180.png", s.handleTouchIcon)
 	mux.HandleFunc("GET /static/logo-96.png", s.handleLogo)

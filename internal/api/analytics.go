@@ -29,7 +29,7 @@ type Analytics struct {
 	// of the process, and every page render would otherwise rebuild them.
 	pageCSP   string
 	uploadCSP string
-	tokenCSP  string
+	scriptCSP string
 }
 
 // ParseAnalytics builds the Analytics for MOANSUBS_ANALYTICS_SCRIPT and
@@ -54,7 +54,7 @@ func ParseAnalytics(script, websiteID string) (*Analytics, error) {
 		WebsiteID: websiteID,
 		pageCSP:   widenCSP(defaultCSP, origin),
 		uploadCSP: widenCSP(uploadCSP, origin),
-		tokenCSP:  widenCSP(tokenCSP, origin),
+		scriptCSP: widenCSP(scriptCSP, origin),
 	}, nil
 }
 

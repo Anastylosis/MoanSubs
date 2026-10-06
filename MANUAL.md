@@ -104,7 +104,7 @@ Runs the HTTP server. Reads:
 | `MOANSUBS_SEARCH_RATE_PER_MINUTE` | `30` | Per-IP budget for `GET /search`. The only catalogue page where an anonymous visitor makes the database do real work (a GIN array-overlap query), rather than an indexed lookup by prefix or id. |
 | `MOANSUBS_LOOKUP_RATE_PER_MINUTE` | `300` | Per-IP budget for the anonymous lookup endpoints (single, batch, exact, stash, trending, match). Generous because browsing a scene wall fires them continuously; a batch entry costs one token each. |
 | `MOANSUBS_DOWNLOAD_RATE_PER_MINUTE` | `120` | Per-IP budget for `GET /api/v1/subtitles/{id}`. Its own limiter, so a download loop can't starve lookups and vice versa. |
-| `MOANSUBS_DUMP_URL` | *(unset)* | Link the front page shows under "download the latest dump". Publishing a dump (`moansubs dump`) is an out-of-band operator choice; unset hides the link entirely. |
+| `MOANSUBS_DUMP_URL` | *(unset)* | Link the front page shows as "Download the whole catalogue", next to the counts. Publishing a dump (`moansubs dump`) is an out-of-band operator choice; unset hides the link entirely. |
 | `MOANSUBS_INDEX_FRONT_PAGE` | `false` | Offer the **front page only** to search engines while the catalogue stays unlisted: `/robots.txt` allows `/` and disallows everything else, and crawlers are let past the age gate for `/` alone. The launch posture for a new node — the project should be findable by name long before a catalogue of filename-titled releases is worth publishing. `/sitemap.xml` still 404s, since there is no catalogue on offer. Ignored when `MOANSUBS_INDEXABLE` is on, which already offers strictly more. |
 | `MOANSUBS_AUTOCONFIRM` | `false` | Lets a trusted account's stash-box-backed metadata pin itself, with no moderator. Does nothing until at least one account is marked with `moansubs account trust <name>` — see "Auto-confirming" below for what qualifies and what it deliberately refuses. |
 | `MOANSUBS_AUTOCONFIRM_ENDPOINTS` | `https://stashdb.org/graphql,https://theporndb.net/graphql` | Which stash-boxes' ids may pin a name with no moderator, when `MOANSUBS_AUTOCONFIRM` is on. Deliberately narrower than `MOANSUBS_STASH_ENDPOINTS`: a node can accept ids from a broad, loosely-curated database for *matching* — which is where breadth pays — without letting them *publish* a name uncorrected on a page a crawler will cache. Same syntax, including `*`; an empty value means the default, and a list naming nothing valid is a startup error. |
@@ -1092,12 +1092,15 @@ The front page's own three lists — "Recently added", "Trending this week",
 together and refreshed lazily on the first `GET /` after the cache goes
 stale: a new upload or a moderator's pin can take up to 5 minutes to appear
 there, though it's already live on `/browse` and its own release page.
+Without JavaScript the lists render stacked under their headings; with it
+(`/static/tabs.js`) they become tabs. An empty list is omitted either way.
 
 ## Analytics (`MOANSUBS_ANALYTICS_SCRIPT`)
 
 Unset, this node has no tracker and serves the strictest Content-Security-
-Policy it can: `default-src 'none'` with no `script-src` at all on any page
-but `/upload`. Configuring one is an operator decision that visibly relaxes
+Policy it can: `default-src 'none'`, with `script-src 'self'` only on the
+pages that load a file of their own from `/static/` (`/upload`, `/register`,
+`/me` and the front page). Configuring one is an operator decision that visibly relaxes
 that, so it is worth knowing exactly what changes.
 
 **Where the tag goes.** Public pages only: the front page, `/browse`,

@@ -33,6 +33,9 @@ var phashJS []byte
 //go:embed static/copy.js
 var copyJS []byte
 
+//go:embed static/tabs.js
+var tabsJS []byte
+
 //go:embed static/favicon.png
 var faviconPNG []byte
 
@@ -64,11 +67,12 @@ const defaultCSP = "default-src 'none'; img-src 'self'; font-src 'self'; style-s
 // says otherwise.
 const uploadCSP = "default-src 'none'; script-src 'self'; img-src 'self'; font-src 'self'; style-src 'unsafe-inline'; media-src blob:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
-// tokenCSP is the policy for the two pages that display an API token and
-// therefore load static/copy.js. Deliberately not uploadCSP: these pages
-// need script-src 'self' and nothing else, and granting them media-src
-// blob: as well would widen a page that shows a secret for no reason.
-const tokenCSP = "default-src 'none'; script-src 'self'; img-src 'self'; font-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+// scriptCSP is the policy for the pages that load one small same-origin
+// script and nothing else: the two that display an API token
+// (static/copy.js) and the front page (static/tabs.js). Deliberately not
+// uploadCSP: granting them media-src blob: and connect-src as well would
+// widen a page that shows a secret for no reason.
+const scriptCSP = "default-src 'none'; script-src 'self'; img-src 'self'; font-src 'self'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
 // formBodyCap is the read ceiling for a plain HTML form POST, applied
 // before r.ParseForm() ever runs: generous for anything a human types into
@@ -90,6 +94,9 @@ func capFormBody(w http.ResponseWriter, r *http.Request) {
 // without being listed here silently loses its copy button.
 var tokenPages = map[string]bool{"me.html": true, "register.html": true}
 
+// scriptPages get scriptCSP: the token pages plus the front page's tabs.
+func scriptPage(body string) bool { return tokenPages[body] || body == "index.html" }
+
 // sessionLookups counts fallback session lookups (WP-R7) — incremented when
 // renderPage does a cookie lookup because authFromContext was nil. Read
 // only by tests.
@@ -101,20 +108,49 @@ var pages = template.Must(template.New("").Funcs(template.FuncMap{
 	// words turns a closed-vocabulary key ("out_of_sync") into its label
 	// ("out of sync") — the keys are API contract, the labels are not.
 	"words": func(s string) string { return strings.ReplaceAll(s, "_", " ") },
+	"num":   groupDigits,
 	// loggedIn, roleAtLeast and analytics are rebound per request in
 	// renderPage; these are the parse-time placeholders (a template
 	// function must be defined at parse time or parsing itself fails).
-	"loggedIn":        func() bool { return false },
-	"roleAtLeast":     func(string) bool { return false },
-	"analytics":       func() *Analytics { return nil },
-	"theme":           func() *Theme { return defaultTheme },
-	"version":         func() string { return "" },
-	"metaTitle":       func() string { return "" },
-	"metaDescription": func() string { return "" },
-	"canonicalURL":    func() string { return "" },
-	"siteOrigin":      func() string { return "" },
-	"contactShown":    func() bool { return false },
+	"loggedIn":         func() bool { return false },
+	"roleAtLeast":      func(string) bool { return false },
+	"analytics":        func() *Analytics { return nil },
+	"theme":            func() *Theme { return defaultTheme },
+	"version":          func() string { return "" },
+	"metaTitle":        func() string { return "" },
+	"metaDescription":  func() string { return "" },
+	"canonicalURL":     func() string { return "" },
+	"siteOrigin":       func() string { return "" },
+	"contactShown":     func() bool { return false },
+	"registrationOpen": func() bool { return false },
 }).ParseFS(templateFS, "templates/*.html"))
+
+// groupDigits renders a count with thousands separators ("18,412").
+func groupDigits(v any) string {
+	var n int64
+	switch x := v.(type) {
+	case int:
+		n = int64(x)
+	case int64:
+		n = x
+	default:
+		return fmt.Sprint(v)
+	}
+	s := strconv.FormatInt(n, 10)
+	neg := strings.HasPrefix(s, "-")
+	s = strings.TrimPrefix(s, "-")
+	var b strings.Builder
+	for i, r := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteRune(r)
+	}
+	if neg {
+		return "-" + b.String()
+	}
+	return b.String()
+}
 
 // registerData is /register's data (both the form and its result). Name is
 // echoed back into the form after a failed submission; html/template
@@ -212,8 +248,9 @@ func (s *Server) renderPage(w http.ResponseWriter, r *http.Request, status int, 
 			"theme":           func() *Theme { return th },
 			// The running build, so a bug report can say which one it
 			// came from without the reporter having to find /api/v1/version.
-			"version":      func() string { return s.Version },
-			"contactShown": s.contactShown,
+			"version":          func() string { return s.Version },
+			"contactShown":     s.contactShown,
+			"registrationOpen": s.OpenForStrangers,
 		})
 	}
 	if err == nil {
@@ -271,11 +308,11 @@ func (s *Server) csp(body string) string {
 			return s.Analytics.uploadCSP
 		}
 		return uploadCSP
-	case tokenPages[body]:
+	case scriptPage(body):
 		if tracked {
-			return s.Analytics.tokenCSP
+			return s.Analytics.scriptCSP
 		}
-		return tokenCSP
+		return scriptCSP
 	case tracked:
 		return s.Analytics.pageCSP
 	}
@@ -299,6 +336,11 @@ func (s *Server) handlePhashJS(w http.ResponseWriter, _ *http.Request) {
 // handleCopyJS serves the copy-to-clipboard helper the token pages load.
 func (s *Server) handleCopyJS(w http.ResponseWriter, _ *http.Request) {
 	serveScript(w, copyJS)
+}
+
+// handleTabsJS serves the front page's catalogue tabs.
+func (s *Server) handleTabsJS(w http.ResponseWriter, _ *http.Request) {
+	serveScript(w, tabsJS)
 }
 
 func serveScript(w http.ResponseWriter, body []byte) {
@@ -390,6 +432,7 @@ type indexPageData struct {
 	Newest   []catalogueRelease
 	Trending []catalogueRelease
 	Popular  []catalogueRelease
+	Timeline timeline
 }
 
 // handleIndex serves the front page. Registered as "GET /", which in
@@ -402,7 +445,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := indexPageData{Title: "Home", Open: s.OpenForStrangers(), DumpURL: s.DumpURL}
+	data := indexPageData{Title: "Home", Open: s.OpenForStrangers(), DumpURL: s.DumpURL, Timeline: homeTimeline}
 	// Stats are best-effort here: a snapshot error omits the numbers rather
 	// than failing the whole front page (WP-C2 spec) — this is the node's
 	// front door, and it must render even when the stats aggregate query

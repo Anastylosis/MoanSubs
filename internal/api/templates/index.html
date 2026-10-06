@@ -1,34 +1,44 @@
 {{define "index.html"}}
-<section class="cue hero" aria-label="What moansubs is">
-  <div class="tc"><span>1</span><span>00:00:00,000 <b>--></b> 00:00:04,000</span></div>
-  <div class="line y">Subtitles keyed to the video, not the file.</div>
-  <div class="line sm" style="margin-top:.4rem">A re-encode, a rename, a different rip - any copy of a scene finds the same subtitles.</div>
+<section class="lead" aria-labelledby="h-lead">
+  <h1 id="h-lead">Subtitles for the scene, whatever the file is called.</h1>
+  <p>Matched by fingerprint, so a rename, a re-encode or another rip of the same scene finds the same subtitles.</p>
+  <form method="get" action="/search" class="find" role="search">
+    <label for="q" class="sr-only">Search the catalogue</label>
+    <input type="text" id="q" name="q" placeholder="Title, filename, studio or performer" autocomplete="off">
+    <button type="submit">Search</button>
+  </form>
+  {{if .Stats}}
+  <p class="counts" aria-label="Catalogue size">
+    <span><b>{{num .Stats.Tracks}}</b> subtitle tracks</span>
+    <span><b>{{num .Stats.Releases}}</b> scenes</span>
+    <span><b>{{num .Stats.DownloadsTotal}}</b> downloads</span>
+    {{if .GeneratedPct}}<span><b>{{.GeneratedPct}}%</b> machine-transcribed</span>{{end}}
+    {{if .DumpURL}}<a href="{{.DumpURL}}">Download the whole catalogue</a>{{end}}
+  </p>
+  {{end}}
 </section>
 
-{{if .Stats}}
-<div class="stats" aria-label="Catalogue size">
-  <div><strong>{{.Stats.Tracks}}</strong>subtitle tracks</div>
-  <div><strong>{{.Stats.Releases}}</strong>releases</div>
-  <div><strong>{{.Stats.DownloadsTotal}}</strong>downloads served</div>
-  {{if .GeneratedPct}}<div><strong>{{.GeneratedPct}}%</strong>machine-transcribed</div>{{end}}
-</div>
-{{end}}
-
-<form method="get" action="/search" class="search-big" role="search">
-  <label for="q">Search the catalogue</label>
-  <div class="row">
-    <input type="text" id="q" name="q" class="grow" placeholder="title, filename, studio, performer" autocomplete="off">
-    <button type="submit">Search</button>
+<figure class="timeline">
+  {{with .Timeline}}
+  <svg viewBox="0 0 1000 96" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+    {{range .Spans}}<rect class="tl-span" x="{{printf "%.1f" .X}}" y="0" width="{{printf "%.1f" .W}}" height="96"/>{{end}}
+    <g class="tl-wave">{{range .Bars}}<rect{{if .On}} class="on"{{end}} x="{{printf "%.1f" .X}}" y="{{printf "%.1f" .Y}}" width="{{printf "%.1f" .W}}" height="{{printf "%.1f" .H}}"/>{{end}}</g>
+    <line class="tl-head" x1="{{printf "%.1f" .Head}}" y1="0" x2="{{printf "%.1f" .Head}}" y2="96" vector-effect="non-scaling-stroke"/>
+  </svg>
+  <div class="tl-cues" aria-hidden="true">
+    {{range .Cues}}<div{{if .Narrow}} class="x"{{end}} style="left:{{.Left}}"><small>{{.TC}}</small><span>{{.Text}}</span></div>{{end}}
   </div>
-  <p class="hint"><a href="/browse">Browse everything</a>, newest first{{if .DumpURL}} · or <a href="{{.DumpURL}}">download the whole catalogue</a> as a dump{{end}}.</p>
-</form>
+  {{end}}
+  <figcaption class="tl-note">An SDH track, as the timeline of a subtitle editor shows it.</figcaption>
+</figure>
 
 {{if or .Newest .Trending .Popular}}
-<div class="home-lists">
-  {{/* Each section is omitted entirely when its list is empty rather than
-       rendered as a heading over nothing: a new node has no trending
-       anything, and an empty "Trending this week" reads as broken rather
-       than as quiet. */}}
+{{/* Each section is omitted entirely when its list is empty rather than
+     rendered as a heading over nothing: a new node has no trending
+     anything, and an empty "Trending this week" reads as broken rather
+     than as quiet. Stacked without JavaScript; static/tabs.js turns the
+     sections into tabs. */}}
+<div class="cat" id="catalogue" data-tabs>
   {{if .Trending}}
   <section aria-labelledby="h-trending">
     <h2 id="h-trending">Trending this week</h2>
@@ -39,7 +49,6 @@
   <section aria-labelledby="h-newest">
     <h2 id="h-newest">Recently added</h2>
     {{template "release-list" .Newest}}
-    <p class="hint"><a href="/browse">Browse everything</a></p>
   </section>
   {{end}}
   {{if .Popular}}
@@ -50,37 +59,23 @@
   {{end}}
 </div>
 {{end}}
+<p class="more"><a href="/browse">Browse everything</a></p>
 
-<h2>How it works</h2>
-<div class="cue-grid">
-  <div class="cue">
-    <div class="tc"><span>1</span><span>00:00:04,000 <b>--></b> 00:00:08,000</span></div>
-    <div class="line">Install the Stash plugin</div>
-    <p>It adds a Subtitles panel to every scene page and a badge to scene cards. It comes pointed at this node, so there is nothing to configure to search or download.</p>
-  </div>
-  <div class="cue">
-    <div class="tc"><span>2</span><span>00:00:08,000 <b>--></b> 00:00:12,000</span></div>
-    <div class="line">Subtitles are found by fingerprint</div>
-    <p>The plugin asks with the scene's oshash and phash, which Stash already computed. A different encode of the same scene still matches; a sidecar lands next to the file, ready to play.</p>
-  </div>
-  <div class="cue">
-    <div class="tc"><span>3</span><span>00:00:12,000 <b>--></b> 00:00:16,000</span></div>
-    <div class="line">Contribute the ones you have</div>
-    <p>Push your sidecars from Stash in one task, or <a href="/upload">upload from the browser</a>. Others rate them, so the best track for each scene rises.</p>
-  </div>
-</div>
-
-<div class="two prose">
+<section class="ways" aria-label="Ways to get subtitles">
   <div>
-    <h3>Get the plugin</h3>
-    <p>In Stash: <em>Settings → Plugins → Available plugins</em>, add the moansubs source, install <strong>moansubs</strong>, reload. Details and the manual install are on <a href="https://github.com/Anastylosis/MoanSubs/tree/master/plugin#readme">the plugin page</a>.</p>
-    <h3>No Stash? Get MoanDrop</h3>
-    <p><a href="https://github.com/Anastylosis/MoanDrop/releases/latest">MoanDrop</a> is a desktop app for everyone else: drop a video on the window, pick a subtitle, done — the file lands as a sidecar Plex, Jellyfin, Kodi and VLC all pick up. Fingerprinting happens on your machine; the video never leaves it.</p>
+    <h2>In Stash</h2>
+    <p>Install the moansubs plugin. Every scene page gets a Subtitles panel, already pointed at this site.</p>
+    <p>In Stash: <em>Settings → Plugins → Available plugins</em>, add the moansubs source, install <strong>moansubs</strong>, reload. Details on <a href="https://github.com/Anastylosis/MoanSubs/tree/master/plugin#readme">the plugin page</a>.</p>
   </div>
   <div>
-    <h3>Uploading and voting</h3>
-    <p>{{if .Open}}Need an account? <a href="/register">Create one</a>: a name and a token, nothing else. Already have one? <a href="/login">Log in</a>.{{else}}This node is invite-only: ask the operator for a token, then <a href="/login">log in</a>.{{end}}</p>
-    <p>Share what you have from Stash, with MoanDrop, or <a href="/upload">straight from the browser</a>: pick the video and the subtitle; the fingerprint is computed on your own machine and the video is never sent anywhere.</p>
+    <h2>Without Stash</h2>
+    <p><a href="https://github.com/Anastylosis/MoanDrop/releases/latest">MoanDrop</a> is a small desktop app. Drop a video or a folder on it and the subtitle lands next to the file. The video never leaves your machine.</p>
   </div>
-</div>
+  <div>
+    <h2>Share yours</h2>
+    <p><a href="/upload">Upload a subtitle</a> you made or found. Votes decide which track comes first for each scene.</p>
+    <p>{{if .Open}}Uploading and voting need an account: <a href="/register">a name and a password</a>, nothing else.{{else}}This node is invite-only: ask the operator for an account, then <a href="/login">log in</a>.{{end}}</p>
+  </div>
+</section>
+<script src="/static/tabs.js" defer></script>
 {{end}}

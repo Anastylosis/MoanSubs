@@ -61,7 +61,7 @@ func TestFonts_LayoutReferencesExistAndCSPAllows(t *testing.T) {
 			t.Errorf("font %q is not embedded: %v", u, err)
 		}
 	}
-	for _, csp := range []string{defaultCSP, uploadCSP, tokenCSP} {
+	for _, csp := range []string{defaultCSP, uploadCSP, scriptCSP} {
 		if !strings.Contains(csp, "font-src 'self'") {
 			t.Errorf("CSP %q lacks font-src 'self'", csp)
 		}

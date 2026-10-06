@@ -201,8 +201,8 @@ func TestAnalytics_UnconfiguredLeavesEveryPageUntouched(t *testing.T) {
 
 	// /register and /me are excluded deliberately: they render an API token
 	// and so load static/copy.js, which is not the tracker's doing. /upload
-	// carries the fingerprinter for the same reason.
-	for _, path := range []string{"/", "/browse", "/search", "/login"} {
+	// carries the fingerprinter and / the catalogue tabs for the same reason.
+	for _, path := range []string{"/browse", "/search", "/login"} {
 		body, csp := getWith(t, client, ts.URL+path)
 		if csp != defaultCSP {
 			t.Errorf("GET %s: CSP = %q, want the unwidened %q", path, csp, defaultCSP)
@@ -211,9 +211,14 @@ func TestAnalytics_UnconfiguredLeavesEveryPageUntouched(t *testing.T) {
 			t.Errorf("GET %s: carries a <script> on a node with no tracker configured", path)
 		}
 	}
-	// A token page still must not gain the analytics origin when none is set.
-	_, csp := getWith(t, client, ts.URL+"/register")
-	if csp != tokenCSP {
-		t.Errorf("GET /register: CSP = %q, want the unwidened %q", csp, tokenCSP)
+	// A script page still must not gain the analytics origin when none is set.
+	for _, path := range []string{"/register", "/"} {
+		body, csp := getWith(t, client, ts.URL+path)
+		if csp != scriptCSP {
+			t.Errorf("GET %s: CSP = %q, want the unwidened %q", path, csp, scriptCSP)
+		}
+		if n := strings.Count(body, "<script"); n != 1 {
+			t.Errorf("GET %s: %d <script> tags, want only its own same-origin one", path, n)
+		}
 	}
 }

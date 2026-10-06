@@ -397,13 +397,13 @@ func TestUploadForm_CSPAllowsItsOwnScriptOnly(t *testing.T) {
 		t.Errorf("/upload CSP = %q, want media-src blob: (the duration probe)", csp)
 	}
 
-	other, err := http.Get(ts.URL + "/")
+	other, err := http.Get(ts.URL + "/browse")
 	if err != nil {
-		t.Fatalf("GET /: %v", err)
+		t.Fatalf("GET /browse: %v", err)
 	}
 	_ = other.Body.Close()
 	if otherCSP := other.Header.Get("Content-Security-Policy"); strings.Contains(otherCSP, "script-src") {
-		t.Errorf("/ CSP = %q, should not carry script-src", otherCSP)
+		t.Errorf("/browse CSP = %q, should not carry script-src", otherCSP)
 	}
 }
 

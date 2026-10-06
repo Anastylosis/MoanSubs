@@ -229,7 +229,10 @@ tracker's origin `script-src` and `connect-src` — on public pages only:
 `/me`, `/admin/*` and `/mod/*` never carry the tag and keep the unwidened
 policy, and the tag is emitted with `data-exclude-search="true"` so
 `/search?q=` does not carry a visitor's query off this node. Unset — the
-default — no page loads a script except `/upload`'s own fingerprinter.
+default — the only scripts are same-origin files under `/static/`:
+`/upload`'s fingerprinter, the token pages' copy button and the front
+page's catalogue tabs, each page admitting `script-src 'self'` and nothing
+else.
 
 ### Age gate
 

@@ -20,14 +20,13 @@
 {{if not .}}
 <p class="empty">Nothing here yet. Push a sidecar from Stash or <a href="/upload">upload one</a> to be first.</p>
 {{else}}
-<ul class="releases">
+<ul class="rows">
 {{range .}}
   <li>
-    <div class="t"><a href="/release/{{.ID}}">{{.Title}}</a></div>
-    <div class="meta">{{if .ReleaseDate}}<span>{{.ReleaseDate}}</span>{{end}}{{if .Studio}}<span>{{.Studio}}</span>{{end}}{{if .Duration}}<span>{{.Duration}}</span>{{end}}</div>
-    <div class="tracks">
-      {{range .Tracks}}<span class="tag{{if .Generated}} auto{{end}}">{{.Lang}}{{if .Generated}} · auto{{end}}<span class="tally"> ↓{{.Downloads}} <span class="up">▲{{.Up}}</span> <span class="down">▼{{.Down}}</span></span></span>{{end}}
-    </div>
+    <div class="t"><a href="/release/{{.ID}}">{{.Title}}</a>
+      {{if or .Studio .ReleaseDate .Duration}}<small>{{if .Studio}}<span>{{.Studio}}</span>{{end}}{{if .ReleaseDate}}<span>{{.ReleaseDate}}</span>{{end}}{{if .Duration}}<span>{{.Duration}}</span>{{end}}</small>{{end}}</div>
+    <div class="langs">{{range .Langs}}<span class="tag{{if .Generated}} auto{{end}}"{{if .Generated}} title="Machine-transcribed"{{end}}>{{.Lang}}</span>{{end}}</div>
+    <div class="n">{{num .Downloads}} dl</div>
   </li>
 {{end}}
 </ul>

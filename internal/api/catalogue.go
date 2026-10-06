@@ -114,6 +114,38 @@ type catalogueRelease struct {
 	StashLinks []stashLink
 }
 
+// Downloads is the release's total across its visible tracks, the one
+// number a list row shows.
+func (r catalogueRelease) Downloads() int64 {
+	var n int64
+	for _, t := range r.Tracks {
+		n += t.Downloads
+	}
+	return n
+}
+
+// langTag is one language in a list row; Generated only when every track
+// in that language is machine-made.
+type langTag struct {
+	Lang      string
+	Generated bool
+}
+
+// Langs collapses the tracks to one tag per language, in track order.
+func (r catalogueRelease) Langs() []langTag {
+	var out []langTag
+	idx := map[string]int{}
+	for _, t := range r.Tracks {
+		if i, ok := idx[t.Lang]; ok {
+			out[i].Generated = out[i].Generated && t.Generated
+			continue
+		}
+		idx[t.Lang] = len(out)
+		out = append(out, langTag{Lang: t.Lang, Generated: t.Generated})
+	}
+	return out
+}
+
 // stashLink is one "On <Label> ↗" link on the release page.
 type stashLink struct {
 	Label string
