@@ -1,20 +1,21 @@
 {{define "search.html"}}
-<h1>Search</h1>
+<header class="head"><h1>Search</h1></header>
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-<form method="get" action="/search" class="search-big" role="search">
-  <label for="q" style="margin-top:0">Title, filename, studio or performer</label>
-  <div class="row">
-    <input type="text" id="q" name="q" class="grow" value="{{.Q}}" autofocus autocomplete="off">
-    <div style="flex:0 1 9rem">
-      <input type="text" id="lang" name="lang" class="mono" value="{{.Lang}}" placeholder="language" aria-label="Language" autocomplete="off">
-    </div>
-    <button type="submit">Search</button>
+<form method="get" action="/search" class="row" role="search">
+  <div class="grow">
+    <label for="q">Title, filename, studio or performer</label>
+    <input type="text" id="q" name="q" class="big" value="{{.Q}}" autofocus autocomplete="off">
   </div>
-  <p class="hint">Words are matched against stored titles, filenames, studios and performers — a few distinctive ones beat a whole filename.</p>
+  <div class="slim">
+    <label for="lang">Language</label>
+    <input type="text" id="lang" name="lang" class="mono big" value="{{.Lang}}" placeholder="any" autocomplete="off">
+  </div>
+  <button type="submit">Search</button>
+  <p class="hint">Words are matched against stored titles, filenames, studios and performers. A few distinctive ones beat a whole filename.</p>
 </form>
 
 {{if .Searched}}
-  <h2 style="margin-top:2rem">{{if not .Results}}No matches{{else}}{{len .Results}} match{{if ne (len .Results) 1}}es{{end}}{{if .Truncated}} (best 50 shown){{end}}{{end}}</h2>
+  <h2>{{if not .Results}}No matches{{else}}{{len .Results}} match{{if ne (len .Results) 1}}es{{end}}{{if .Truncated}} (best 50 shown){{end}}{{end}}</h2>
   {{if not .Results}}
   <p class="empty">Nothing matched "{{.Q}}". Try fewer words, or <a href="/browse">browse</a> by language.</p>
   {{else}}

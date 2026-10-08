@@ -2,18 +2,18 @@
 <h1>Admin</h1>
 <div class="stats" aria-label="Node stats">
   {{if .Stats}}
-  <div><strong>{{.Stats.Tracks}}</strong>subtitle tracks</div>
-  <div><strong>{{.Stats.Releases}}</strong>releases</div>
-  <div><strong>{{.Stats.DownloadsTotal}}</strong>downloads served</div>
+  <div><b>{{.Stats.Tracks}}</b>subtitle tracks</div>
+  <div><b>{{.Stats.Releases}}</b>releases</div>
+  <div><b>{{.Stats.DownloadsTotal}}</b>downloads served</div>
   {{end}}
-  <div><strong>{{index .RoleCounts "user"}}</strong>users</div>
-  <div><strong>{{index .RoleCounts "mod"}}</strong>mods</div>
-  <div><strong>{{index .RoleCounts "admin"}}</strong>admins</div>
-  <div><strong>{{.FlaggedCount}}</strong>flagged tracks</div>
-  <div><strong>{{.MisfitCount}}</strong>misfit-reported pairings</div>
-  <div><strong>{{.PendingInvites}}</strong>pending invites</div>
+  <div><b>{{index .RoleCounts "user"}}</b>users</div>
+  <div><b>{{index .RoleCounts "mod"}}</b>mods</div>
+  <div><b>{{index .RoleCounts "admin"}}</b>admins</div>
+  <div><b>{{.FlaggedCount}}</b>flagged tracks</div>
+  <div><b>{{.MisfitCount}}</b>misfit-reported pairings</div>
+  <div><b>{{.PendingInvites}}</b>pending invites</div>
 </div>
-<p><a href="/mod/flagged">Moderate flagged tracks</a> · <a href="/admin/accounts">Manage accounts</a> · <a href="/admin/invites">Manage invites</a></p>
+<p class="links actions"><a href="/mod/flagged">Moderate flagged tracks</a><a href="/admin/accounts">Manage accounts</a><a href="/admin/invites">Manage invites</a></p>
 
 {{if .Views}}
 <h2>Page views</h2>
@@ -21,7 +21,7 @@
 <table>
   <thead><tr><th>Page</th><th class="n">Views</th></tr></thead>
   <tbody>
-  {{range .Views}}<tr><td>{{.Page}}</td><td class="n">{{.Count}}</td></tr>
+  {{range .Views}}<tr><td>{{.Page}}</td><td class="n">{{num .Count}}</td></tr>
   {{end}}
   </tbody>
 </table>

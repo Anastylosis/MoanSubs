@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -64,7 +65,7 @@ func TestReleaseFit_Form_ReportThenRemove(t *testing.T) {
 
 	// Before any report: counts at zero, no standing report.
 	body := getPageAs(t, client, ts.URL+wantLoc)
-	if !strings.Contains(body, "✓0") || !strings.Contains(body, "✗0") {
+	if !strings.Contains(body, fitTally(0, 0)) {
 		t.Errorf("release page missing zeroed fit counts: %s", body)
 	}
 
@@ -78,7 +79,7 @@ func TestReleaseFit_Form_ReportThenRemove(t *testing.T) {
 	}
 
 	body = getPageAs(t, client, ts.URL+wantLoc)
-	if !strings.Contains(body, "✓1") {
+	if !strings.Contains(body, fitTally(1, 0)) {
 		t.Errorf("release page does not show the reported fit: %s", body)
 	}
 	if !strings.Contains(body, "your report: fits") {
@@ -92,7 +93,7 @@ func TestReleaseFit_Form_ReportThenRemove(t *testing.T) {
 	}
 
 	body = getPageAs(t, client, ts.URL+wantLoc)
-	if !strings.Contains(body, "✓0") {
+	if !strings.Contains(body, fitTally(0, 0)) {
 		t.Errorf("release page still shows the retracted fit: %s", body)
 	}
 	if strings.Contains(body, "your report:") {
@@ -116,7 +117,7 @@ func TestReleaseFit_Form_Misfit_RendersDoesNotFit(t *testing.T) {
 	}
 
 	body := getPageAs(t, client, ts.URL+"/release/"+strconv.FormatInt(up.ReleaseID, 10))
-	if !strings.Contains(body, "✗1") {
+	if !strings.Contains(body, fitTally(0, 1)) {
 		t.Errorf("release page does not show the reported misfit: %s", body)
 	}
 	if !strings.Contains(body, "your report: doesn't fit") {
@@ -136,7 +137,7 @@ func TestReleaseFit_LoggedOut_SeesCountsAndLoginLink_NoForms(t *testing.T) {
 	if !strings.Contains(body, "log in to report") {
 		t.Error("logged-out release page is missing the fit-report login link")
 	}
-	if !strings.Contains(body, "✓0") || !strings.Contains(body, "✗0") {
+	if !strings.Contains(body, fitTally(0, 0)) {
 		t.Errorf("logged-out release page is missing the fit counts: %s", body)
 	}
 	if strings.Contains(body, `>Fits</button>`) || strings.Contains(body, `>Doesn't fit</button>`) {
@@ -236,4 +237,9 @@ func TestReleasePage_DeclaredBadge_Unchanged(t *testing.T) {
 	if strings.Contains(body, "transcribed with") || strings.Contains(body, "machine-translated") {
 		t.Errorf("a bare declaration must never render a detected provenance line: %s", body)
 	}
+}
+
+// fitTally is the release page's fit-report count for one track.
+func fitTally(fits, misfits int) string {
+	return fmt.Sprintf(`<span class="tally fit" title="fits / doesn&#39;t fit"><span class="up">+%d</span> / <span class="down">−%d</span></span>`, fits, misfits)
 }

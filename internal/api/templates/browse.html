@@ -1,9 +1,11 @@
 {{define "browse.html"}}
-<h1>Browse</h1>
-<p class="hint" style="margin:0 0 1rem">Every release with a title, newest first. Filter to releases that have a subtitle in one language.</p>
-<form method="get" action="/browse" class="row" style="max-width:30rem">
+<header class="head">
+  <h1>Browse</h1>
+  <p>Every release with a title, newest first. Filter to releases that have a subtitle in one language.</p>
+</header>
+<form method="get" action="/browse" class="row narrow">
   <div>
-    <label for="lang" style="margin-top:0">Language</label>
+    <label for="lang">Language</label>
     <input type="text" id="lang" name="lang" class="mono" value="{{.Lang}}" placeholder="en, de, pt-BR" autocomplete="off">
   </div>
   <button type="submit" class="quiet">Filter</button>

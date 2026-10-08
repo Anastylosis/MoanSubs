@@ -1,37 +1,37 @@
 {{define "mod_track.html"}}
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-<h1>Track #{{.Detail.ID}}</h1>
+<h1>Track {{.Detail.ID}}</h1>
 <div class="meta">
-  <span>Release: <a href="/mod/release/{{.Detail.ReleaseID}}">#{{.Detail.ReleaseID}}</a></span>
-  <span>Lang: <b>{{.Detail.Lang}}</b></span>
+  <span>Release <a href="/mod/release/{{.Detail.ReleaseID}}">{{.Detail.ReleaseID}}</a></span>
+  <span>Language <span class="tag">{{.Detail.Lang}}</span></span>
   <span>{{if eq .Detail.GeneratedSource "declared"}}AI — declared by uploader{{else if .Detail.Generated}}machine-generated (detected){{else}}human{{end}}</span>
-  <span>Authorship: <b>{{.Detail.Authorship}}</b></span>
-  <span>Uploader: {{if .Detail.UploaderName}}<a href="/u/{{.Detail.UploaderName}}">{{.Detail.UploaderName}}</a>{{else}}(none){{end}}</span>
-  <span>Uploaded: {{.Detail.CreatedAt.Format "2006-01-02"}}</span>
-  <span><span class="tally"><span class="up">▲{{.Detail.Up}}</span> <span class="down">▼{{.Detail.Down}}</span></span></span>
+  <span>Authorship <b>{{.Detail.Authorship}}</b></span>
+  <span>Uploader {{if .Detail.UploaderName}}<a href="/u/{{.Detail.UploaderName}}">{{.Detail.UploaderName}}</a>{{else}}(none){{end}}</span>
+  <span>Uploaded <span class="mono">{{.Detail.CreatedAt.Format "2006-01-02"}}</span></span>
+  <span>Votes <span class="tally"><span class="up">+{{.Detail.Up}}</span> / <span class="down">−{{.Detail.Down}}</span></span></span>
 </div>
 
 {{if .Detail.Withdrawn}}
 <div class="notice">Withdrawn{{if .Detail.WithdrawnReason}}: {{.Detail.WithdrawnReason}}{{end}}</div>
-<form method="post" action="/mod/track/{{.Detail.ID}}/restore" style="margin:0 0 2rem">
+<form method="post" action="/mod/track/{{.Detail.ID}}/restore" class="actions">
   <button type="submit" class="quiet">Restore</button>
 </form>
 {{else}}
-<form method="post" action="/mod/track/{{.Detail.ID}}/withdraw" class="stack" style="margin:0 0 2rem">
+<form method="post" action="/mod/track/{{.Detail.ID}}/withdraw" class="stack">
   <label for="reason">Withdraw this track</label>
   <input type="text" id="reason" name="reason" maxlength="300" required>
   <button type="submit">Withdraw</button>
 </form>
 {{end}}
 
-<form method="post" action="/mod/track/{{.Detail.ID}}/kind" class="stack" style="margin:0 0 2rem">
+<form method="post" action="/mod/track/{{.Detail.ID}}/kind" class="stack">
   <label for="kind">Kind{{if .Detail.KindLabel}} (currently {{.Detail.Kind}}: {{.Detail.KindLabel}}){{else}} (currently {{.Detail.Kind}}){{end}}</label>
   <select id="kind" name="kind">{{range .Kinds}}<option value="{{.}}"{{if eq . $.Detail.Kind}} selected{{end}}>{{.}}</option>{{end}}</select>
-  <input type="text" name="kind_label" maxlength="40" value="{{.Detail.KindLabel}}" placeholder="label, only for &quot;other&quot;" aria-label="Kind label">
+  <input type="text" name="kind_label" maxlength="40" value="{{.Detail.KindLabel}}" placeholder="label, only for &quot;other&quot;" aria-label="Kind label" class="gap">
   <button type="submit" class="quiet">Correct kind</button>
 </form>
 
-<h2 style="margin-top:0">Votes</h2>
+<h2>Votes</h2>
 {{if not .Votes}}
 <p class="empty">No votes yet.</p>
 {{else}}
@@ -41,7 +41,7 @@
   {{range .Votes}}
   <tr>
     <td>{{.Voter}}</td>
-    <td>{{if eq .Value 1}}▲ up{{else}}▼ down{{end}}</td>
+    <td>{{if eq .Value 1}}<span class="up">up</span>{{else}}<span class="down">down</span>{{end}}</td>
     <td>{{if .Reason}}{{words .Reason}}{{end}}</td>
     <td>{{.Note}}</td>
     <td class="mono">{{.UpdatedAt.Format "2006-01-02"}}</td>
@@ -51,6 +51,6 @@
 </table>
 {{end}}
 
-<h2>Body preview <span class="hint" style="display:inline">(first 20 cues)</span></h2>
-<pre class="mono">{{.Preview}}</pre>
+<h2>Body preview <span class="opt">first 20 cues</span></h2>
+<pre class="preview">{{.Preview}}</pre>
 {{end}}

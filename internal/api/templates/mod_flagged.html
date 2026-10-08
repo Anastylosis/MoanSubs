@@ -2,7 +2,7 @@
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
 
 <h1>Removal requests</h1>
-<p class="hint" style="margin:0 0 1rem">Filed anonymously or, when a session cookie happened to be present, by an account. A stronger signal than a downvote, so it sits above that queue.</p>
+<p class="hint">Filed anonymously or, when a session cookie happened to be present, by an account. A stronger signal than a downvote, so it sits above that queue.</p>
 {{if not .Removals}}
 <p class="empty">No open removal requests.</p>
 {{else}}
@@ -11,7 +11,7 @@
   <tbody>
   {{range .Removals}}
   <tr>
-    <td><a href="/mod/track/{{.TrackID}}">#{{.TrackID}}</a>{{if .FilerName}} <span class="hint" style="display:inline">by {{.FilerName}}</span>{{end}}</td>
+    <td><a href="/mod/track/{{.TrackID}}">Track {{.TrackID}}</a>{{if .FilerName}} <span class="note">by {{.FilerName}}</span>{{end}}</td>
     <td>{{words .Reason}}</td>
     <td>{{.Note}}</td>
     <td>{{.Contact}}</td>
@@ -21,7 +21,7 @@
         <input type="text" name="reason" maxlength="300" placeholder="withdrawal reason, required" required aria-label="Withdrawal reason for removal request {{.ID}}">
         <button type="submit" class="quiet sm">Withdraw</button>
       </form>
-      <form method="post" action="/mod/removal/{{.ID}}/dismiss" class="inline" style="margin-top:.35rem">
+      <form method="post" action="/mod/removal/{{.ID}}/dismiss" class="inline">
         <button type="submit" class="quiet sm">Dismiss</button>
       </form>
     </td>
@@ -31,8 +31,8 @@
 </table>
 {{end}}
 
-<h1>Flagged tracks</h1>
-<p class="hint" style="margin:0 0 1rem">Net three or more downvotes, or any spam vote at all. There is no "Dismiss" — the queue is derived straight from votes, so withdrawing a track is what makes it leave.</p>
+<h2>Flagged tracks</h2>
+<p class="hint">Net three or more downvotes, or any spam vote at all. There is no "Dismiss" — the queue is derived straight from votes, so withdrawing a track is what makes it leave.</p>
 
 {{if not .Rows}}
 <p class="empty">Nothing flagged right now.</p>
@@ -45,8 +45,8 @@
     <td><a href="/mod/track/{{.ID}}">#{{.ID}}</a></td>
     <td><a href="/mod/release/{{.ReleaseID}}">#{{.ReleaseID}}</a></td>
     <td><span class="tag">{{.Lang}}</span></td>
-    <td>{{if .UploaderName}}<a href="/u/{{.UploaderName}}">{{.UploaderName}}</a>{{else}}<span class="hint" style="display:inline">(none)</span>{{end}}</td>
-    <td class="n"><span class="tally"><span class="up">▲{{.Up}}</span> <span class="down">▼{{.Down}}</span></span></td>
+    <td>{{if .UploaderName}}<a href="/u/{{.UploaderName}}">{{.UploaderName}}</a>{{else}}<span class="note">(none)</span>{{end}}</td>
+    <td class="n"><span class="tally"><span class="up">+{{.Up}}</span> / <span class="down">−{{.Down}}</span></span></td>
     <td>{{if .TopReason}}{{words .TopReason}}{{end}}</td>
     <td>{{.NewestNote}}</td>
     <td>
@@ -62,8 +62,8 @@
 </table>
 {{end}}
 
-<h1>Misfit-reported pairings</h1>
-<p class="hint" style="margin:0 0 1rem">A pairing where at least one account reported it did not fit as served — see the pairing's own release page for the number, and to check by hand; the ones flagged here are worth a look site-wide, not only when a moderator happens to already be viewing that release.</p>
+<h2>Misfit-reported pairings</h2>
+<p class="hint">A pairing where at least one account reported it did not fit as served — see the pairing's own release page for the number, and to check by hand; the ones flagged here are worth a look site-wide, not only when a moderator happens to already be viewing that release.</p>
 
 {{if not .MisfitRows}}
 <p class="empty">No pairings reported as a misfit right now.</p>

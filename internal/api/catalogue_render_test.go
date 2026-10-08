@@ -96,7 +96,7 @@ func TestBuildCatalogueRelease_BylineCollapsesSoloCreator(t *testing.T) {
 		t.Errorf("solo creator byline = %q, want the name once", got)
 	}
 	r.Performers = []string{"Reagan Foxx", "Someone Else"}
-	if got := buildCatalogueRelease(r, nil, false, false).Byline; got != "Reagan Foxx · Reagan Foxx, Someone Else" {
+	if got := buildCatalogueRelease(r, nil, false, false).Byline; got != "Reagan Foxx with Reagan Foxx, Someone Else" {
 		t.Errorf("byline = %q", got)
 	}
 }

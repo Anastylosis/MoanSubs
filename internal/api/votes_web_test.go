@@ -131,7 +131,7 @@ func TestReleaseVote_LoggedOut_SeesCountsAndLoginLink_PostRedirectsToLogin(t *te
 	if !strings.Contains(body, "log in to vote") {
 		t.Error("logged-out release page is missing the login link")
 	}
-	if !strings.Contains(body, "▲0") {
+	if !strings.Contains(body, `<span class="up">+0</span> / <span class="down">−0</span>`) {
 		t.Errorf("logged-out release page is missing the vote counts: %s", body)
 	}
 

@@ -1,12 +1,14 @@
 {{define "me.html"}}
-<h1>{{.Name}}</h1>
-<div class="meta"><span>Role: <b>{{.Role}}</b></span></div>
+<header class="head">
+  <h1>{{.Name}}</h1>
+  <p>Role: {{.Role}}</p>
+</header>
 <div class="stats">
-  <div><strong>{{.UploadCount}}</strong>upload{{if ne .UploadCount 1}}s{{end}}</div>
-  <div><strong>{{.TotalDownloads}}</strong>downloads of them</div>
+  <div><b>{{num .UploadCount}}</b>upload{{if ne .UploadCount 1}}s{{end}}</div>
+  <div><b>{{num .TotalDownloads}}</b>downloads of them</div>
 </div>
 
-<h2 style="margin-top:0">API token</h2>
+<h2>API token</h2>
 {{if .RotatedToken}}
 <div class="notice"><strong>New upload token — copy it now.</strong> The old token stopped working the moment this page loaded; this login session continues. It stays visible here for as long as this node has a token key configured.</div>
 <code class="token">{{.RotatedToken}}</code>
@@ -17,18 +19,18 @@
 <p class="hint">This node can't show your token right now — rotate to get a new one.</p>
 {{end}}
 
-<div class="inline" style="gap:.75rem;margin-bottom:2rem">
-  <a class="btn" href="/upload" style="text-decoration:none;margin-top:0">Upload a subtitle</a>
-  <form method="post" action="/me/rotate-token" style="margin:0">
-    <button type="submit" class="quiet" style="margin:0" title="Mint a new token and retire the old one">Rotate token</button>
+<div class="actions">
+  <a class="btn" href="/upload">Upload a subtitle</a>
+  <form method="post" action="/me/rotate-token">
+    <button type="submit" class="quiet" title="Mint a new token and retire the old one">Rotate token</button>
   </form>
-  <form method="post" action="/logout" style="margin:0">
-    <button type="submit" class="quiet" style="margin:0">Log out</button>
+  <form method="post" action="/logout">
+    <button type="submit" class="quiet">Log out</button>
   </form>
 </div>
 
 <h2>Stash-box keys</h2>
-<p class="hint" style="margin:0 0 .75rem">Personal, never shared: this node never holds its own stash-box key, only what you set here, encrypted at rest. Set one to use "Find on stash-box" on the upload page and on a release you're correcting.</p>
+<p class="hint">Personal, never shared: this node never holds its own stash-box key, only what you set here, encrypted at rest. Set one to use "Find on stash-box" on the upload page and on a release you're correcting.</p>
 {{if .StashBoxNotice}}<div class="notice">{{.StashBoxNotice}}</div>{{end}}
 {{if not .StashBoxKeys}}
 <p class="empty">This node accepts no stash-box endpoints.</p>
@@ -39,15 +41,15 @@
   {{range .StashBoxKeys}}
   <tr>
     <td class="mono">{{.Endpoint}}</td>
-    <td>{{if .HasKey}}key set{{else}}<span class="hint" style="display:inline">no key</span>{{end}}</td>
+    <td>{{if .HasKey}}key set{{else}}<span class="note">no key</span>{{end}}</td>
     <td>
-      <form method="post" action="/me/stashbox" class="inline" style="margin:0">
+      <form method="post" action="/me/stashbox" class="inline">
         <input type="hidden" name="endpoint" value="{{.Endpoint}}">
-        <input type="password" name="key" placeholder="api key" autocomplete="off" style="width:14rem">
+        <input type="password" name="key" placeholder="API key" aria-label="API key for {{.Endpoint}}" autocomplete="off">
         <button type="submit" class="quiet sm">{{if .HasKey}}Replace{{else}}Set{{end}}</button>
       </form>
       {{if .HasKey}}
-      <form method="post" action="/me/stashbox/clear" class="inline" style="margin:0">
+      <form method="post" action="/me/stashbox/clear" class="inline">
         <input type="hidden" name="endpoint" value="{{.Endpoint}}">
         <button type="submit" class="quiet sm">Clear</button>
       </form>
@@ -83,10 +85,10 @@
   {{range .Tracks}}
   <tr>
     <td><span class="tag">{{.Lang}}</span></td>
-    <td>{{if .ReleaseTitle}}<a href="/release/{{.ReleaseID}}">{{.ReleaseTitle}}</a>{{else if .ReleaseStem}}<a href="/release/{{.ReleaseID}}">{{.ReleaseStem}}</a>{{else}}<span class="mono">release #{{.ReleaseID}}</span> <span class="hint" style="display:inline">(no title yet)</span>{{end}}</td>
+    <td>{{if .ReleaseTitle}}<a href="/release/{{.ReleaseID}}">{{.ReleaseTitle}}</a>{{else if .ReleaseStem}}<a href="/release/{{.ReleaseID}}">{{.ReleaseStem}}</a>{{else}}<span class="mono">release {{.ReleaseID}}</span> <span class="note">(no title yet)</span>{{end}}</td>
     <td class="mono">{{.CreatedAt.Format "2006-01-02"}}</td>
-    <td class="n">{{.Downloads}}</td>
-    <td>{{if .Withdrawn}}<span class="hint" style="display:inline;color:var(--danger)">withdrawn</span>{{else}}active{{end}}</td>
+    <td class="n">{{num .Downloads}}</td>
+    <td>{{if .Withdrawn}}<span class="bad">withdrawn</span>{{else}}active{{end}}</td>
   </tr>
   {{end}}
   </tbody>
@@ -95,9 +97,9 @@
 {{end}}
 
 <h2>Invite others</h2>
-<p class="hint" style="margin:0 0 .75rem">Invites are earned, not handed out flat: {{.InviteBudget.Earned}} earned so far ({{.InviteBudget.Uploads}} upload{{if ne .InviteBudget.Uploads 1}}s{{end}} counted), {{.InviteBudget.Minted}} minted, {{.InviteBudget.UnusedActive}} sitting unused, {{.InviteBudget.Available}} available to mint right now. Give someone the share link and they register on it; disable a code you no longer want out there — disabling doesn't refund it.{{if roleAtLeast "admin"}} As an admin you can mint multi-use or unlimited codes on <a href="/admin/invites">the invites page</a>.{{end}}</p>
+<p class="hint">Invites are earned, not handed out flat: {{.InviteBudget.Earned}} earned so far ({{.InviteBudget.Uploads}} upload{{if ne .InviteBudget.Uploads 1}}s{{end}} counted), {{.InviteBudget.Minted}} minted, {{.InviteBudget.UnusedActive}} sitting unused, {{.InviteBudget.Available}} available to mint right now. Give someone the share link and they register on it; disable a code you no longer want out there — disabling doesn't refund it.{{if roleAtLeast "admin"}} As an admin you can mint multi-use or unlimited codes on <a href="/admin/invites">the invites page</a>.{{end}}</p>
 {{if .InviteError}}<div class="error">{{.InviteError}}</div>{{end}}
-<form method="post" action="/me/invites" style="margin:0 0 1rem">
+<form method="post" action="/me/invites" class="actions">
   <button type="submit" class="quiet"{{if le .InviteBudget.Available 0}} disabled title="No invites available: earn more by uploading, or wait for an unused one to clear the cap"{{end}}>Create invite code</button>
 </form>
 {{if not .Invites}}
@@ -110,9 +112,9 @@
   <tr>
     <td><code class="mono">{{.Code}}</code></td>
     <td class="n">{{if .MaxUses}}{{.Uses}}/{{.MaxUses}}{{else}}{{.Uses}}/&infin;{{end}}</td>
-    <td>{{if .DisabledAt}}<span class="hint" style="display:inline;color:var(--danger)">disabled</span>{{else}}active{{end}}</td>
+    <td>{{if .DisabledAt}}<span class="bad">disabled</span>{{else}}active{{end}}</td>
     <td class="mono">/register?invite={{.Code}}</td>
-    <td>{{if not .DisabledAt}}<form method="post" action="/me/invites/{{.Code}}/disable" style="margin:0"><button type="submit" class="quiet sm">Disable</button></form>{{end}}</td>
+    <td>{{if not .DisabledAt}}<form method="post" action="/me/invites/{{.Code}}/disable" class="inline"><button type="submit" class="quiet sm">Disable</button></form>{{end}}</td>
   </tr>
   {{end}}
   </tbody>
@@ -135,7 +137,7 @@
 {{end}}
 
 <h2>Delete account</h2>
-<p class="hint" style="margin:0 0 .75rem">Removes your account and everything personal tied to it. Your uploads stay, without your name.</p>
+<p class="hint">Removes your account and everything personal tied to it. Your uploads stay, without your name.</p>
 <p><a href="/me/delete">Delete account…</a></p>
 <script src="/static/copy.js" defer></script>
 {{end}}

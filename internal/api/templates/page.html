@@ -162,10 +162,17 @@
   thead th { color: var(--muted); font-weight: 600; font-size: .88rem; border-bottom-color: var(--edge); }
   tbody th { font-weight: 600; white-space: nowrap; }
   td.n, th.n { text-align: right; font-family: var(--mono); font-size: .88rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  thead th.n { font-family: var(--sans); }
+  td.nw { white-space: nowrap; }
   td code { word-break: break-all; }
+  td.sub { padding-top: 0; }
+  tr:has(+ tr > td.sub) > td { border-bottom: 0; }
 
   /* Forms and buttons. */
   form.stack { max-width: 34rem; }
+  form.stack.wide { max-width: 46rem; }
+  .opt { color: var(--muted); font-weight: 400; font-size: .85em; letter-spacing: 0; }
+  .gap { margin-top: .5rem; }
   label { display: block; font-weight: 600; font-size: .95rem; margin: 1rem 0 .3rem; }
   label.check { display: flex; align-items: baseline; gap: .5rem; font-weight: 400; margin: .5rem 0; }
   input[type=text], input[type=password], input[type=file], select, textarea {
@@ -197,7 +204,13 @@
   .row > * { flex: 1 1 12rem; }
   .row > .grow { flex: 3 1 18rem; }
   .row label { margin-top: 0; }
-  .row button { flex: 0 0 auto; margin: 0; padding-block: .82rem; }
+  .row.narrow { max-width: 30rem; }
+  .row > .slim { flex: 0 1 9rem; }
+  .row > .hint { flex: 1 1 100%; margin: 0; }
+  input.big { font-size: 1.1rem; padding: .72rem .85rem; }
+  .row button { flex: 0 0 auto; margin: 0; min-height: 3rem; }
+  .row input[type=text] { min-height: 3rem; }
+  .row:has(.big) button, .row input.big { min-height: 3.4rem; }
   .inline { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; margin: 0; }
   .inline + .inline { margin-top: .4rem; }
   .inline select, .inline input[type=text], .inline input[type=password] { width: auto; min-width: 0; flex: 1 1 8rem; max-width: 14rem;
@@ -245,6 +258,7 @@
     .resp td.n { text-align: left; }
     .resp td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); font-family: var(--sans); }
     .resp td:empty { display: none; }
+    table:not(.resp) { display: block; overflow-x: auto; }
   }
   @media (prefers-reduced-motion: no-preference) {
     a, button { transition: color .12s, background-color .12s, filter .12s; }

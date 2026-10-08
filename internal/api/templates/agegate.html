@@ -1,12 +1,11 @@
 {{define "agegate.html"}}
-<section class="cue" aria-label="Age notice">
-  <div class="tc"><span>!</span><span>before you enter</span></div>
-  <div class="line">This site indexes and links to sexually explicit subtitle content.</div>
+<section class="head prose" aria-labelledby="h-age">
+  <h1 id="h-age">Before you enter</h1>
+  <p>This site indexes and links to sexually explicit subtitle content. You must be 18 or older, or the age of majority where you live, to continue.</p>
 </section>
-<p class="hint">You must be 18 or older, or the age of majority where you live, to continue.</p>
-<form method="post" action="/age" class="stack">
+<form method="post" action="/age" class="actions">
   <input type="hidden" name="next" value="{{.Next}}">
   <button type="submit">I am 18 or older</button>
+  <a href="https://www.google.com">Leave</a>
 </form>
-<p class="hint"><a href="https://www.google.com">Leave</a></p>
 {{end}}

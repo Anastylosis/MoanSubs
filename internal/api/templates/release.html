@@ -1,15 +1,15 @@
 {{define "release.html"}}
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
 {{if .Notice}}<div class="notice">{{.Notice}}</div>{{end}}
-<section class="cue" aria-label="Release">
-  <div class="tc">{{if .Release.ReleaseDate}}<span>{{.Release.ReleaseDate}}</span>{{end}}{{if .Release.Duration}}<span>{{.Release.Duration}}</span>{{end}}{{if .Release.Resolution}}<span>{{.Release.Resolution}}</span>{{end}}</div>
-  <h1 class="line" style="margin:0">{{.Release.Title}}</h1>
-  {{if .Release.Byline}}<div class="line sm y" style="margin-top:.35rem;font-weight:600">{{.Release.Byline}}</div>{{end}}
-  {{if .Release.StashLinks}}<div class="line sm" style="margin-top:.35rem">{{range $i, $l := .Release.StashLinks}}{{if $i}} · {{end}}<a href="{{$l.URL}}" target="_blank" rel="noopener">On {{$l.Label}} ↗</a>{{end}}</div>{{end}}
-</section>
+<header class="head">
+  {{if or .Release.ReleaseDate .Release.Duration .Release.Resolution}}<p class="meta">{{if .Release.ReleaseDate}}<span class="mono">{{.Release.ReleaseDate}}</span>{{end}}{{if .Release.Duration}}<span class="mono">{{.Release.Duration}}</span>{{end}}{{if .Release.Resolution}}<span class="mono">{{.Release.Resolution}}</span>{{end}}</p>{{end}}
+  <h1>{{.Release.Title}}</h1>
+  {{if .Release.Byline}}<p class="by">{{.Release.Byline}}</p>{{end}}
+  {{if .Release.StashLinks}}<p class="links">{{range .Release.StashLinks}}<a href="{{.URL}}" target="_blank" rel="noopener">On {{.Label}} ↗</a>{{end}}</p>{{end}}
+</header>
 
 {{if .LoggedIn}}
-<details class="cue" style="margin-bottom:1.25rem">
+<details>
   <summary>Know what this is? Correct the details</summary>
   <p class="hint">What you send is recorded as your own account of this
   scene, alongside everyone else's — it does not overwrite anyone. Leave a
@@ -32,7 +32,7 @@
   </form>
   {{end}}
 
-  <p class="hint" style="margin-top:1rem">Or look this scene up on a stash-box you have a personal key for — the result fills the boxes above for you to review, never sent on its own.</p>
+  <p class="hint">Or look this scene up on a stash-box you have a personal key for — the result fills the boxes above for you to review, never sent on its own.</p>
   <form method="post" action="/release/{{.Release.ID}}/stashbox/find" class="stack">
     <div class="two">
       <div>
@@ -61,26 +61,26 @@
      "publishing full fingerprints is a gift to nobody"). Behind the login
      they reach the people deciding whether a subtitle fits their own copy,
      and nobody else. */}}
-<details class="cue" style="margin-bottom:1.25rem">
+<details>
   <summary>How this file is identified</summary>
   <p class="hint">Subtitles here are matched to video by fingerprint rather
   than by filename, which is why a differently-named copy of the same scene
   still finds them. These are this release's.</p>
   <table>
     <tbody>
-    <tr><th style="text-align:left">oshash</th><td><code class="mono">{{.Release.OSHash}}</code></td></tr>
+    <tr><th scope="row">oshash</th><td><code class="mono">{{.Release.OSHash}}</code></td></tr>
     <tr>
-      <th style="text-align:left">phash</th>
+      <th scope="row">phash</th>
       <td>
         {{if .Release.PHash}}<code class="mono">{{.Release.PHash}}</code>
-        <div class="hint" style="margin:.35rem 0 0">lookup blocks
-          {{range $i, $b := .Release.PHashBlocks}}{{if $i}} · {{end}}b{{$i}}=<code class="mono">{{$b}}</code>{{end}}
+        <div class="hint">lookup blocks
+          <span class="tags">{{range $i, $b := .Release.PHashBlocks}}<code class="mono">b{{$i}}={{$b}}</code> {{end}}</span>
         </div>
-        {{else}}<span class="hint" style="display:inline">none on file — without one, only a byte-identical copy of the video can match this release</span>{{end}}
+        {{else}}<span class="note">none on file — without one, only a byte-identical copy of the video can match this release</span>{{end}}
       </td>
     </tr>
-    {{if .Release.MD5}}<tr><th style="text-align:left">md5</th><td><code class="mono">{{.Release.MD5}}</code></td></tr>{{end}}
-    {{if .Release.Duration}}<tr><th style="text-align:left">runtime</th><td>{{.Release.Duration}}</td></tr>{{end}}
+    {{if .Release.MD5}}<tr><th scope="row">md5</th><td><code class="mono">{{.Release.MD5}}</code></td></tr>{{end}}
+    {{if .Release.Duration}}<tr><th scope="row">runtime</th><td>{{.Release.Duration}}</td></tr>{{end}}
     </tbody>
   </table>
   <p class="hint">A perceptual hash survives re-encoding, so two copies of a
@@ -90,27 +90,27 @@
 </details>
 {{end}}
 
-<h2 style="margin-top:0">Subtitles</h2>
+<h2>Subtitles</h2>
 {{if not .Release.Tracks}}
 <p class="empty">No subtitles are visible for this release right now.</p>
 {{else}}
-<table>
+<table class="resp">
   <thead><tr><th>Language</th><th>File</th><th class="n">Downloads</th><th class="n">Votes</th><th>{{if $.LoggedIn}}Your vote{{else}}&nbsp;{{end}}</th><th class="n">Fits</th><th>{{if $.LoggedIn}}Your report{{else}}&nbsp;{{end}}</th></tr></thead>
   <tbody>
   {{range $t := .Release.Tracks}}
   <tr>
-    <td><span class="tag{{if $t.Generated}} auto{{end}}">{{$t.Lang}}</span>{{if ne $t.Kind "default"}}<span class="tag">{{if eq $t.Kind "other"}}{{$t.KindLabel}}{{else}}{{$t.Kind}}{{end}}</span>{{end}}{{if eq $t.GeneratedSource "declared"}} <span class="hint" style="display:inline" title="The uploader said so; nothing here confirms it, unlike marker-based detection.">AI — declared by uploader</span>{{else if $t.Generated}} <span class="hint" style="display:inline" title="Detected from the file's own embedded marker and structured tool/model metadata.">machine-generated{{if $t.ProvenanceLine}} — {{$t.ProvenanceLine}}{{end}}</span>{{end}}{{if $t.CreditedTo}} <span class="hint" style="display:inline">by {{$t.CreditedTo}}</span>{{end}}</td>
-    <td><a href="/api/v1/subtitles/{{$t.ID}}?format=srt">Download .srt</a></td>
-    <td class="n">{{$t.Downloads}}</td>
-    <td class="n"><span class="tally"><span class="up">▲{{$t.Up}}</span> <span class="down">▼{{$t.Down}}</span></span></td>
+    <td><span class="tag{{if $t.Generated}} auto{{end}}">{{$t.Lang}}</span>{{if ne $t.Kind "default"}} <span class="tag">{{if eq $t.Kind "other"}}{{$t.KindLabel}}{{else}}{{$t.Kind}}{{end}}</span>{{end}}{{if eq $t.GeneratedSource "declared"}} <span class="note" title="The uploader said so; nothing here confirms it, unlike marker-based detection.">AI — declared by uploader</span>{{else if $t.Generated}} <span class="note" title="Detected from the file's own embedded marker and structured tool/model metadata.">machine-generated{{if $t.ProvenanceLine}} — {{$t.ProvenanceLine}}{{end}}</span>{{end}}{{if $t.CreditedTo}} <span class="note">by {{$t.CreditedTo}}</span>{{end}}</td>
+    <td class="nw"><a href="/api/v1/subtitles/{{$t.ID}}?format=srt">Download .srt</a></td>
+    <td class="n" data-label="Downloads">{{num $t.Downloads}}</td>
+    <td class="n" data-label="Votes"><span class="tally"><span class="up">+{{$t.Up}}</span> / <span class="down">−{{$t.Down}}</span></span></td>
     <td>
       {{if not $.LoggedIn}}
         <a href="/login">log in to vote</a>
       {{else if $t.IsOwn}}
-        <span class="hint" style="margin:0">your upload</span>
+        <span class="note">your upload</span>
       {{else if $t.MyVote}}
         <form method="post" action="/release/{{$.Release.ID}}/vote" class="inline">
-          <span class="hint" style="margin:0">your vote: {{if $t.MyVote.Up}}▲ up{{else}}▼ down{{if $t.MyVote.Reason}} — {{words $t.MyVote.Reason}}{{end}}{{end}}</span>
+          <span class="note">your vote: {{if $t.MyVote.Up}}up{{else}}down{{if $t.MyVote.Reason}} — {{words $t.MyVote.Reason}}{{end}}{{end}}</span>
           <input type="hidden" name="track_id" value="{{$t.ID}}">
           <input type="hidden" name="value" value="0">
           <button type="submit" class="quiet sm">Retract</button>
@@ -119,9 +119,9 @@
         <form method="post" action="/release/{{$.Release.ID}}/vote" class="inline">
           <input type="hidden" name="track_id" value="{{$t.ID}}">
           <input type="hidden" name="value" value="1">
-          <button type="submit" class="quiet sm" title="This subtitle fits the scene">▲ Up</button>
+          <button type="submit" class="quiet sm" title="This subtitle fits the scene">Vote up</button>
         </form>
-        <form method="post" action="/release/{{$.Release.ID}}/vote" class="inline" style="margin-top:.35rem">
+        <form method="post" action="/release/{{$.Release.ID}}/vote" class="inline">
           <input type="hidden" name="track_id" value="{{$t.ID}}">
           <input type="hidden" name="value" value="-1">
           <select name="reason" aria-label="Reason">
@@ -132,17 +132,17 @@
             <option value="spam">spam</option>
           </select>
           <input type="text" name="note" maxlength="300" placeholder="note, optional" aria-label="Note">
-          <button type="submit" class="quiet sm">▼ Down</button>
+          <button type="submit" class="quiet sm">Vote down</button>
         </form>
       {{end}}
     </td>
-    <td class="n"><span class="tally"><span class="up">✓{{$t.Fits}}</span> <span class="down">✗{{$t.Misfits}}</span></span>{{if $t.SyncVerified}} <span class="tag" title="At least 2 independent accounts reported this fits, with no misfit reports.">sync verified</span>{{end}}</td>
+    <td class="n" data-label="Fits"><span class="tally fit" title="fits / doesn&#39;t fit"><span class="up">+{{$t.Fits}}</span> / <span class="down">−{{$t.Misfits}}</span></span>{{if $t.SyncVerified}} <span class="tag" title="At least 2 independent accounts reported this fits, with no misfit reports.">sync verified</span>{{end}}</td>
     <td>
       {{if not $.LoggedIn}}
         <a href="/login">log in to report</a>
       {{else if $t.MyFit}}
         <form method="post" action="/release/{{$.Release.ID}}/fit" class="inline">
-          <span class="hint" style="margin:0">your report: {{if $t.MyFit.Fits}}fits{{else}}doesn't fit{{end}}</span>
+          <span class="note">your report: {{if $t.MyFit.Fits}}fits{{else}}doesn't fit{{end}}</span>
           <input type="hidden" name="track_id" value="{{$t.ID}}">
           <input type="hidden" name="value" value="0">
           <button type="submit" class="quiet sm">Retract</button>
@@ -153,7 +153,7 @@
           <input type="hidden" name="value" value="1">
           <button type="submit" class="quiet sm" title="This subtitle lines up with this release as served">Fits</button>
         </form>
-        <form method="post" action="/release/{{$.Release.ID}}/fit" class="inline" style="margin-top:.35rem">
+        <form method="post" action="/release/{{$.Release.ID}}/fit" class="inline">
           <input type="hidden" name="track_id" value="{{$t.ID}}">
           <input type="hidden" name="value" value="-1">
           <button type="submit" class="quiet sm">Doesn't fit</button>
@@ -162,9 +162,9 @@
     </td>
   </tr>
   <tr>
-    <td colspan="7" style="padding-top:0">
-      <details>
-        <summary class="hint" style="display:inline-block;cursor:pointer">Report this subtitle / request removal</summary>
+    <td colspan="7" class="sub">
+      <details class="plain">
+        <summary>Report this subtitle / request removal</summary>
         <p class="hint">For a claim you want a paper trail on, email is
         still the primary route ({{if contactShown}}<a href="/contact">contact</a>{{else}}<a href="https://github.com/Anastylosis/MoanSubs/blob/master/TAKEDOWN.md" target="_blank" rel="noopener">TAKEDOWN.md</a>{{end}}) —
         this form is the other one, and needs no account. {{if $.LoggedIn}}Filing as {{$.ViewerName}}.{{else}}Filing
@@ -196,23 +196,23 @@
 {{if .Siblings}}
 <h2>Also fits this video</h2>
 <p class="hint">Subtitles uploaded against another encode of the same video — a different rip, or one with a trimmed intro. A shift is applied on download when the sync is known; where it isn't, the file is offered as-is and may not line up.</p>
-<table>
+<table class="resp">
   <thead><tr><th>Language</th><th>From</th><th>Sync</th><th>File</th><th class="n">Downloads</th><th class="n">Fits</th><th>{{if $.LoggedIn}}Your report{{else}}&nbsp;{{end}}</th></tr></thead>
   <tbody>
   {{range $t := .Siblings}}
   <tr>
-    <td><span class="tag{{if $t.Generated}} auto{{end}}">{{$t.Lang}}</span>{{if eq $t.GeneratedSource "declared"}} <span class="hint" style="display:inline" title="The uploader said so; nothing here confirms it, unlike marker-based detection.">AI — declared by uploader</span>{{else if $t.Generated}} <span class="hint" style="display:inline" title="Detected from the file's own embedded marker and structured tool/model metadata.">machine-generated{{if $t.ProvenanceLine}} — {{$t.ProvenanceLine}}{{end}}</span>{{end}}</td>
+    <td><span class="tag{{if $t.Generated}} auto{{end}}">{{$t.Lang}}</span>{{if eq $t.GeneratedSource "declared"}} <span class="note" title="The uploader said so; nothing here confirms it, unlike marker-based detection.">AI — declared by uploader</span>{{else if $t.Generated}} <span class="note" title="Detected from the file's own embedded marker and structured tool/model metadata.">machine-generated{{if $t.ProvenanceLine}} — {{$t.ProvenanceLine}}{{end}}</span>{{end}}</td>
     <td><a href="/release/{{$t.ReleaseID}}">release {{$t.ReleaseID}}</a></td>
-    <td>{{if $t.SyncKnown}}<span class="tag">{{$t.OffsetText}}</span>{{if $t.SourceText}} <span class="hint" style="display:inline">{{$t.SourceText}}</span>{{end}}{{else}}<span class="hint" style="display:inline">sync unknown</span>{{end}}</td>
-    <td><a href="/api/v1/subtitles/{{$t.TrackID}}?format=srt&amp;for_release={{$.Release.ID}}">Download .srt</a></td>
-    <td class="n">{{$t.Downloads}}</td>
-    <td class="n"><span class="tally"><span class="up">✓{{$t.Fits}}</span> <span class="down">✗{{$t.Misfits}}</span></span>{{if $t.SyncVerified}} <span class="tag" title="At least 2 independent accounts reported this fits, with no misfit reports.">sync verified</span>{{end}}</td>
+    <td>{{if $t.SyncKnown}}<span class="tag">{{$t.OffsetText}}</span>{{if $t.SourceText}} <span class="note">{{$t.SourceText}}</span>{{end}}{{else}}<span class="note">sync unknown</span>{{end}}</td>
+    <td class="nw"><a href="/api/v1/subtitles/{{$t.TrackID}}?format=srt&amp;for_release={{$.Release.ID}}">Download .srt</a></td>
+    <td class="n" data-label="Downloads">{{num $t.Downloads}}</td>
+    <td class="n" data-label="Fits"><span class="tally fit" title="fits / doesn&#39;t fit"><span class="up">+{{$t.Fits}}</span> / <span class="down">−{{$t.Misfits}}</span></span>{{if $t.SyncVerified}} <span class="tag" title="At least 2 independent accounts reported this fits, with no misfit reports.">sync verified</span>{{end}}</td>
     <td>
       {{if not $.LoggedIn}}
         <a href="/login">log in to report</a>
       {{else if $t.MyFit}}
         <form method="post" action="/release/{{$.Release.ID}}/fit" class="inline">
-          <span class="hint" style="margin:0">your report: {{if $t.MyFit.Fits}}fits{{else}}doesn't fit{{end}}</span>
+          <span class="note">your report: {{if $t.MyFit.Fits}}fits{{else}}doesn't fit{{end}}</span>
           <input type="hidden" name="track_id" value="{{$t.TrackID}}">
           <input type="hidden" name="value" value="0">
           <button type="submit" class="quiet sm">Retract</button>
@@ -223,7 +223,7 @@
           <input type="hidden" name="value" value="1">
           <button type="submit" class="quiet sm">Fits</button>
         </form>
-        <form method="post" action="/release/{{$.Release.ID}}/fit" class="inline" style="margin-top:.35rem">
+        <form method="post" action="/release/{{$.Release.ID}}/fit" class="inline">
           <input type="hidden" name="track_id" value="{{$t.TrackID}}">
           <input type="hidden" name="value" value="-1">
           <button type="submit" class="quiet sm">Doesn't fit</button>

@@ -1,6 +1,8 @@
 {{define "u.html"}}
-<h1>{{.Name}}</h1>
-<p class="hint" style="margin:0 0 1.5rem">{{.UploadCount}} subtitle{{if ne .UploadCount 1}}s{{end}} contributed.</p>
+<header class="head">
+  <h1>{{.Name}}</h1>
+  <p>{{num .UploadCount}} subtitle{{if ne .UploadCount 1}}s{{end}} contributed.</p>
+</header>
 {{if not .Tracks}}
 <p class="empty">Nothing visible here yet.</p>
 {{else}}
@@ -9,9 +11,9 @@
   <tbody>
   {{range .Tracks}}
   <tr>
-    <td><a href="/release/{{.ReleaseID}}">release #{{.ReleaseID}}</a></td>
-    <td><span class="tag{{if .Generated}} auto{{end}}">{{.Lang}}</span>{{if eq .GeneratedSource "declared"}} <span class="hint" style="display:inline" title="The uploader said so; nothing here confirms it, unlike marker-based detection.">AI — declared by uploader</span>{{else if .Generated}} <span class="hint" style="display:inline" title="Detected from the file's own embedded marker and structured tool/model metadata.">machine-generated</span>{{end}}</td>
-    <td class="n">{{.Downloads}}</td>
+    <td><a href="/release/{{.ReleaseID}}">Release {{.ReleaseID}}</a></td>
+    <td><span class="tag{{if .Generated}} auto{{end}}">{{.Lang}}</span>{{if eq .GeneratedSource "declared"}} <span class="note" title="The uploader said so; nothing here confirms it, unlike marker-based detection.">AI — declared by uploader</span>{{else if .Generated}} <span class="note" title="Detected from the file's own embedded marker and structured tool/model metadata.">machine-generated</span>{{end}}</td>
+    <td class="n">{{num .Downloads}}</td>
   </tr>
   {{end}}
   </tbody>

@@ -1,27 +1,27 @@
 {{define "mod_release.html"}}
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-<h1>Release #{{.Release.ID}}</h1>
+<h1>Release {{.Release.ID}}</h1>
 <div class="meta">
-  {{if .Release.Duration}}<span>{{.Release.Duration}}</span>{{end}}
-  {{if .Release.Resolution}}<span>{{.Release.Resolution}}</span>{{end}}
-  <span>Created: {{.Release.CreatedAt.Format "2006-01-02"}}</span>
+  {{if .Release.Duration}}<span class="mono">{{.Release.Duration}}</span>{{end}}
+  {{if .Release.Resolution}}<span class="mono">{{.Release.Resolution}}</span>{{end}}
+  <span>Created <span class="mono">{{.Release.CreatedAt.Format "2006-01-02"}}</span></span>
 </div>
 
-<h2 style="margin-top:1.25rem">Fingerprints</h2>
+<h2>Fingerprints</h2>
 <table>
   <tbody>
-  <tr><th style="text-align:left">oshash</th><td><code class="mono">{{.Release.OSHash}}</code></td></tr>
+  <tr><th scope="row">oshash</th><td><code class="mono">{{.Release.OSHash}}</code></td></tr>
   <tr>
-    <th style="text-align:left">phash</th>
+    <th scope="row">phash</th>
     <td>
       {{if .Release.PHash}}<code class="mono">{{.Release.PHash}}</code>
-      <div class="hint" style="margin:.35rem 0 0">blocks
-        {{range $i, $b := .Release.PHashBlocks}}{{if $i}} · {{end}}b{{$i}}=<code class="mono">{{$b}}</code>{{end}}
+      <div class="hint">blocks
+        <span class="tags">{{range $i, $b := .Release.PHashBlocks}}<code class="mono">b{{$i}}={{$b}}</code> {{end}}</span>
       </div>
-      {{else}}<span class="hint" style="display:inline">none — Stash never generated one for this file, so only a byte-identical copy can match it</span>{{end}}
+      {{else}}<span class="note">none — Stash never generated one for this file, so only a byte-identical copy can match it</span>{{end}}
     </td>
   </tr>
-  <tr><th style="text-align:left">md5</th><td>{{if .Release.MD5}}<code class="mono">{{.Release.MD5}}</code>{{else}}<span class="hint" style="display:inline">not sent</span>{{end}}</td></tr>
+  <tr><th scope="row">md5</th><td>{{if .Release.MD5}}<code class="mono">{{.Release.MD5}}</code>{{else}}<span class="note">not sent</span>{{end}}</td></tr>
   </tbody>
 </table>
 <p class="hint">The five blocks are what a bucketed lookup compares: two
@@ -32,7 +32,7 @@ usually where you can see why.</p>
 
 {{if .Release.Withdrawn}}
 <div class="notice">Withdrawn{{if .Release.WithdrawnReason}}: {{.Release.WithdrawnReason}}{{end}}</div>
-<form method="post" action="/mod/release/{{.Release.ID}}/restore" style="margin:0">
+<form method="post" action="/mod/release/{{.Release.ID}}/restore" class="actions">
   <button type="submit" class="quiet">Restore</button>
 </form>
 {{else}}
@@ -53,27 +53,27 @@ usually where you can see why.</p>
   crawled name outlives any correction made here.
   {{end}}
 </p>
-<form method="post" action="/mod/release/{{.Release.ID}}/metadata/{{if .MetadataConfirmed}}unconfirm{{else}}confirm{{end}}" style="display:inline">
+<form method="post" action="/mod/release/{{.Release.ID}}/metadata/{{if .MetadataConfirmed}}unconfirm{{else}}confirm{{end}}" class="actions">
   <button type="submit">{{if .MetadataConfirmed}}Unpin{{else}}Confirm current metadata{{end}}</button>
 </form>
-<form method="post" action="/mod/release/{{.Release.ID}}/metadata/purge" class="stack" style="margin-top:.75rem">
+<form method="post" action="/mod/release/{{.Release.ID}}/metadata/purge" class="stack">
   <p class="hint">Delete every metadata proposal for this release? Use this for a name that must leave the database, not for a wrong title.</p>
-  <div style="display:flex;gap:.5rem;align-items:center">
-    <label for="purge-confirm" style="margin:0">Type the release id:</label>
-    <input type="text" id="purge-confirm" name="confirm" placeholder="release id" style="width:8rem" required>
-    <button type="submit" class="danger" style="margin:0">Purge all metadata</button>
+  <label for="purge-confirm">Type the release id to confirm</label>
+  <div class="inline">
+    <input type="text" id="purge-confirm" name="confirm" placeholder="release id" required>
+    <button type="submit" class="danger sm">Purge all metadata</button>
   </div>
 </form>
 {{if .SiblingProposals}}
-<form method="post" action="/mod/release/{{.Release.ID}}/metadata/purge-work" class="stack" style="margin-top:.75rem">
+<form method="post" action="/mod/release/{{.Release.ID}}/metadata/purge-work" class="stack">
   <p class="hint">Delete every metadata proposal for EVERY release in this work? This destroys evidence on releases you may not have reviewed. A work is inferred, not authoritative — check the table below first.</p>
-  <div style="display:flex;gap:.5rem;align-items:center">
-    <label for="purge-work-confirm" style="margin:0">Type the word "work":</label>
-    <input type="text" id="purge-work-confirm" name="confirm" placeholder="type work to confirm" style="width:8rem" required>
-    <button type="submit" class="danger" style="margin:0">Purge across the whole work</button>
+  <label for="purge-work-confirm">Type the word "work" to confirm</label>
+  <div class="inline">
+    <input type="text" id="purge-work-confirm" name="confirm" placeholder="work" required>
+    <button type="submit" class="danger sm">Purge across the whole work</button>
   </div>
 </form>
-<p class="hint" style="margin-top:.75rem">
+<p class="hint">
   This release is grouped with others, and {{.SiblingProposals}} of the
   proposals below {{if eq .SiblingProposals 1}}was{{else}}were{{end}} filed
   against a sibling. Evidence pools are per work, so purging this release
@@ -85,7 +85,7 @@ usually where you can see why.</p>
 {{end}}
 
 {{if .Proposals}}
-<p class="hint" style="margin-top:1rem">What this was derived from:</p>
+<h3>What this was derived from</h3>
 <table>
   <thead><tr><th>Release</th><th>Title</th><th>Studio</th><th>Performers</th><th>Date</th><th>Stash-box</th></tr></thead>
   <tbody>
@@ -114,9 +114,9 @@ usually where you can see why.</p>
   <tr>
     <td class="mono">{{.Endpoint}}</td>
     <td class="mono">{{.StashID}}</td>
-    <td>{{if .AddedByName}}<a href="/u/{{.AddedByName}}">{{.AddedByName}}</a>{{else}}<span class="hint" style="display:inline">import</span>{{end}}</td>
+    <td>{{if .AddedByName}}<a href="/u/{{.AddedByName}}">{{.AddedByName}}</a>{{else}}<span class="note">import</span>{{end}}</td>
     <td class="mono">{{.CreatedAt.Format "2006-01-02"}}</td>
-    <td><form method="post" action="/mod/release/{{$.Release.ID}}/stash/remove" style="margin:0">
+    <td><form method="post" action="/mod/release/{{$.Release.ID}}/stash/remove" class="inline">
       <input type="hidden" name="endpoint" value="{{.Endpoint}}">
       <input type="hidden" name="stash_id" value="{{.StashID}}">
       <button type="submit" class="quiet sm">Remove</button>
@@ -139,8 +139,8 @@ usually where you can see why.</p>
 <p class="hint">Not grouped. Link this release to another encode of the same video — a different rip, or one with a trimmed intro — so each can offer the other's subtitles.</p>
 {{end}}
 
-<form method="post" action="/mod/release/{{.Release.ID}}/work/link" class="inline" style="margin-top:.75rem">
-  <input type="text" name="other_id" inputmode="numeric" placeholder="other release id" aria-label="Other release id" style="width:12rem">
+<form method="post" action="/mod/release/{{.Release.ID}}/work/link" class="inline gap">
+  <input type="text" name="other_id" inputmode="numeric" placeholder="other release id" aria-label="Other release id">
   <button type="submit" class="quiet sm">Link</button>
 </form>
 
@@ -155,17 +155,17 @@ usually where you can see why.</p>
     <td class="n">{{$t.TrackID}}</td>
     <td><span class="tag">{{$t.Lang}}</span></td>
     <td><a href="/mod/release/{{$t.ReleaseID}}">release {{$t.ReleaseID}}</a></td>
-    <td>{{if $t.SyncKnown}}{{$t.OffsetText}}{{if $t.SourceText}} <span class="hint" style="display:inline">{{$t.SourceText}}</span>{{end}}{{else}}<span class="hint" style="display:inline">sync unknown</span>{{end}}</td>
+    <td>{{if $t.SyncKnown}}{{$t.OffsetText}}{{if $t.SourceText}} <span class="note">{{$t.SourceText}}</span>{{end}}{{else}}<span class="note">sync unknown</span>{{end}}</td>
     <td>{{if $t.Misfits}}<span class="down">{{$t.Misfits}} misfit{{if ne $t.Misfits 1}}s{{end}} reported</span>{{end}}</td>
     <td>
       <form method="post" action="/mod/release/{{$.Release.ID}}/work/offset" class="inline">
         <input type="hidden" name="track_id" value="{{$t.TrackID}}">
-        <input type="text" name="offset_ms" inputmode="numeric" style="width:7rem"
+        <input type="text" name="offset_ms" inputmode="numeric" class="mono"
                value="{{with index $.SuggestedOffsets $t.TrackID}}{{.}}{{end}}"
                aria-label="Offset in milliseconds">
         <button type="submit" class="quiet sm">Save</button>
       </form>
-      {{with index $.SuggestedOffsets $t.TrackID}}<span class="hint" style="display:inline">suggested from the runtime difference</span>{{end}}
+      {{with index $.SuggestedOffsets $t.TrackID}}<span class="note">suggested from the runtime difference</span>{{end}}
     </td>
   </tr>
   {{end}}
