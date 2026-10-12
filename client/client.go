@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -1031,4 +1032,91 @@ func (c *Client) ContributeMetadata(ctx context.Context, entries []MetadataEntry
 		return nil, err
 	}
 	return res.Results, nil
+}
+
+// SearchResult is GET /api/v1/search's body.
+type SearchResult struct {
+	Releases []Release `json:"releases"`
+	// Truncated means the catalogue held more matches than were returned.
+	Truncated bool `json:"truncated"`
+}
+
+// Search calls GET /api/v1/search (feature "search"): the catalogue's
+// published titles, studios and performers matched against q. lang, when
+// non-empty, keeps only releases with a visible track in that exact tag.
+func (c *Client) Search(ctx context.Context, q, lang string) (*SearchResult, error) {
+	v := url.Values{"q": {q}}
+	if lang != "" {
+		v.Set("lang", lang)
+	}
+	var res SearchResult
+	if err := c.get(ctx, "/api/v1/search?"+v.Encode(), &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+// TrendingRelease is one GET /api/v1/trending entry: a release and the
+// downloads it was ranked by inside the requested window.
+type TrendingRelease struct {
+	Release         Release `json:"release"`
+	WindowDownloads int64   `json:"window_downloads"`
+}
+
+// Trending calls GET /api/v1/trending (feature "trending"). Zero days or
+// limit leaves the server's default; out-of-range values are clamped
+// server-side.
+func (c *Client) Trending(ctx context.Context, days, limit int) ([]TrendingRelease, error) {
+	v := url.Values{}
+	if days > 0 {
+		v.Set("days", strconv.Itoa(days))
+	}
+	if limit > 0 {
+		v.Set("limit", strconv.Itoa(limit))
+	}
+	path := "/api/v1/trending"
+	if len(v) > 0 {
+		path += "?" + v.Encode()
+	}
+	var res struct {
+		Releases []TrendingRelease `json:"releases"`
+	}
+	if err := c.get(ctx, path, &res); err != nil {
+		return nil, err
+	}
+	return res.Releases, nil
+}
+
+// LookupLevelStats is one match level's lookup and hit counts.
+type LookupLevelStats struct {
+	Total int64 `json:"total"`
+	Hits  int64 `json:"hits"`
+}
+
+// Stats is GET /api/v1/stats's body.
+type Stats struct {
+	Tracks         int64                       `json:"tracks"`
+	Releases       int64                       `json:"releases"`
+	Languages      map[string]int64            `json:"languages"`
+	GeneratedShare float64                     `json:"generated_share"`
+	DownloadsTotal int64                       `json:"downloads_total"`
+	Lookups        map[string]LookupLevelStats `json:"lookups"`
+}
+
+// Stats calls GET /api/v1/stats (feature "stats"). The server caches the
+// answer for five minutes, so polling it is cheap.
+func (c *Client) Stats(ctx context.Context) (*Stats, error) {
+	var res Stats
+	if err := c.get(ctx, "/api/v1/stats", &res); err != nil {
+		return nil, err
+	}
+	return &res, nil
+}
+
+func (c *Client) get(ctx context.Context, path string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
+	if err != nil {
+		return err
+	}
+	return c.doJSONError(req, out)
 }

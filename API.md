@@ -94,7 +94,7 @@ it stronger evidence than any hash match).
 
 ### `GET /api/v1/version`
 
-`{"version": "<semver or dev>", "features": ["lookup", "match", "withdraw", "stats", "srt", "votes", "stash_ids", "metadata", "kinds", "revisions", "titles", "trending", "fit", "credits", "authorship"],
+`{"version": "<semver or dev>", "features": ["lookup", "match", "withdraw", "stats", "srt", "votes", "stash_ids", "metadata", "kinds", "revisions", "titles", "trending", "fit", "credits", "authorship", "search"],
 "stash_endpoints": ["https://stashdb.org/graphql", "https://fansdb.cc/graphql",
 "https://theporndb.net/graphql", "https://javstash.org/graphql",
 "https://pmvstash.org/graphql"]}`. Anonymous
