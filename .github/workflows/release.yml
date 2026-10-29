@@ -27,6 +27,8 @@ jobs:
     with:
       binary-name: moansubs
       main-package: ./cmd/moansubs
+      # CI already ran the full suite (with Postgres) on the tagged commit.
+      ci-workflow: ci.yml
       # Only the two platforms the Dockerfile also builds. moansubs is a
       # server: nobody runs it from a macOS or Windows binary.
       platforms: 'linux/amd64 linux/arm64'
