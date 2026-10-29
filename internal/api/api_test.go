@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Anastylosis/MoanSubs/internal/store"
+	"github.com/Anastylosis/MoanSubs/internal/testdb"
 )
 
 // openTestStore returns a Store connected to DATABASE_URL, skipping the
@@ -21,10 +21,7 @@ import (
 // tests, so these API tests run for real in CI and skip cleanly locally.
 func openTestStore(t *testing.T) *store.Store {
 	t.Helper()
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set; skipping api tests")
-	}
+	dsn := testdb.DSN(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

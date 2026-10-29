@@ -34,12 +34,9 @@ plugin: ## Build the Stash plugin exec binary for linux/amd64 and linux/arm64 in
 
 .PHONY: test
 test: ## Run unit tests with race detector.
-	# -p 1: internal/store and internal/api both TRUNCATE the same shared
-	# tables when DATABASE_URL is set, so their test binaries must not run
-	# concurrently against the same live Postgres — go test defaults to
-	# running separate packages' binaries in parallel, which would race two
-	# packages' setup TRUNCATEs against each other's in-flight assertions.
-	$(GO) test -p 1 -race -count=1 $(PKGS)
+	# With DATABASE_URL set, each package gets its own database
+	# (internal/testdb), so packages can run in parallel.
+	$(GO) test -race -count=1 $(PKGS)
 
 .PHONY: vet
 vet: ## go vet on all packages.

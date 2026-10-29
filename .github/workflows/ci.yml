@@ -27,10 +27,9 @@ jobs:
       binary-name: moansubs
       main-package: ./cmd/moansubs
       postgres-image: postgres:18-alpine
-      # -p 1: internal/store and internal/api both TRUNCATE the shared
-      # Postgres tables in test setup, so their test binaries must run one at
-      # a time, not in parallel (see the Makefile).
-      test-flags: '-p 1 -race -count=1'
+      # Each test package gets its own database (internal/testdb), so
+      # packages run in parallel.
+      test-flags: '-race -count=1'
       # plugin/sidecar.go finishes every caption write by renaming a temp
       # file over the existing one, and only a Windows run proves that
       # still replaces rather than fails.

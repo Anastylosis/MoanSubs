@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/Anastylosis/MoanSubs/hash"
 	"github.com/Anastylosis/MoanSubs/internal/api"
 	"github.com/Anastylosis/MoanSubs/internal/store"
+	"github.com/Anastylosis/MoanSubs/internal/testdb"
 )
 
 // newTestServer runs the real moansubs API (real store, real Postgres) in
@@ -24,10 +24,7 @@ import (
 // to, not a mock of it. Skips without DATABASE_URL, same as the store tests.
 func newTestServer(t *testing.T) (*Client, *store.Store) {
 	t.Helper()
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set; skipping client integration test")
-	}
+	dsn := testdb.DSN(t)
 	s, err := store.Open(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("opening store: %v", err)

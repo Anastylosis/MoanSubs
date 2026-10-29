@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/Anastylosis/MoanSubs/hash"
 	"github.com/Anastylosis/MoanSubs/internal/store"
+	"github.com/Anastylosis/MoanSubs/internal/testdb"
 )
 
 // openTestStore mirrors internal/store's own test helper: skip entirely
@@ -19,10 +19,9 @@ import (
 // clean slate otherwise.
 func openTestStore(t *testing.T) *store.Store {
 	t.Helper()
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set; skipping track command tests")
-	}
+	dsn := testdb.DSN(t)
+	// Subcommands under test read DATABASE_URL themselves.
+	t.Setenv("DATABASE_URL", dsn)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

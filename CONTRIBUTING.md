@@ -117,10 +117,10 @@ block that configures it for moansubs.
 
 Two things specific to this repository:
 
-- **`test-flags: '-p 1 -race -count=1'`.** `internal/store` and `internal/api`
-  both TRUNCATE the same shared tables in test setup, so their test binaries
-  must not run concurrently against one Postgres. Dropping `-p 1` produces
-  failures that look like flakes and are not.
+- **`test-flags: '-race -count=1'`.** Each test package creates its own
+  database from `DATABASE_URL` (`internal/testdb`, needs only CREATEDB), so
+  packages run in parallel. Test helpers must get their DSN from
+  `testdb.DSN(t)`, never from `DATABASE_URL` directly.
 - **Fuzz targets are not a CI job.** `internal/subtitle` carries `FuzzParse`
   and `FuzzRenderVTTNote`; `go test` runs their seed corpus like ordinary
   tests, so every regression they found stays pinned. Hunting for new ones is a

@@ -3,12 +3,12 @@ package store
 import (
 	"context"
 	"errors"
-	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/Anastylosis/MoanSubs/hash"
+	"github.com/Anastylosis/MoanSubs/internal/testdb"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -18,10 +18,7 @@ import (
 // Verification / repo scaffold note in the task brief).
 func openTestStore(t *testing.T) *Store {
 	t.Helper()
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set; skipping store tests")
-	}
+	dsn := testdb.DSN(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -153,10 +150,7 @@ func TestMigrate_0014AuthIndexes(t *testing.T) {
 // (SQLSTATE 57014 query_canceled), verified through the public Open(...,
 // Options{StatementTimeout: ...}) API rather than by poking pool internals.
 func TestOpen_StatementTimeout(t *testing.T) {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		t.Skip("DATABASE_URL not set; skipping store tests")
-	}
+	dsn := testdb.DSN(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
